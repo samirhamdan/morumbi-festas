@@ -1,0 +1,126 @@
+IMPLANTAR MORUMBI FESTAS NA VPS
+================================
+
+Passo 1 — DuckDNS (no navegador)
+---------------------------------
+Abra https://www.duckdns.org e faca login.
+
+No campo de texto, digite:  morumbifestas
+Clique em "add domain".
+
+Na linha do dominio morumbifestas.duckdns.org,
+coloque o IP:  23.95.96.132
+Clique em "update ip".
+
+Pronto, o endereco morumbifestas.duckdns.org
+vai apontar para a sua VPS.
+
+
+Passo 2 — Conectar na VPS
+--------------------------
+Abra o terminal (PowerShell ou cmd) e conecte:
+
+    ssh root@23.95.96.132
+
+
+Passo 3 — Baixar o codigo
+--------------------------
+Cole esses comandos um por um:
+
+    cd /opt
+    git clone https://github.com/samirhamdan/morumbi-festas.git
+    cd morumbi-festas
+    python3 -m venv venv
+    venv/bin/pip install -r requirements.txt
+
+
+Passo 4 — Criar pasta de dados
+-------------------------------
+
+    mkdir -p /var/lib/morumbi-festas
+    chown morumbi:morumbi /var/lib/morumbi-festas
+
+
+Passo 5 — Escolher a senha do sistema
+--------------------------------------
+Abra o arquivo do servico e troque TROCAR_AQUI pela
+senha que voce quer usar para entrar no sistema:
+
+    nano /opt/morumbi-festas/morumbi-festas.service
+
+Procure a linha:
+    Environment=FESTAS_SENHA=TROCAR_AQUI
+
+Troque TROCAR_AQUI pela sua senha. Exemplo:
+    Environment=FESTAS_SENHA=minhaSenhaForte123
+
+Salve com Ctrl+O, Enter, Ctrl+X.
+
+
+Passo 6 — Instalar o servico
+-----------------------------
+
+    cp /opt/morumbi-festas/morumbi-festas.service /etc/systemd/system/
+    chown morumbi:morumbi -R /opt/morumbi-festas
+    systemctl daemon-reload
+    systemctl enable morumbi-festas
+    systemctl start morumbi-festas
+
+Conferir se esta rodando:
+
+    systemctl status morumbi-festas
+
+Tem que aparecer "active (running)" em verde.
+
+
+Passo 7 — Configurar o Caddy
+-----------------------------
+Abra o Caddyfile:
+
+    nano /opt/sdr-agent/infra/lite/Caddyfile
+
+Adicione este bloco NO FINAL do arquivo (depois do
+bloco do morumbi3d):
+
+    morumbifestas.duckdns.org {
+            reverse_proxy 172.18.0.1:5001
+    }
+
+Salve com Ctrl+O, Enter, Ctrl+X.
+
+Reinicie o Caddy:
+
+    docker restart lite_default-caddy-1
+
+(Se o nome do container for diferente, veja com:  docker ps | grep caddy)
+
+
+Passo 8 — Testar
+-----------------
+Aguarde 1 minuto para o certificado SSL ser emitido.
+Depois abra no navegador:
+
+    https://morumbifestas.duckdns.org
+
+Vai aparecer a tela de login do Morumbi Festas.
+Entre com:
+    Login: admin
+    Senha: (a que voce colocou no Passo 5)
+
+
+Para atualizar depois
+---------------------
+Quando tiver codigo novo:
+
+    cd /opt/morumbi-festas
+    git pull
+    chown morumbi:morumbi -R /opt/morumbi-festas
+    systemctl restart morumbi-festas
+
+
+Para ver os logs
+----------------
+
+    journalctl -u morumbi-festas -f
+
+(Ctrl+C para sair dos logs)

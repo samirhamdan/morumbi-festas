@@ -1,0 +1,19 @@
+[Unit]
+Description=Morumbi Festas
+After=network.target
+
+[Service]
+User=morumbi
+Group=morumbi
+WorkingDirectory=/opt/morumbi-festas
+Environment=FESTAS_SENHA=TROCAR_AQUI
+Environment=FESTAS_DADOS=/var/lib/morumbi-festas
+Environment=FESTAS_BIND=172.18.0.1
+Environment=FESTAS_PORTA=5001
+ExecStart=/opt/morumbi-festas/venv/bin/gunicorn -c gunicorn.conf.py wsgi:app
+Restart=always
+RestartSec=3
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target
