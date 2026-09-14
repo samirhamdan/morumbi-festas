@@ -23,6 +23,7 @@ MENU = (
     )),
     ("Catalogo", (
         ("lista_produtos", "Produtos"),
+        ("lista_kits", "Kits"),
         ("lista_categorias", "Categorias"),
     )),
     ("Administracao", (
@@ -466,5 +467,176 @@ def criar_app() -> Flask:
         dados.definir_foto_principal(foto_id, id_)
         flash("Foto de capa definida.", "ok")
         return redirect(url_for("editar_produto", id_=id_))
+
+    # ------------------------------------------------------------------
+    # Kits
+    # ------------------------------------------------------------------
+
+    @app.route("/kits")
+    @auth.exige_login
+    def lista_kits():
+        ver = request.args.get("ver", "ativos")
+        if ver == "todos":
+            lista = dados.listar_kits()
+        elif ver == "inativos":
+            lista = dados.listar_kits("inativo")
+        else:
+            lista = dados.listar_kits("ativo")
+
+        busca = request.args.get("q", "")
+        lista = listas.filtrar(lista, busca, listas.BUSCA_KITS)
+
+        ordem = request.args.get("ordem", "")
+        invertido = request.args.get("dir") == "desc"
+        lista = listas.ordenar(lista, ordem, listas.ORDENS_KITS, invertido)
+
+        return render_template("kits.html", kits=lista,
+                               ver=ver, busca=busca, ordem=ordem,
+                               invertido=invertido,
+                               ordens=listas.ORDENS_KITS)
+
+    @app.route("/kit", methods=["GET", "POST"])
+    @app.route("/kit/<int:id_>", methods=["GET", "POST"])
+    @auth.exige_perfil("admin")
+    def editar_kit(id_=None):
+        kit = dados.buscar_kit(id_) if id_ else None
+        if id_ and not kit:
+            abort(404)
+
+        if request.method == "POST":
+            campos = dados.campos_kit(request.form)
+            try:
+                novo_id = dados.salvar_kit(campos, id_)
+                acao = "alterou" if id_ else "criou"
+                dados.registrar_acao(
+                    session.get("usuario_id"), f"kit_{acao}",
+                    f"{acao.capitalize()} kit {campos['nome']}",
+                    {"kit_id": novo_id})
+                flash(f"Kit {'atualizado' if id_ else 'cadastrado'}.", "ok")
+                return redirect(url_for("editar_kit", id_=novo_id))
+            except dados.ErroDeCampo as e:
+                return render_template("kit.html", atual=campos,
+                                       produtos=dados.listar_produtos("disponivel"),
+                                       status_opcoes=dados.STATUS_KIT,
+                                       **_erro(e))
+
+        disp = None
+        if kit:
+            disp = dados.disponibilidade_kit(id_)
+
+        return render_template("kit.html",
+                               atual=kit or {},
+                               produtos=dados.listar_produtos("disponivel"),
+                               status_opcoes=dados.STATUS_KIT,
+                               disponibilidade=disp)
+
+    @app.route("/kit/<int:id_>/item", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def adicionar_item_kit(id_):
+        kit = dados.buscar_kit(id_)
+        if not kit:
+            abort(404)
+
+        produto_id = request.form.get("produto_id")
+        quantidade = request.form.get("quantidade", "1")
+        try:
+            produto_id = int(produto_id)
+            quantidade = int(quantidade)
+        except (TypeError, ValueError):
+            flash("Produto e quantidade invalidos.", "erro")
+            return redirect(url_for("editar_kit", id_=id_))
+
+        try:
+            dados.adicionar_item_kit(id_, produto_id, quantidade)
+            dados.registrar_acao(
+                session.get("usuario_id"), "kit_item_adicionou",
+                f"Adicionou item ao kit {kit['nome']}",
+                {"kit_id": id_, "produto_id": produto_id})
+            flash("Produto adicionado ao kit.", "ok")
+        except dados.ErroDeCampo as e:
+            flash(str(e), "erro")
+
+        return redirect(url_for("editar_kit", id_=id_))
+
+    @app.route("/kit/<int:id_>/item/<int:item_id>/remover", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def remover_item_kit(id_, item_id):
+        dados.remover_item_kit(item_id)
+        dados.registrar_acao(
+            session.get("usuario_id"), "kit_item_removeu",
+            f"Removeu item do kit {id_}",
+            {"kit_id": id_, "item_id": item_id})
+        flash("Produto removido do kit.", "ok")
+        return redirect(url_for("editar_kit", id_=id_))
+
+    def _pasta_fotos_kit(kit_id: int) -> str:
+        pasta = os.path.join(app.static_folder, "uploads", "kits",
+                             str(kit_id))
+        os.makedirs(pasta, exist_ok=True)
+        return pasta
+
+    @app.route("/kit/<int:id_>/foto", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def upload_foto_kit(id_):
+        kit = dados.buscar_kit(id_)
+        if not kit:
+            abort(404)
+
+        arquivo = request.files.get("foto")
+        if not arquivo or not arquivo.filename:
+            flash("Selecione uma foto.", "erro")
+            return redirect(url_for("editar_kit", id_=id_))
+
+        nome_seguro = secure_filename(arquivo.filename)
+        _, ext = os.path.splitext(nome_seguro)
+        if ext.lower() not in UPLOAD_EXTENSOES:
+            flash("Formato invalido. Use JPG, PNG ou WebP.", "erro")
+            return redirect(url_for("editar_kit", id_=id_))
+
+        pasta = _pasta_fotos_kit(id_)
+        caminho = os.path.join(pasta, nome_seguro)
+        arquivo.save(caminho)
+
+        try:
+            from PIL import Image
+            img = Image.open(caminho)
+            if max(img.size) > 1200:
+                img.thumbnail((1200, 1200), Image.LANCZOS)
+                img.save(caminho)
+        except ImportError:
+            pass
+
+        principal = request.form.get("principal") == "1"
+        caminho_rel = f"uploads/kits/{id_}/{nome_seguro}"
+        dados.salvar_foto_kit(id_, caminho_rel, principal)
+
+        dados.registrar_acao(
+            session.get("usuario_id"), "kit_foto",
+            f"Adicionou foto ao kit {kit['nome']}",
+            {"kit_id": id_})
+        flash("Foto adicionada.", "ok")
+        return redirect(url_for("editar_kit", id_=id_))
+
+    @app.route("/kit/<int:id_>/foto/<int:foto_id>/excluir", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def excluir_foto_kit(id_, foto_id):
+        foto = dados.excluir_foto_kit(foto_id)
+        if foto:
+            caminho = os.path.join(app.static_folder, foto["arquivo"])
+            if os.path.exists(caminho):
+                os.remove(caminho)
+            dados.registrar_acao(
+                session.get("usuario_id"), "kit_foto_excluiu",
+                f"Excluiu foto do kit {id_}",
+                {"kit_id": id_})
+            flash("Foto excluida.", "ok")
+        return redirect(url_for("editar_kit", id_=id_))
+
+    @app.route("/kit/<int:id_>/foto/<int:foto_id>/principal", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def definir_capa_kit(id_, foto_id):
+        dados.definir_foto_principal_kit(foto_id, id_)
+        flash("Foto de capa definida.", "ok")
+        return redirect(url_for("editar_kit", id_=id_))
 
     return app

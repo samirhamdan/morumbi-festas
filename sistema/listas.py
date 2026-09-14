@@ -52,3 +52,10 @@ ORDENS_PRODUTOS = (
 )
 
 BUSCA_PRODUTOS = ("nome", "codigo_sku", "descricao", "localizacao", "categoria_nome")
+
+ORDENS_KITS = (
+    ("nome", "Nome", lambda k: (k.get("nome") or "").lower()),
+    ("preco", "Preco", lambda k: k.get("preco") or 0),
+)
+
+BUSCA_KITS = ("nome", "descricao")

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block titulo %}Kits — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Kits</h2>
+    <span class="abas">
+      <a href="{{ url_for('lista_kits') }}" class="{{ 'aqui' if ver == 'ativos' }}">Ativos</a>
+      <a href="{{ url_for('lista_kits', ver='inativos') }}" class="{{ 'aqui' if ver == 'inativos' }}">Inativos</a>
+      <a href="{{ url_for('lista_kits', ver='todos') }}" class="{{ 'aqui' if ver == 'todos' }}">Todos</a>
+    </span>
+    {% if perfil == 'admin' %}
+    <a class="botao" href="{{ url_for('editar_kit') }}">Novo kit</a>
+    {% endif %}
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form class="peneira" method="get">
+    {% if ver != 'ativos' %}<input type="hidden" name="ver" value="{{ ver }}">{% endif %}
+    <label class="busca">
+      <span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Nome ou descricao"
+             autocomplete="off" enterkeyhint="search">
+    </label>
+    <button class="botao vazado" type="submit">Buscar</button>
+  </form>
+
+  {% if kits %}
+  <div class="cartao cartao-tabela"><div class="rolagem">
+    <table class="tabela">
+      <thead><tr>
+        <th>Nome</th>
+        <th>Itens</th>
+        <th>Preco do kit</th>
+        <th>Soma produtos</th>
+        <th>Status</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        {% for k in kits %}
+        <tr class="{{ 'inativo' if k.status == 'inativo' }}">
+          <td data-rotulo="Nome" class="chave">
+            <a href="{{ url_for('editar_kit', id_=k.id) }}">{{ k.nome }}</a>
+          </td>
+          <td data-rotulo="Itens" class="num">{{ k.itens|length }}</td>
+          <td data-rotulo="Preco do kit" class="num">{{ k.preco|dinheiro }}</td>
+          <td data-rotulo="Soma produtos" class="num">
+            {{ k.soma_produtos|dinheiro }}
+            {% if k.preco > 0 and k.soma_produtos > k.preco %}
+              <span class="etiqueta verde" style="margin-left:4px">
+                -{{ ((k.soma_produtos - k.preco) / k.soma_produtos * 100)|round|int }}%
+              </span>
+            {% endif %}
+          </td>
+          <td data-rotulo="Status" class="estado">
+            {% if k.status == 'ativo' %}<span class="etiqueta verde">ativo</span>
+            {% else %}<span class="etiqueta cinza">inativo</span>
+            {% endif %}
+          </td>
+          <td class="num acao"><a href="{{ url_for('editar_kit', id_=k.id) }}">editar</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="6" class="num">{{ kits|length }} kit(s)</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div></div>
+  {% elif busca %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum resultado para "{{ busca }}".</b>
+    <span>Tente buscar por nome ou descricao.</span>
+  </div>
+  {% else %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum kit {{ 'inativo' if ver == 'inativos' else 'cadastrado' }}.</b>
+    {% if perfil == 'admin' and ver != 'inativos' %}
+    <span><a href="{{ url_for('editar_kit') }}">Criar o primeiro kit</a></span>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

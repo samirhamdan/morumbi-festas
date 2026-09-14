@@ -134,6 +134,32 @@ def inicializar():
                 tag TEXT NOT NULL,
                 UNIQUE(produto_id, tag)
             );
+
+            CREATE TABLE IF NOT EXISTS kits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                descricao TEXT DEFAULT '',
+                preco REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'ativo',
+                criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+                atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS itens_kit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kit_id INTEGER NOT NULL REFERENCES kits(id),
+                produto_id INTEGER NOT NULL REFERENCES produtos(id),
+                quantidade INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(kit_id, produto_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS fotos_kit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kit_id INTEGER NOT NULL REFERENCES kits(id),
+                arquivo TEXT NOT NULL,
+                principal INTEGER NOT NULL DEFAULT 0,
+                criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
 
 
@@ -746,6 +772,195 @@ def excluir_foto_produto(foto_id: int) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Kits
+# ---------------------------------------------------------------------------
+
+STATUS_KIT = ("ativo", "inativo")
+
+
+def listar_kits(status: str | None = None) -> list:
+    sql = "SELECT * FROM kits"
+    params = []
+    if status:
+        sql += " WHERE status = ?"
+        params.append(status)
+    sql += " ORDER BY nome"
+    with conectar() as conn:
+        kits = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        for k in kits:
+            k["itens"] = _itens_do_kit(conn, k["id"])
+            k["foto_capa"] = _foto_capa_kit(conn, k["id"])
+            k["soma_produtos"] = sum(
+                (i.get("preco_locacao") or 0) * i["quantidade"]
+                for i in k["itens"])
+        return kits
+
+
+def buscar_kit(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute("SELECT * FROM kits WHERE id = ?", (id_,)).fetchone()
+        if not r:
+            return None
+        k = dict(r)
+        k["itens"] = _itens_do_kit(conn, k["id"])
+        k["fotos"] = _fotos_do_kit(conn, k["id"])
+        k["foto_capa"] = _foto_capa_kit(conn, k["id"])
+        k["soma_produtos"] = sum(
+            (i.get("preco_locacao") or 0) * i["quantidade"]
+            for i in k["itens"])
+        return k
+
+
+def _itens_do_kit(conn, kit_id: int) -> list:
+    return [dict(r) for r in conn.execute(
+        "SELECT ik.*, p.nome AS produto_nome, p.codigo_sku,"
+        " p.preco_locacao, p.quantidade_total, p.status AS produto_status"
+        " FROM itens_kit ik"
+        " JOIN produtos p ON p.id = ik.produto_id"
+        " WHERE ik.kit_id = ? ORDER BY p.nome",
+        (kit_id,)).fetchall()]
+
+
+def _fotos_do_kit(conn, kit_id: int) -> list:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM fotos_kit WHERE kit_id = ? ORDER BY principal DESC, id",
+        (kit_id,)).fetchall()]
+
+
+def _foto_capa_kit(conn, kit_id: int) -> dict | None:
+    r = conn.execute(
+        "SELECT * FROM fotos_kit WHERE kit_id = ? ORDER BY principal DESC, id LIMIT 1",
+        (kit_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def campos_kit(form) -> dict:
+    def _float(val, padrao=0):
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return padrao
+
+    return {
+        "nome": (form.get("nome") or "").strip(),
+        "descricao": (form.get("descricao") or "").strip(),
+        "preco": _float(form.get("preco")),
+        "status": form.get("status", "ativo"),
+    }
+
+
+def salvar_kit(dados_: dict, id_: int | None = None) -> int:
+    nome = dados_.get("nome", "").strip()
+    if not nome:
+        raise ErroDeCampo("nome", "Nome do kit e obrigatorio.")
+
+    status = dados_.get("status", "ativo")
+    if status not in STATUS_KIT:
+        raise ErroDeCampo("status", "Status invalido.")
+
+    agora_ = formato.agora()
+    with conectar() as conn:
+        if id_:
+            conn.execute(
+                "UPDATE kits SET nome=?, descricao=?, preco=?,"
+                " status=?, atualizado_em=? WHERE id = ?",
+                (nome, dados_.get("descricao", ""),
+                 dados_.get("preco", 0), status, agora_, id_))
+            return id_
+        r = conn.execute(
+            "INSERT INTO kits (nome, descricao, preco, status,"
+            " criado_em, atualizado_em) VALUES (?,?,?,?,?,?)",
+            (nome, dados_.get("descricao", ""),
+             dados_.get("preco", 0), status, agora_, agora_))
+        return r.lastrowid
+
+
+def adicionar_item_kit(kit_id: int, produto_id: int, quantidade: int = 1) -> int:
+    if quantidade < 1:
+        raise ErroDeCampo("quantidade", "Quantidade minima e 1.")
+    with conectar() as conn:
+        existente = conn.execute(
+            "SELECT id FROM itens_kit WHERE kit_id = ? AND produto_id = ?",
+            (kit_id, produto_id)).fetchone()
+        if existente:
+            conn.execute(
+                "UPDATE itens_kit SET quantidade = ? WHERE id = ?",
+                (quantidade, existente["id"]))
+            return existente["id"]
+        r = conn.execute(
+            "INSERT INTO itens_kit (kit_id, produto_id, quantidade)"
+            " VALUES (?, ?, ?)", (kit_id, produto_id, quantidade))
+        return r.lastrowid
+
+
+def remover_item_kit(item_id: int):
+    with conectar() as conn:
+        conn.execute("DELETE FROM itens_kit WHERE id = ?", (item_id,))
+
+
+def disponibilidade_kit(kit_id: int, data: str | None = None) -> int:
+    kit = buscar_kit(kit_id)
+    if not kit or not kit["itens"]:
+        return 0
+    minimo = None
+    for item in kit["itens"]:
+        if item["produto_status"] == "manutencao":
+            return 0
+        if item["produto_status"] == "inativo":
+            return 0
+        disp_produto = disponibilidade(item["produto_id"], data)
+        kits_possiveis = disp_produto // item["quantidade"] if item["quantidade"] > 0 else 0
+        if minimo is None or kits_possiveis < minimo:
+            minimo = kits_possiveis
+    return minimo if minimo is not None else 0
+
+
+# ---------------------------------------------------------------------------
+# Fotos de kit
+# ---------------------------------------------------------------------------
+
+def salvar_foto_kit(kit_id: int, arquivo: str, principal: bool = False) -> int:
+    with conectar() as conn:
+        if principal:
+            conn.execute("UPDATE fotos_kit SET principal=0 WHERE kit_id=?",
+                         (kit_id,))
+        existentes = conn.execute(
+            "SELECT COUNT(*) FROM fotos_kit WHERE kit_id=?",
+            (kit_id,)).fetchone()[0]
+        is_principal = 1 if (principal or existentes == 0) else 0
+        r = conn.execute(
+            "INSERT INTO fotos_kit (kit_id, arquivo, principal, criado_em)"
+            " VALUES (?, ?, ?, ?)",
+            (kit_id, arquivo, is_principal, formato.agora()))
+        return r.lastrowid
+
+
+def definir_foto_principal_kit(foto_id: int, kit_id: int):
+    with conectar() as conn:
+        conn.execute("UPDATE fotos_kit SET principal=0 WHERE kit_id=?",
+                     (kit_id,))
+        conn.execute("UPDATE fotos_kit SET principal=1 WHERE id=?", (foto_id,))
+
+
+def excluir_foto_kit(foto_id: int) -> dict | None:
+    with conectar() as conn:
+        foto = conn.execute("SELECT * FROM fotos_kit WHERE id=?",
+                            (foto_id,)).fetchone()
+        if not foto:
+            return None
+        foto = dict(foto)
+        conn.execute("DELETE FROM fotos_kit WHERE id=?", (foto_id,))
+        if foto["principal"]:
+            outra = conn.execute(
+                "SELECT id FROM fotos_kit WHERE kit_id=? ORDER BY id LIMIT 1",
+                (foto["kit_id"],)).fetchone()
+            if outra:
+                conn.execute("UPDATE fotos_kit SET principal=1 WHERE id=?",
+                             (outra["id"],))
+        return foto
+
+
+# ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
 
@@ -755,8 +970,11 @@ def resumo_painel() -> dict:
             "SELECT COUNT(*) FROM clientes WHERE status='ativo'").fetchone()[0]
         total_produtos = conn.execute(
             "SELECT COUNT(*) FROM produtos WHERE status != 'inativo'").fetchone()[0]
+        total_kits = conn.execute(
+            "SELECT COUNT(*) FROM kits WHERE status = 'ativo'").fetchone()[0]
     return {
-        "vazio": total_clientes == 0 and total_produtos == 0,
+        "vazio": total_clientes == 0 and total_produtos == 0 and total_kits == 0,
         "total_clientes": total_clientes,
         "total_produtos": total_produtos,
+        "total_kits": total_kits,
     }

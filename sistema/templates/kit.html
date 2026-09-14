@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} kit — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">{{ 'Editar kit' if atual.get('id') else 'Novo kit' }}</h2>
+    {% if disponibilidade is not none and atual.get('id') %}
+      {% if disponibilidade > 0 %}
+        <span class="etiqueta verde">{{ disponibilidade }} disponivel(is)</span>
+      {% else %}
+        <span class="etiqueta cinza">indisponivel</span>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form method="post" class="formulario" data-avisar>
+    <div class="cartao" style="padding:20px">
+      <h3 class="form-secao">Dados do kit</h3>
+
+      <label class="campo" id="campo-nome">
+        <span class="campo-rotulo">Nome do kit</span>
+        <input type="text" name="nome" value="{{ atual.get('nome', '') }}" required autofocus>
+        {% if campo_erro == 'nome' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+      </label>
+
+      <label class="campo" id="campo-descricao">
+        <span class="campo-rotulo">Descricao</span>
+        <textarea name="descricao" rows="3">{{ atual.get('descricao', '') }}</textarea>
+      </label>
+
+      <div class="campo-duplo">
+        <label class="campo" id="campo-preco">
+          <span class="campo-rotulo">Preco do kit (R$)</span>
+          <input type="number" name="preco" step="0.01" min="0"
+                 value="{{ '%.2f'|format(atual.get('preco', 0)) }}"
+                 inputmode="decimal">
+        </label>
+
+        {% if atual.get('id') %}
+        <label class="campo" id="campo-status">
+          <span class="campo-rotulo">Status</span>
+          <select name="status">
+            {% for s in status_opcoes %}
+              <option value="{{ s }}" {{ 'selected' if atual.get('status', 'ativo') == s }}>{{ s|capitalize }}</option>
+            {% endfor %}
+          </select>
+          {% if campo_erro == 'status' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+        </label>
+        {% endif %}
+      </div>
+
+      {% if atual.get('soma_produtos') and atual.get('preco') and atual.soma_produtos > atual.preco %}
+      <p style="font-size:14px;color:var(--verde);margin:8px 0 0">
+        Economia de {{ (atual.soma_produtos - atual.preco)|dinheiro }}
+        ({{ ((atual.soma_produtos - atual.preco) / atual.soma_produtos * 100)|round|int }}% em relacao a soma dos produtos: {{ atual.soma_produtos|dinheiro }})
+      </p>
+      {% endif %}
+    </div>
+
+    <div class="barra-acoes">
+      <button type="submit" class="botao primario">Salvar</button>
+      <a href="{{ url_for('lista_kits') }}" class="botao vazado">Cancelar</a>
+    </div>
+  </form>
+
+  {% if atual.get('id') %}
+  <div class="cartao" style="padding:20px;margin-top:20px">
+    <h3 class="form-secao" style="border-top:none;margin-top:0;padding-top:0">Composicao do kit</h3>
+
+    {% if atual.get('itens') %}
+    <div class="cartao cartao-tabela" style="margin-bottom:16px"><div class="rolagem">
+      <table class="tabela">
+        <thead><tr>
+          <th>Produto</th>
+          <th>SKU</th>
+          <th>Qtd no kit</th>
+          <th>Preco unit.</th>
+          <th>Subtotal</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          {% for item in atual.itens %}
+          <tr>
+            <td data-rotulo="Produto" class="chave">{{ item.produto_nome }}</td>
+            <td data-rotulo="SKU" class="mono">{{ item.codigo_sku }}</td>
+            <td data-rotulo="Qtd no kit" class="num">{{ item.quantidade }}</td>
+            <td data-rotulo="Preco unit." class="num">{{ item.preco_locacao|dinheiro }}</td>
+            <td data-rotulo="Subtotal" class="num">{{ (item.preco_locacao * item.quantidade)|dinheiro }}</td>
+            <td class="num acao">
+              <form method="post" action="{{ url_for('remover_item_kit', id_=atual.id, item_id=item.id) }}" style="display:inline">
+                <button type="submit" class="botao vazado" style="font-size:12px;padding:4px 10px;min-height:auto;color:var(--vermelho)">remover</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4" class="num"><b>Soma dos produtos</b></td>
+            <td class="num"><b>{{ atual.soma_produtos|dinheiro }}</b></td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div></div>
+    {% else %}
+    <p style="color:var(--suave);font-size:14px;margin-bottom:16px">Nenhum produto adicionado ao kit.</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('adicionar_item_kit', id_=atual.id) }}">
+      <div class="campo-triplo" style="align-items:end">
+        <label class="campo" style="margin-bottom:0">
+          <span class="campo-rotulo">Produto</span>
+          <select name="produto_id" required>
+            <option value="">— Selecione —</option>
+            {% for p in produtos %}
+              <option value="{{ p.id }}">{{ p.nome }} ({{ p.codigo_sku }})</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="campo" style="margin-bottom:0">
+          <span class="campo-rotulo">Quantidade</span>
+          <input type="number" name="quantidade" value="1" min="1" step="1" inputmode="numeric">
+        </label>
+        <div><button type="submit" class="botao vazado">Adicionar</button></div>
+      </div>
+    </form>
+  </div>
+
+  <div class="cartao" style="padding:20px;margin-top:20px">
+    <h3 class="form-secao" style="border-top:none;margin-top:0;padding-top:0">Fotos</h3>
+
+    {% if atual.get('fotos') %}
+    <div class="grade-fotos">
+      {% for foto in atual.fotos %}
+      <div class="foto-item {{ 'foto-capa' if foto.principal }}">
+        <img src="{{ url_for('static', filename=foto.arquivo) }}" alt="Foto do kit">
+        <div class="foto-acoes">
+          {% if not foto.principal %}
+          <form method="post" action="{{ url_for('definir_capa_kit', id_=atual.id, foto_id=foto.id) }}" style="display:inline">
+            <button type="submit" class="botao vazado" style="font-size:12px;padding:4px 10px;min-height:auto">Capa</button>
+          </form>
+          {% else %}
+          <span class="etiqueta roxo">Capa</span>
+          {% endif %}
+          <form method="post" action="{{ url_for('excluir_foto_kit', id_=atual.id, foto_id=foto.id) }}" style="display:inline">
+            <button type="submit" class="botao vazado" style="font-size:12px;padding:4px 10px;min-height:auto;color:var(--vermelho)">Excluir</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:var(--suave);font-size:14px">Nenhuma foto adicionada.</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('upload_foto_kit', id_=atual.id) }}" enctype="multipart/form-data" style="margin-top:16px">
+      <div class="campo-duplo" style="align-items:end">
+        <label class="campo" style="margin-bottom:0">
+          <span class="campo-rotulo">Adicionar foto</span>
+          <input type="file" name="foto" accept=".jpg,.jpeg,.png,.webp">
+        </label>
+        <div style="display:flex;gap:8px;align-items:center;min-height:44px">
+          <label style="font-size:13px;color:var(--suave);display:flex;align-items:center;gap:4px">
+            <input type="checkbox" name="principal" value="1"> Foto de capa
+          </label>
+          <button type="submit" class="botao vazado">Enviar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+</main>
+{% endblock %}
