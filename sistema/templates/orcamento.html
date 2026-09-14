@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Editar Orcamento' if atual.get('id') else 'Novo Orcamento' }} — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">{{ 'Orcamento #%d'|format(atual.id) if atual.get('id') else 'Novo Orcamento' }}</h2>
+    {% if atual.get('id') and atual.get('status') != 'recusado' %}
+    <form method="post" action="{{ url_for('converter_orcamento', id_=atual.id) }}"
+          onsubmit="return confirm('Converter este orcamento em pedido?')" style="display:inline">
+      <button type="submit" class="botao">Converter em pedido</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form method="post" class="formulario" data-avisar id="form-orcamento">
+    <div class="duas-colunas">
+      <div>
+        <h3 class="form-secao" style="border-top:none;padding-top:0">Dados</h3>
+
+        <label class="campo" id="campo-cliente_id">
+          <span>Cliente *</span>
+          <select name="cliente_id" required>
+            <option value="">Selecione...</option>
+            {% for c in clientes %}
+            <option value="{{ c.id }}" {{ 'selected' if atual.get('cliente_id') == c.id }}>{{ c.nome }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="campo" id="campo-lead_id">
+          <span>Lead vinculado</span>
+          <select name="lead_id">
+            <option value="">Nenhum</option>
+            {% for l in leads %}
+            <option value="{{ l.id }}" {{ 'selected' if atual.get('lead_id') == l.id }}>{{ l.cliente_nome }} — {{ l.interesse or 'sem interesse' }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="campo" id="campo-status">
+          <span>Status</span>
+          <select name="status">
+            {% for s in status_opcoes %}
+            <option value="{{ s }}" {{ 'selected' if atual.get('status', 'rascunho') == s }}>{{ s|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="campo" id="campo-observacoes">
+          <span>Observacoes</span>
+          <textarea name="observacoes" rows="3">{{ atual.get('observacoes', '') }}</textarea>
+        </label>
+      </div>
+
+      <div>
+        <h3 class="form-secao" style="border-top:none;padding-top:0">Valores</h3>
+
+        <label class="campo" id="campo-desconto">
+          <span>Desconto (R$)</span>
+          <input type="number" name="desconto" step="0.01" min="0"
+                 value="{{ '%.2f'|format(atual.get('desconto', 0)) }}"
+                 inputmode="decimal">
+        </label>
+
+        {% if atual.get('id') %}
+        <div class="resumo-valores">
+          <div class="resumo-linha">
+            <span>Subtotal</span>
+            <span>{{ atual.subtotal|dinheiro }}</span>
+          </div>
+          <div class="resumo-linha">
+            <span>Desconto</span>
+            <span>− {{ atual.desconto|dinheiro }}</span>
+          </div>
+          <div class="resumo-linha resumo-total">
+            <span>Total</span>
+            <span>{{ atual.total|dinheiro }}</span>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <h3 class="form-secao">Itens do orcamento</h3>
+
+    <div id="itens-container">
+      {% set itens = atual.get('itens', []) %}
+      {% for item in itens %}
+      <div class="item-orcamento" data-indice="{{ loop.index0 }}">
+        <select name="item_tipo_{{ loop.index0 }}">
+          <option value="produto" {{ 'selected' if item.tipo == 'produto' }}>Produto</option>
+          <option value="kit" {{ 'selected' if item.tipo == 'kit' }}>Kit</option>
+          <option value="servico" {{ 'selected' if item.tipo == 'servico' }}>Servico</option>
+        </select>
+        <input type="hidden" name="item_item_id_{{ loop.index0 }}" value="{{ item.item_id or '' }}">
+        <input type="text" name="item_descricao_{{ loop.index0 }}" value="{{ item.descricao }}"
+               placeholder="Descricao" required style="flex:2">
+        <input type="number" name="item_quantidade_{{ loop.index0 }}" value="{{ item.quantidade }}"
+               min="1" step="1" style="width:70px" inputmode="numeric" placeholder="Qtd">
+        <input type="number" name="item_preco_{{ loop.index0 }}" value="{{ '%.2f'|format(item.preco_unitario) }}"
+               min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preco">
+        <button type="button" class="botao mini perigoso" onclick="this.parentElement.remove()">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="margin:12px 0">
+      <button type="button" class="botao vazado" id="btn-adicionar-item">Adicionar item</button>
+      <span style="margin-left:8px;color:var(--suave);font-size:13px">
+        Adicione produtos, kits ou servicos ao orcamento
+      </span>
+    </div>
+
+    <div class="acoes-formulario sticky">
+      <a href="{{ url_for('lista_orcamentos') }}" class="botao vazado">Cancelar</a>
+      <button type="submit" class="botao">Salvar</button>
+    </div>
+  </form>
+</main>
+
+<script>
+(function(){
+  var container = document.getElementById('itens-container');
+  var btn = document.getElementById('btn-adicionar-item');
+  var produtos = {{ produtos|tojson }};
+  var kits = {{ kits|tojson }};
+
+  function proximo() {
+    var els = container.querySelectorAll('.item-orcamento');
+    var max = -1;
+    els.forEach(function(el) {
+      var i = parseInt(el.getAttribute('data-indice'), 10);
+      if (i > max) max = i;
+    });
+    return max + 1;
+  }
+
+  btn.addEventListener('click', function() {
+    var i = proximo();
+    var div = document.createElement('div');
+    div.className = 'item-orcamento';
+    div.setAttribute('data-indice', i);
+    div.innerHTML =
+      '<select name="item_tipo_'+i+'">' +
+        '<option value="produto">Produto</option>' +
+        '<option value="kit">Kit</option>' +
+        '<option value="servico">Servico</option>' +
+      '</select>' +
+      '<input type="hidden" name="item_item_id_'+i+'" value="">' +
+      '<input type="text" name="item_descricao_'+i+'" placeholder="Descricao" required style="flex:2">' +
+      '<input type="number" name="item_quantidade_'+i+'" value="1" min="1" step="1" style="width:70px" inputmode="numeric" placeholder="Qtd">' +
+      '<input type="number" name="item_preco_'+i+'" value="0.00" min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preco">' +
+      '<button type="button" class="botao mini perigoso" onclick="this.parentElement.remove()">✕</button>';
+    container.appendChild(div);
+
+    var selTipo = div.querySelector('select');
+    var inpDesc = div.querySelector('input[name="item_descricao_'+i+'"]');
+    var inpId = div.querySelector('input[name="item_item_id_'+i+'"]');
+    var inpPreco = div.querySelector('input[name="item_preco_'+i+'"]');
+
+    selTipo.addEventListener('change', function() { inpDesc.value=''; inpId.value=''; inpPreco.value='0.00'; });
+  });
+})();
+</script>
+{% endblock %}

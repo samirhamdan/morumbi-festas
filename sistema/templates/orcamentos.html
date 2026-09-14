@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block titulo %}Orcamentos — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Orcamentos</h2>
+    <span class="abas">
+      <a href="{{ url_for('lista_orcamentos') }}" class="{{ 'aqui' if not status_filtro }}">Todos</a>
+      {% for s in status_opcoes %}
+      <a href="{{ url_for('lista_orcamentos', status=s) }}" class="{{ 'aqui' if status_filtro == s }}">{{ s|capitalize }}</a>
+      {% endfor %}
+    </span>
+    <a class="botao" href="{{ url_for('editar_orcamento') }}">Novo orcamento</a>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form class="peneira" method="get">
+    {% if status_filtro %}<input type="hidden" name="status" value="{{ status_filtro }}">{% endif %}
+    <label class="busca">
+      <span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Cliente..."
+             autocomplete="off" enterkeyhint="search">
+    </label>
+    <button class="botao vazado" type="submit">Buscar</button>
+  </form>
+
+  {% if orcamentos %}
+  <div class="cartao cartao-tabela"><div class="rolagem">
+    <table class="tabela">
+      <thead><tr>
+        <th>#</th>
+        <th>Cliente</th>
+        <th>Itens</th>
+        <th>Total</th>
+        <th>Status</th>
+        <th>Data</th>
+      </tr></thead>
+      <tbody>
+        {% for o in orcamentos %}
+        <tr>
+          <td data-rotulo="#">{{ o.id }}</td>
+          <td data-rotulo="Cliente" class="chave"><a href="{{ url_for('editar_orcamento', id_=o.id) }}">{{ o.cliente_nome or '—' }}</a></td>
+          <td data-rotulo="Itens">{{ o.itens|length }}</td>
+          <td data-rotulo="Total" class="decide">{{ o.total|dinheiro }}</td>
+          <td data-rotulo="Status" class="estado">
+            <span class="etiqueta {{ 'verde' if o.status == 'aceito' else 'vermelho' if o.status == 'recusado' else 'roxo' if o.status == 'enviado' else 'cinza' }}">{{ o.status }}</span>
+          </td>
+          <td data-rotulo="Data">{{ o.criado_em|datahora }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% else %}
+  <div class="cartao cartao-vazio">
+    {% if busca %}
+    <b>Nenhum resultado para "{{ busca }}".</b>
+    {% else %}
+    <b>Nenhum orcamento cadastrado.</b>
+    <span><a href="{{ url_for('editar_orcamento') }}">Criar primeiro orcamento</a></span>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

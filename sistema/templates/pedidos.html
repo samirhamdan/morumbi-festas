@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block titulo %}Pedidos — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Pedidos</h2>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form class="peneira" method="get">
+    <label class="busca">
+      <span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Cliente..."
+             autocomplete="off" enterkeyhint="search">
+    </label>
+    <button class="botao vazado" type="submit">Buscar</button>
+  </form>
+
+  {% if pedidos %}
+  <div class="cartao cartao-tabela"><div class="rolagem">
+    <table class="tabela">
+      <thead><tr>
+        <th>#</th>
+        <th>Cliente</th>
+        <th>Itens</th>
+        <th>Total</th>
+        <th>Comercial</th>
+        <th>Operacional</th>
+        <th>Data</th>
+      </tr></thead>
+      <tbody>
+        {% for p in pedidos %}
+        <tr>
+          <td data-rotulo="#">{{ p.id }}</td>
+          <td data-rotulo="Cliente" class="chave"><a href="{{ url_for('ver_pedido', id_=p.id) }}">{{ p.cliente_nome or '—' }}</a></td>
+          <td data-rotulo="Itens">{{ p.itens|length }}</td>
+          <td data-rotulo="Total" class="decide">{{ p.total|dinheiro }}</td>
+          <td data-rotulo="Comercial" class="estado"><span class="etiqueta roxo">{{ p.status_comercial }}</span></td>
+          <td data-rotulo="Operacional"><span class="etiqueta cinza">{{ p.status_operacional }}</span></td>
+          <td data-rotulo="Data">{{ p.criado_em|datahora }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% else %}
+  <div class="cartao cartao-vazio">
+    {% if busca %}
+    <b>Nenhum resultado para "{{ busca }}".</b>
+    {% else %}
+    <b>Nenhum pedido registrado.</b>
+    <span>Pedidos sao criados a partir da conversao de orcamentos.</span>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

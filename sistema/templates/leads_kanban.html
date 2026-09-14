@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block titulo %}Funil — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Funil de Leads</h2>
+    <span class="abas">
+      <a href="{{ url_for('lista_leads', modo='kanban') }}" class="{{ 'aqui' if modo == 'kanban' }}">Kanban</a>
+      <a href="{{ url_for('lista_leads', modo='lista') }}" class="{{ 'aqui' if modo == 'lista' }}">Lista</a>
+    </span>
+    <a class="botao" href="{{ url_for('editar_lead') }}">Novo lead</a>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <div class="kanban">
+    {% for etapa in etapas %}
+    <div class="kanban-coluna">
+      <div class="kanban-titulo">
+        <span>{{ etapa|capitalize }}</span>
+        <span class="kanban-contador">{{ contadores.get(etapa, 0) }}</span>
+      </div>
+      <div class="kanban-lista">
+        {% for l in funil.get(etapa, []) %}
+        <div class="kanban-card">
+          <a href="{{ url_for('editar_lead', id_=l.id) }}" class="kanban-card-nome">{{ l.cliente_nome or '—' }}</a>
+          {% if l.interesse %}<span class="kanban-card-detalhe">{{ l.interesse }}</span>{% endif %}
+          {% if l.valor_estimado %}<span class="kanban-card-valor">{{ l.valor_estimado|dinheiro }}</span>{% endif %}
+          {% if l.origem_nome %}<span class="kanban-card-origem">{{ l.origem_nome }}</span>{% endif %}
+          <div class="kanban-card-acoes">
+            {% set idx = etapas.index(etapa) if etapa in etapas else -1 %}
+            {% if idx > 0 %}
+            <form method="post" action="{{ url_for('mover_lead_rota', id_=l.id) }}" style="display:inline">
+              <input type="hidden" name="status" value="{{ etapas[idx-1] }}">
+              <input type="hidden" name="retorno" value="kanban">
+              <button type="submit" class="botao mini vazado">←</button>
+            </form>
+            {% endif %}
+            {% if idx >= 0 and idx < etapas|length - 1 %}
+            <form method="post" action="{{ url_for('mover_lead_rota', id_=l.id) }}" style="display:inline">
+              <input type="hidden" name="status" value="{{ etapas[idx+1] }}">
+              <input type="hidden" name="retorno" value="kanban">
+              <button type="submit" class="botao mini vazado">→</button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% set perdidos = funil.get("perdido", []) + funil.get("cancelado", []) %}
+  {% if perdidos %}
+  <details style="margin-top:16px">
+    <summary class="form-secao" style="cursor:pointer">Perdidos / Cancelados ({{ perdidos|length }})</summary>
+    <div class="cartao cartao-tabela" style="margin-top:8px"><div class="rolagem">
+      <table class="tabela">
+        <thead><tr>
+          <th>Cliente</th>
+          <th>Interesse</th>
+          <th>Status</th>
+        </tr></thead>
+        <tbody>
+          {% for l in perdidos %}
+          <tr>
+            <td data-rotulo="Cliente"><a href="{{ url_for('editar_lead', id_=l.id) }}">{{ l.cliente_nome }}</a></td>
+            <td data-rotulo="Interesse">{{ l.interesse or '—' }}</td>
+            <td data-rotulo="Status"><span class="etiqueta cinza">{{ l.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </details>
+  {% endif %}
+</main>
+{% endblock %}

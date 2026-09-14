@@ -1040,5 +1040,161 @@ a.cat-card:hover {
   .cat-grade { grid-template-columns: 1fr; }
 }
 
+/* === Kanban === */
+
+.kanban {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  min-height: 300px;
+}
+.kanban-coluna {
+  min-width: 200px;
+  max-width: 240px;
+  flex: 1;
+  background: var(--fundo);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+}
+.kanban-titulo {
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--suave);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--borda);
+}
+.kanban-contador {
+  background: var(--roxo-claro);
+  color: var(--roxo);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.kanban-lista {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+}
+.kanban-card {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kanban-card-nome {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--texto);
+}
+.kanban-card-detalhe {
+  font-size: 13px;
+  color: var(--suave);
+}
+.kanban-card-valor {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--roxo);
+}
+.kanban-card-origem {
+  font-size: 12px;
+  color: var(--suave);
+}
+.kanban-card-acoes {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .kanban { flex-direction: column; }
+  .kanban-coluna { min-width: 100%; max-width: 100%; }
+}
+
+/* === Itens de orcamento === */
+
+.item-orcamento {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.item-orcamento select {
+  width: 100px;
+  min-height: 38px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--superficie);
+  color: var(--texto);
+}
+.item-orcamento input[type="text"],
+.item-orcamento input[type="number"] {
+  min-height: 38px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--superficie);
+  color: var(--texto);
+}
+
+/* === Resumo de valores === */
+
+.resumo-valores {
+  margin: 16px 0;
+}
+.resumo-linha {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 14px;
+  color: var(--suave);
+}
+.resumo-total {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--texto);
+  border-top: 2px solid var(--borda);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+/* === Detalhe lista (dl) === */
+
+.detalhe-lista {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  font-size: 14px;
+  padding: 8px 0;
+}
+.detalhe-lista dt {
+  color: var(--suave);
+  font-weight: 500;
+}
+.detalhe-lista dd {
+  margin: 0;
+  color: var(--texto);
+}
+
 /* === Aviso de formulario nao salvo === */
 .formulario[data-avisar] { position: relative; }

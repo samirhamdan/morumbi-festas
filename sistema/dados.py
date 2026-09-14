@@ -9,6 +9,13 @@ from sistema import formato
 
 PERFIS = ("admin", "comercial", "operacional", "gestor")
 
+ETAPAS_LEAD = (
+    "novo", "atendimento", "orcamento", "negociacao",
+    "reserva", "contratado", "concluido",
+)
+ETAPAS_ALT_LEAD = ("perdido", "cancelado")
+STATUS_ORCAMENTO = ("rascunho", "enviado", "aceito", "recusado")
+
 CAMINHO_BD = os.environ.get("FESTAS_DADOS", "morumbi_festas.db")
 
 
@@ -162,7 +169,81 @@ def inicializar():
                 principal INTEGER NOT NULL DEFAULT 0,
                 criado_em TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS origens_lead (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL UNIQUE,
+                criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS leads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cliente_id INTEGER REFERENCES clientes(id),
+                origem_id INTEGER REFERENCES origens_lead(id),
+                interesse TEXT DEFAULT '',
+                valor_estimado REAL NOT NULL DEFAULT 0,
+                responsavel_id INTEGER REFERENCES usuarios(id),
+                status TEXT NOT NULL DEFAULT 'novo',
+                data_evento TEXT,
+                observacoes TEXT DEFAULT '',
+                criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+                atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+            CREATE INDEX IF NOT EXISTS idx_leads_cliente ON leads(cliente_id);
+
+            CREATE TABLE IF NOT EXISTS orcamentos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lead_id INTEGER REFERENCES leads(id),
+                cliente_id INTEGER REFERENCES clientes(id),
+                desconto REAL NOT NULL DEFAULT 0,
+                observacoes TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'rascunho',
+                criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+                atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS itens_orcamento (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id),
+                tipo TEXT NOT NULL DEFAULT 'produto',
+                item_id INTEGER,
+                descricao TEXT NOT NULL,
+                quantidade INTEGER NOT NULL DEFAULT 1,
+                preco_unitario REAL NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS pedidos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                orcamento_id INTEGER REFERENCES orcamentos(id),
+                cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+                data_evento TEXT,
+                status_comercial TEXT NOT NULL DEFAULT 'confirmado',
+                status_operacional TEXT NOT NULL DEFAULT 'preparacao',
+                observacoes TEXT DEFAULT '',
+                criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+                atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente_id);
+
+            CREATE TABLE IF NOT EXISTS itens_pedido (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pedido_id INTEGER NOT NULL REFERENCES pedidos(id),
+                tipo TEXT NOT NULL DEFAULT 'produto',
+                item_id INTEGER,
+                descricao TEXT NOT NULL,
+                quantidade INTEGER NOT NULL DEFAULT 1,
+                preco_unitario REAL NOT NULL DEFAULT 0
+            );
         """)
+
+        # Semente: origens de lead padrao
+        origens = conn.execute("SELECT COUNT(*) FROM origens_lead").fetchone()[0]
+        if origens == 0:
+            for nome in ("Instagram", "Facebook", "WhatsApp", "Google",
+                         "Indicacao", "Site", "Recorrente"):
+                conn.execute("INSERT INTO origens_lead (nome) VALUES (?)",
+                             (nome,))
 
         # Migracao: adicionar coluna publicado em bancos existentes
         for tabela in ("produtos", "kits"):
@@ -1070,3 +1151,348 @@ def kit_publico(id_: int) -> dict | None:
             (i.get("preco_locacao") or 0) * i["quantidade"]
             for i in k["itens"])
         return k
+
+
+# ---------------------------------------------------------------------------
+# Origens de lead
+# ---------------------------------------------------------------------------
+
+def listar_origens() -> list:
+    with conectar() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM origens_lead ORDER BY nome").fetchall()]
+
+
+def salvar_origem(nome: str, id_: int | None = None) -> int:
+    nome = nome.strip()
+    if not nome:
+        raise ErroDeCampo("nome", "Nome da origem e obrigatorio.")
+    with conectar() as conn:
+        dup = conn.execute(
+            "SELECT id FROM origens_lead WHERE nome = ? AND id != ?",
+            (nome, id_ or 0)).fetchone()
+        if dup:
+            raise ErroDeCampo("nome", "Ja existe uma origem com este nome.")
+        if id_:
+            conn.execute("UPDATE origens_lead SET nome=? WHERE id=?",
+                         (nome, id_))
+            return id_
+        r = conn.execute("INSERT INTO origens_lead (nome) VALUES (?)", (nome,))
+        return r.lastrowid
+
+
+def excluir_origem(id_: int):
+    with conectar() as conn:
+        em_uso = conn.execute(
+            "SELECT COUNT(*) FROM leads WHERE origem_id = ?",
+            (id_,)).fetchone()[0]
+        if em_uso:
+            raise ValueError("Origem em uso por leads, nao pode ser excluida.")
+        conn.execute("DELETE FROM origens_lead WHERE id = ?", (id_,))
+
+
+# ---------------------------------------------------------------------------
+# Leads
+# ---------------------------------------------------------------------------
+
+def _enriquecer_lead(conn, lead: dict) -> dict:
+    if lead.get("cliente_id"):
+        cli = conn.execute("SELECT nome FROM clientes WHERE id=?",
+                           (lead["cliente_id"],)).fetchone()
+        lead["cliente_nome"] = cli["nome"] if cli else ""
+    else:
+        lead["cliente_nome"] = ""
+    if lead.get("origem_id"):
+        ori = conn.execute("SELECT nome FROM origens_lead WHERE id=?",
+                           (lead["origem_id"],)).fetchone()
+        lead["origem_nome"] = ori["nome"] if ori else ""
+    else:
+        lead["origem_nome"] = ""
+    if lead.get("responsavel_id"):
+        resp = conn.execute("SELECT nome FROM usuarios WHERE id=?",
+                            (lead["responsavel_id"],)).fetchone()
+        lead["responsavel_nome"] = resp["nome"] if resp else ""
+    else:
+        lead["responsavel_nome"] = ""
+    return lead
+
+
+def listar_leads(status: str | None = None) -> list:
+    sql = "SELECT * FROM leads"
+    params: list = []
+    if status:
+        sql += " WHERE status = ?"
+        params.append(status)
+    sql += " ORDER BY atualizado_em DESC"
+    with conectar() as conn:
+        leads = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        for ld in leads:
+            _enriquecer_lead(conn, ld)
+        return leads
+
+
+def leads_por_etapa() -> dict:
+    resultado: dict = {e: [] for e in ETAPAS_LEAD}
+    resultado["perdido"] = []
+    resultado["cancelado"] = []
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT * FROM leads ORDER BY atualizado_em DESC").fetchall()
+        for r in rows:
+            ld = dict(r)
+            _enriquecer_lead(conn, ld)
+            if ld["status"] in resultado:
+                resultado[ld["status"]].append(ld)
+    return resultado
+
+
+def buscar_lead(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute("SELECT * FROM leads WHERE id = ?", (id_,)).fetchone()
+        if not r:
+            return None
+        ld = dict(r)
+        _enriquecer_lead(conn, ld)
+        return ld
+
+
+def campos_lead(form) -> dict:
+    return {
+        "cliente_id": int(form.get("cliente_id") or 0) or None,
+        "origem_id": int(form.get("origem_id") or 0) or None,
+        "interesse": (form.get("interesse") or "").strip(),
+        "valor_estimado": float(form.get("valor_estimado") or 0),
+        "responsavel_id": int(form.get("responsavel_id") or 0) or None,
+        "status": form.get("status", "novo"),
+        "data_evento": (form.get("data_evento") or "").strip() or None,
+        "observacoes": (form.get("observacoes") or "").strip(),
+    }
+
+
+def salvar_lead(dados_: dict, id_: int | None = None) -> int:
+    if not dados_.get("cliente_id"):
+        raise ErroDeCampo("cliente_id", "Cliente e obrigatorio.")
+
+    status = dados_.get("status", "novo")
+    todos = list(ETAPAS_LEAD) + list(ETAPAS_ALT_LEAD)
+    if status not in todos:
+        raise ErroDeCampo("status", "Status invalido.")
+
+    agora_ = formato.agora()
+    with conectar() as conn:
+        if id_:
+            conn.execute(
+                "UPDATE leads SET cliente_id=?, origem_id=?, interesse=?,"
+                " valor_estimado=?, responsavel_id=?, status=?,"
+                " data_evento=?, observacoes=?, atualizado_em=?"
+                " WHERE id=?",
+                (dados_["cliente_id"], dados_.get("origem_id"),
+                 dados_.get("interesse", ""), dados_.get("valor_estimado", 0),
+                 dados_.get("responsavel_id"), status,
+                 dados_.get("data_evento"), dados_.get("observacoes", ""),
+                 agora_, id_))
+            return id_
+        r = conn.execute(
+            "INSERT INTO leads (cliente_id, origem_id, interesse,"
+            " valor_estimado, responsavel_id, status, data_evento,"
+            " observacoes, criado_em, atualizado_em)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (dados_["cliente_id"], dados_.get("origem_id"),
+             dados_.get("interesse", ""), dados_.get("valor_estimado", 0),
+             dados_.get("responsavel_id"), status,
+             dados_.get("data_evento"), dados_.get("observacoes", ""),
+             agora_, agora_))
+        return r.lastrowid
+
+
+def mover_lead(id_: int, novo_status: str):
+    todos = list(ETAPAS_LEAD) + list(ETAPAS_ALT_LEAD)
+    if novo_status not in todos:
+        raise ValueError("Status invalido.")
+    agora_ = formato.agora()
+    with conectar() as conn:
+        conn.execute(
+            "UPDATE leads SET status=?, atualizado_em=? WHERE id=?",
+            (novo_status, agora_, id_))
+
+
+def contadores_lead() -> dict:
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) as qtd FROM leads GROUP BY status"
+        ).fetchall()
+        return {r["status"]: r["qtd"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Orcamentos
+# ---------------------------------------------------------------------------
+
+def listar_orcamentos(status: str | None = None) -> list:
+    sql = ("SELECT o.*, c.nome AS cliente_nome FROM orcamentos o"
+           " LEFT JOIN clientes c ON c.id = o.cliente_id")
+    params: list = []
+    if status:
+        sql += " WHERE o.status = ?"
+        params.append(status)
+    sql += " ORDER BY o.atualizado_em DESC"
+    with conectar() as conn:
+        orcs = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        for orc in orcs:
+            orc["itens"] = _itens_orcamento(conn, orc["id"])
+            orc["subtotal"] = sum(
+                i["quantidade"] * i["preco_unitario"] for i in orc["itens"])
+            orc["total"] = max(orc["subtotal"] - (orc["desconto"] or 0), 0)
+        return orcs
+
+
+def _itens_orcamento(conn, orcamento_id: int) -> list:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM itens_orcamento WHERE orcamento_id = ? ORDER BY id",
+        (orcamento_id,)).fetchall()]
+
+
+def buscar_orcamento(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute(
+            "SELECT o.*, c.nome AS cliente_nome FROM orcamentos o"
+            " LEFT JOIN clientes c ON c.id = o.cliente_id"
+            " WHERE o.id = ?", (id_,)).fetchone()
+        if not r:
+            return None
+        orc = dict(r)
+        orc["itens"] = _itens_orcamento(conn, orc["id"])
+        orc["subtotal"] = sum(
+            i["quantidade"] * i["preco_unitario"] for i in orc["itens"])
+        orc["total"] = max(orc["subtotal"] - (orc["desconto"] or 0), 0)
+        if orc.get("lead_id"):
+            ld = conn.execute("SELECT interesse FROM leads WHERE id=?",
+                              (orc["lead_id"],)).fetchone()
+            orc["lead_interesse"] = ld["interesse"] if ld else ""
+        return orc
+
+
+def salvar_orcamento(dados_: dict, itens: list,
+                     id_: int | None = None) -> int:
+    if not dados_.get("cliente_id"):
+        raise ErroDeCampo("cliente_id", "Cliente e obrigatorio.")
+
+    status = dados_.get("status", "rascunho")
+    if status not in STATUS_ORCAMENTO:
+        raise ErroDeCampo("status", "Status invalido.")
+
+    desconto = float(dados_.get("desconto") or 0)
+    if desconto < 0:
+        raise ErroDeCampo("desconto", "Desconto nao pode ser negativo.")
+
+    agora_ = formato.agora()
+    with conectar() as conn:
+        if id_:
+            conn.execute(
+                "UPDATE orcamentos SET lead_id=?, cliente_id=?, desconto=?,"
+                " observacoes=?, status=?, atualizado_em=? WHERE id=?",
+                (dados_.get("lead_id"), dados_["cliente_id"], desconto,
+                 dados_.get("observacoes", ""), status, agora_, id_))
+            conn.execute("DELETE FROM itens_orcamento WHERE orcamento_id=?",
+                         (id_,))
+            novo_id = id_
+        else:
+            r = conn.execute(
+                "INSERT INTO orcamentos (lead_id, cliente_id, desconto,"
+                " observacoes, status, criado_em, atualizado_em)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (dados_.get("lead_id"), dados_["cliente_id"], desconto,
+                 dados_.get("observacoes", ""), status, agora_, agora_))
+            novo_id = r.lastrowid
+        for item in itens:
+            if not item.get("descricao", "").strip():
+                continue
+            conn.execute(
+                "INSERT INTO itens_orcamento (orcamento_id, tipo, item_id,"
+                " descricao, quantidade, preco_unitario)"
+                " VALUES (?,?,?,?,?,?)",
+                (novo_id, item.get("tipo", "produto"),
+                 item.get("item_id"), item["descricao"].strip(),
+                 int(item.get("quantidade") or 1),
+                 float(item.get("preco_unitario") or 0)))
+        return novo_id
+
+
+def total_orcamento(id_: int) -> float:
+    orc = buscar_orcamento(id_)
+    if not orc:
+        return 0
+    return orc["total"]
+
+
+# ---------------------------------------------------------------------------
+# Pedidos
+# ---------------------------------------------------------------------------
+
+def listar_pedidos(status_comercial: str | None = None) -> list:
+    sql = ("SELECT p.*, c.nome AS cliente_nome FROM pedidos p"
+           " LEFT JOIN clientes c ON c.id = p.cliente_id")
+    params: list = []
+    if status_comercial:
+        sql += " WHERE p.status_comercial = ?"
+        params.append(status_comercial)
+    sql += " ORDER BY p.criado_em DESC"
+    with conectar() as conn:
+        peds = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        for ped in peds:
+            ped["itens"] = [dict(r) for r in conn.execute(
+                "SELECT * FROM itens_pedido WHERE pedido_id=? ORDER BY id",
+                (ped["id"],)).fetchall()]
+            ped["total"] = sum(
+                i["quantidade"] * i["preco_unitario"] for i in ped["itens"])
+        return peds
+
+
+def buscar_pedido_festas(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute(
+            "SELECT p.*, c.nome AS cliente_nome FROM pedidos p"
+            " LEFT JOIN clientes c ON c.id = p.cliente_id"
+            " WHERE p.id = ?", (id_,)).fetchone()
+        if not r:
+            return None
+        ped = dict(r)
+        ped["itens"] = [dict(r) for r in conn.execute(
+            "SELECT * FROM itens_pedido WHERE pedido_id=? ORDER BY id",
+            (ped["id"],)).fetchall()]
+        ped["total"] = sum(
+            i["quantidade"] * i["preco_unitario"] for i in ped["itens"])
+        return ped
+
+
+def converter_orcamento_em_pedido(orcamento_id: int) -> int:
+    orc = buscar_orcamento(orcamento_id)
+    if not orc:
+        raise ValueError("Orcamento nao encontrado.")
+    if orc["status"] == "recusado":
+        raise ValueError("Orcamento recusado nao pode ser convertido.")
+
+    agora_ = formato.agora()
+    with conectar() as conn:
+        r = conn.execute(
+            "INSERT INTO pedidos (orcamento_id, cliente_id, data_evento,"
+            " observacoes, criado_em, atualizado_em) VALUES (?,?,?,?,?,?)",
+            (orcamento_id, orc["cliente_id"], None,
+             orc.get("observacoes", ""), agora_, agora_))
+        pedido_id = r.lastrowid
+        for item in orc["itens"]:
+            conn.execute(
+                "INSERT INTO itens_pedido (pedido_id, tipo, item_id,"
+                " descricao, quantidade, preco_unitario)"
+                " VALUES (?,?,?,?,?,?)",
+                (pedido_id, item["tipo"], item.get("item_id"),
+                 item["descricao"], item["quantidade"],
+                 item["preco_unitario"]))
+        conn.execute(
+            "UPDATE orcamentos SET status='aceito', atualizado_em=?"
+            " WHERE id=?", (agora_, orcamento_id))
+        if orc.get("lead_id"):
+            conn.execute(
+                "UPDATE leads SET status='contratado', atualizado_em=?"
+                " WHERE id=?", (agora_, orc["lead_id"]))
+        return pedido_id

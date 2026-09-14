@@ -59,3 +59,27 @@ ORDENS_KITS = (
 )
 
 BUSCA_KITS = ("nome", "descricao")
+
+ORDENS_LEADS = (
+    ("cliente_nome", "Cliente", lambda l: (l.get("cliente_nome") or "").lower()),
+    ("valor_estimado", "Valor", lambda l: l.get("valor_estimado") or 0),
+    ("atualizado_em", "Atualizado", lambda l: l.get("atualizado_em") or ""),
+)
+
+BUSCA_LEADS = ("cliente_nome", "interesse", "origem_nome", "observacoes")
+
+ORDENS_ORCAMENTOS = (
+    ("cliente_nome", "Cliente", lambda o: (o.get("cliente_nome") or "").lower()),
+    ("total", "Total", lambda o: o.get("total") or 0),
+    ("criado_em", "Data", lambda o: o.get("criado_em") or ""),
+)
+
+BUSCA_ORCAMENTOS = ("cliente_nome", "observacoes")
+
+ORDENS_PEDIDOS = (
+    ("cliente_nome", "Cliente", lambda p: (p.get("cliente_nome") or "").lower()),
+    ("total", "Total", lambda p: p.get("total") or 0),
+    ("criado_em", "Data", lambda p: p.get("criado_em") or ""),
+)
+
+BUSCA_PEDIDOS = ("cliente_nome", "observacoes")

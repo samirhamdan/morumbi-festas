@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Editar Lead' if atual.get('id') else 'Novo Lead' }} — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">{{ 'Editar Lead' if atual.get('id') else 'Novo Lead' }}</h2>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form method="post" class="formulario" data-avisar>
+    <div class="duas-colunas">
+      <div>
+        <h3 class="form-secao" style="border-top:none;padding-top:0">Dados do lead</h3>
+
+        <label class="campo" id="campo-cliente_id">
+          <span>Cliente *</span>
+          <select name="cliente_id" required>
+            <option value="">Selecione...</option>
+            {% for c in clientes %}
+            <option value="{{ c.id }}" {{ 'selected' if atual.get('cliente_id') == c.id }}>{{ c.nome }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="campo" id="campo-origem_id">
+          <span>Origem</span>
+          <select name="origem_id">
+            <option value="">Sem origem</option>
+            {% for o in origens %}
+            <option value="{{ o.id }}" {{ 'selected' if atual.get('origem_id') == o.id }}>{{ o.nome }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="campo" id="campo-interesse">
+          <span>Interesse</span>
+          <input type="text" name="interesse" value="{{ atual.get('interesse', '') }}"
+                 placeholder="Ex: Festa infantil 50 pessoas" autocomplete="off">
+        </label>
+
+        <label class="campo" id="campo-valor_estimado">
+          <span>Valor estimado (R$)</span>
+          <input type="number" name="valor_estimado" step="0.01" min="0"
+                 value="{{ '%.2f'|format(atual.get('valor_estimado', 0)) }}"
+                 inputmode="decimal">
+        </label>
+
+        <label class="campo" id="campo-data_evento">
+          <span>Data do evento</span>
+          <input type="date" name="data_evento" value="{{ atual.get('data_evento', '') or '' }}">
+        </label>
+      </div>
+
+      <div>
+        <h3 class="form-secao" style="border-top:none;padding-top:0">Acompanhamento</h3>
+
+        <label class="campo" id="campo-responsavel_id">
+          <span>Responsavel</span>
+          <select name="responsavel_id">
+            <option value="">Sem responsavel</option>
+            {% for u in usuarios %}
+            <option value="{{ u.id }}" {{ 'selected' if atual.get('responsavel_id') == u.id }}>{{ u.nome }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="campo" id="campo-status">
+          <span>Status</span>
+          <select name="status">
+            {% for e in etapas %}
+            <option value="{{ e }}" {{ 'selected' if atual.get('status', 'novo') == e }}>{{ e|capitalize }}</option>
+            {% endfor %}
+            {% for e in etapas_alt %}
+            <option value="{{ e }}" {{ 'selected' if atual.get('status') == e }}>{{ e|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="campo" id="campo-observacoes">
+          <span>Observacoes</span>
+          <textarea name="observacoes" rows="4">{{ atual.get('observacoes', '') }}</textarea>
+        </label>
+      </div>
+    </div>
+
+    <div class="acoes-formulario sticky">
+      <a href="{{ url_for('lista_leads') }}" class="botao vazado">Cancelar</a>
+      <button type="submit" class="botao">Salvar</button>
+    </div>
+  </form>
+</main>
+{% endblock %}

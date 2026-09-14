@@ -20,6 +20,9 @@ MENU = (
     )),
     ("Comercial", (
         ("lista_clientes", "Clientes"),
+        ("lista_leads", "Leads"),
+        ("lista_orcamentos", "Orcamentos"),
+        ("lista_pedidos", "Pedidos"),
     )),
     ("Catalogo", (
         ("catalogo_interno", "Vitrine"),
@@ -29,6 +32,7 @@ MENU = (
     )),
     ("Administracao", (
         ("lista_usuarios", "Usuarios"),
+        ("lista_origens", "Origens de lead"),
     )),
 )
 
@@ -717,5 +721,223 @@ def criar_app() -> Flask:
                                categorias=dados.listar_categorias(),
                                busca=busca,
                                cat_filtro=cat_id)
+
+    # ------------------------------------------------------------------
+    # Origens de lead
+    # ------------------------------------------------------------------
+
+    @app.route("/origens")
+    @auth.exige_perfil("admin")
+    def lista_origens():
+        return render_template("origens.html",
+                               origens=dados.listar_origens())
+
+    @app.route("/origem", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def salvar_origem_rota():
+        try:
+            nome = request.form.get("nome", "")
+            id_ = request.form.get("id")
+            id_ = int(id_) if id_ else None
+            dados.salvar_origem(nome, id_)
+            flash("Origem salva.", "ok")
+        except (dados.ErroDeCampo, ValueError) as e:
+            flash(str(e), "erro")
+        return redirect(url_for("lista_origens"))
+
+    @app.route("/origem/<int:id_>/excluir", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def excluir_origem_rota(id_):
+        try:
+            dados.excluir_origem(id_)
+            flash("Origem excluida.", "ok")
+        except ValueError as e:
+            flash(str(e), "erro")
+        return redirect(url_for("lista_origens"))
+
+    # ------------------------------------------------------------------
+    # Leads
+    # ------------------------------------------------------------------
+
+    @app.route("/leads")
+    @auth.exige_perfil("admin", "comercial")
+    def lista_leads():
+        modo = request.args.get("modo", "kanban")
+        busca = request.args.get("q", "")
+        origem_filtro = request.args.get("origem", "")
+
+        if modo == "kanban":
+            funil = dados.leads_por_etapa()
+            contadores = dados.contadores_lead()
+            return render_template("leads_kanban.html",
+                                   funil=funil,
+                                   contadores=contadores,
+                                   etapas=dados.ETAPAS_LEAD,
+                                   origens=dados.listar_origens(),
+                                   modo=modo)
+
+        todos = dados.listar_leads()
+        if busca:
+            from sistema.listas import filtrar, BUSCA_LEADS
+            todos = filtrar(todos, busca, BUSCA_LEADS)
+        if origem_filtro:
+            todos = [l for l in todos if l.get("origem_nome") == origem_filtro]
+        return render_template("leads.html",
+                               leads=todos,
+                               origens=dados.listar_origens(),
+                               busca=busca,
+                               origem_filtro=origem_filtro,
+                               modo=modo)
+
+    @app.route("/lead", methods=["GET", "POST"])
+    @app.route("/lead/<int:id_>", methods=["GET", "POST"])
+    @auth.exige_perfil("admin", "comercial")
+    def editar_lead(id_=None):
+        atual = dados.buscar_lead(id_) if id_ else {}
+        if id_ and not atual:
+            abort(404)
+
+        if request.method == "POST":
+            try:
+                c = dados.campos_lead(request.form)
+                novo_id = dados.salvar_lead(c, id_)
+                dados.registrar_acao(
+                    session.get("usuario_id"), "lead",
+                    f"{'Editou' if id_ else 'Criou'} lead #{novo_id}")
+                flash("Lead salvo.", "ok")
+                return redirect(url_for("editar_lead", id_=novo_id))
+            except (dados.ErroDeCampo, ValueError) as e:
+                atual = dados.campos_lead(request.form)
+                return render_template("lead.html", atual=atual,
+                                       clientes=dados.listar_clientes(),
+                                       origens=dados.listar_origens(),
+                                       usuarios=dados.listar_usuarios(),
+                                       etapas=dados.ETAPAS_LEAD,
+                                       etapas_alt=dados.ETAPAS_ALT_LEAD,
+                                       **_erro(e))
+
+        return render_template("lead.html", atual=atual,
+                               clientes=dados.listar_clientes(),
+                               origens=dados.listar_origens(),
+                               usuarios=dados.listar_usuarios(),
+                               etapas=dados.ETAPAS_LEAD,
+                               etapas_alt=dados.ETAPAS_ALT_LEAD)
+
+    @app.route("/lead/<int:id_>/mover", methods=["POST"])
+    @auth.exige_perfil("admin", "comercial")
+    def mover_lead_rota(id_):
+        novo = request.form.get("status", "")
+        try:
+            dados.mover_lead(id_, novo)
+        except ValueError as e:
+            flash(str(e), "erro")
+        ref = request.form.get("retorno", "")
+        if ref == "kanban":
+            return redirect(url_for("lista_leads", modo="kanban"))
+        return redirect(url_for("editar_lead", id_=id_))
+
+    # ------------------------------------------------------------------
+    # Orcamentos
+    # ------------------------------------------------------------------
+
+    @app.route("/orcamentos")
+    @auth.exige_perfil("admin", "comercial")
+    def lista_orcamentos():
+        busca = request.args.get("q", "")
+        status_f = request.args.get("status", "")
+        orcs = dados.listar_orcamentos(status_f or None)
+        if busca:
+            from sistema.listas import filtrar, BUSCA_ORCAMENTOS
+            orcs = filtrar(orcs, busca, BUSCA_ORCAMENTOS)
+        return render_template("orcamentos.html",
+                               orcamentos=orcs,
+                               busca=busca,
+                               status_filtro=status_f,
+                               status_opcoes=dados.STATUS_ORCAMENTO)
+
+    @app.route("/orcamento", methods=["GET", "POST"])
+    @app.route("/orcamento/<int:id_>", methods=["GET", "POST"])
+    @auth.exige_perfil("admin", "comercial")
+    def editar_orcamento(id_=None):
+        atual = dados.buscar_orcamento(id_) if id_ else {}
+        if id_ and not atual:
+            abort(404)
+
+        if request.method == "POST":
+            try:
+                d = {
+                    "cliente_id": int(request.form.get("cliente_id") or 0) or None,
+                    "lead_id": int(request.form.get("lead_id") or 0) or None,
+                    "desconto": request.form.get("desconto", "0"),
+                    "observacoes": request.form.get("observacoes", ""),
+                    "status": request.form.get("status", "rascunho"),
+                }
+                itens = []
+                i = 0
+                while True:
+                    desc = request.form.get(f"item_descricao_{i}")
+                    if desc is None:
+                        break
+                    itens.append({
+                        "tipo": request.form.get(f"item_tipo_{i}", "produto"),
+                        "item_id": int(request.form.get(f"item_item_id_{i}") or 0) or None,
+                        "descricao": desc,
+                        "quantidade": request.form.get(f"item_quantidade_{i}", "1"),
+                        "preco_unitario": request.form.get(f"item_preco_{i}", "0"),
+                    })
+                    i += 1
+                novo_id = dados.salvar_orcamento(d, itens, id_)
+                dados.registrar_acao(
+                    session.get("usuario_id"), "orcamento",
+                    f"{'Editou' if id_ else 'Criou'} orcamento #{novo_id}")
+                flash("Orcamento salvo.", "ok")
+                return redirect(url_for("editar_orcamento", id_=novo_id))
+            except (dados.ErroDeCampo, ValueError) as e:
+                flash(str(e), "erro")
+                return redirect(url_for("editar_orcamento", id_=id_) if id_
+                                else url_for("editar_orcamento"))
+
+        return render_template("orcamento.html", atual=atual,
+                               clientes=dados.listar_clientes(),
+                               leads=dados.listar_leads(),
+                               produtos=dados.listar_produtos("disponivel"),
+                               kits=dados.listar_kits("ativo"),
+                               status_opcoes=dados.STATUS_ORCAMENTO)
+
+    @app.route("/orcamento/<int:id_>/converter", methods=["POST"])
+    @auth.exige_perfil("admin", "comercial")
+    def converter_orcamento(id_):
+        try:
+            pedido_id = dados.converter_orcamento_em_pedido(id_)
+            dados.registrar_acao(
+                session.get("usuario_id"), "pedido",
+                f"Converteu orcamento #{id_} em pedido #{pedido_id}")
+            flash(f"Pedido #{pedido_id} criado a partir do orcamento.", "ok")
+            return redirect(url_for("ver_pedido", id_=pedido_id))
+        except ValueError as e:
+            flash(str(e), "erro")
+            return redirect(url_for("editar_orcamento", id_=id_))
+
+    # ------------------------------------------------------------------
+    # Pedidos
+    # ------------------------------------------------------------------
+
+    @app.route("/pedidos")
+    @auth.exige_perfil("admin", "comercial")
+    def lista_pedidos():
+        busca = request.args.get("q", "")
+        peds = dados.listar_pedidos()
+        if busca:
+            from sistema.listas import filtrar, BUSCA_PEDIDOS
+            peds = filtrar(peds, busca, BUSCA_PEDIDOS)
+        return render_template("pedidos.html", pedidos=peds, busca=busca)
+
+    @app.route("/pedido/<int:id_>")
+    @auth.exige_perfil("admin", "comercial")
+    def ver_pedido(id_):
+        ped = dados.buscar_pedido_festas(id_)
+        if not ped:
+            abort(404)
+        return render_template("pedido_festas.html", pedido=ped)
 
     return app

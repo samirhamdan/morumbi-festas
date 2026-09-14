@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block titulo %}Leads — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Leads</h2>
+    <span class="abas">
+      <a href="{{ url_for('lista_leads', modo='kanban') }}" class="{{ 'aqui' if modo == 'kanban' }}">Kanban</a>
+      <a href="{{ url_for('lista_leads', modo='lista') }}" class="{{ 'aqui' if modo == 'lista' }}">Lista</a>
+    </span>
+    <a class="botao" href="{{ url_for('editar_lead') }}">Novo lead</a>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form class="peneira" method="get">
+    <input type="hidden" name="modo" value="lista">
+    <label class="busca">
+      <span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Cliente, interesse..."
+             autocomplete="off" enterkeyhint="search">
+    </label>
+    {% if origens %}
+    <select name="origem" onchange="this.form.submit()">
+      <option value="">Todas as origens</option>
+      {% for o in origens %}
+      <option value="{{ o.nome }}" {{ 'selected' if origem_filtro == o.nome }}>{{ o.nome }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button class="botao vazado" type="submit">Buscar</button>
+  </form>
+
+  {% if leads %}
+  <div class="cartao cartao-tabela"><div class="rolagem">
+    <table class="tabela">
+      <thead><tr>
+        <th>Cliente</th>
+        <th>Interesse</th>
+        <th>Origem</th>
+        <th>Valor est.</th>
+        <th>Status</th>
+        <th>Atualizado</th>
+      </tr></thead>
+      <tbody>
+        {% for l in leads %}
+        <tr>
+          <td data-rotulo="Cliente" class="chave"><a href="{{ url_for('editar_lead', id_=l.id) }}">{{ l.cliente_nome or '—' }}</a></td>
+          <td data-rotulo="Interesse">{{ l.interesse or '—' }}</td>
+          <td data-rotulo="Origem">{{ l.origem_nome or '—' }}</td>
+          <td data-rotulo="Valor est." class="decide">{{ l.valor_estimado|dinheiro }}</td>
+          <td data-rotulo="Status" class="estado"><span class="etiqueta {{ 'verde' if l.status == 'contratado' else 'cinza' if l.status in ('perdido','cancelado') else 'roxo' }}">{{ l.status }}</span></td>
+          <td data-rotulo="Atualizado">{{ l.atualizado_em|datahora }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% else %}
+  <div class="cartao cartao-vazio">
+    {% if busca %}
+    <b>Nenhum resultado para "{{ busca }}".</b>
+    {% else %}
+    <b>Nenhum lead cadastrado.</b>
+    <span><a href="{{ url_for('editar_lead') }}">Cadastrar primeiro lead</a></span>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

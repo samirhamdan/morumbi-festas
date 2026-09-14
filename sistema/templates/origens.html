@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block titulo %}Origens de Lead — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Origens de Lead</h2>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <div class="duas-colunas">
+    <div>
+      <div class="cartao">
+        <h3 class="form-secao" style="border-top:none;padding-top:0">Nova origem</h3>
+        <form method="post" action="{{ url_for('salvar_origem_rota') }}" class="formulario" data-avisar>
+          <label class="campo" id="campo-nome">
+            <span>Nome</span>
+            <input type="text" name="nome" required autocomplete="off">
+          </label>
+          <div class="acoes-formulario">
+            <button type="submit" class="botao">Salvar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div>
+      {% if origens %}
+      <div class="cartao cartao-tabela"><div class="rolagem">
+        <table class="tabela">
+          <thead><tr>
+            <th>Nome</th>
+            <th>Acoes</th>
+          </tr></thead>
+          <tbody>
+            {% for o in origens %}
+            <tr>
+              <td data-rotulo="Nome">{{ o.nome }}</td>
+              <td data-rotulo="Acoes">
+                <form method="post" action="{{ url_for('excluir_origem_rota', id_=o.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Excluir origem {{ o.nome }}?')">
+                  <button type="submit" class="botao vazado perigoso">Excluir</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+      {% else %}
+      <div class="cartao cartao-vazio">
+        <b>Nenhuma origem cadastrada.</b>
+        <span>As origens padrao serao criadas ao reiniciar o sistema.</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</main>
+{% endblock %}
