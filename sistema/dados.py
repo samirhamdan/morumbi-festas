@@ -62,6 +62,37 @@ def inicializar():
                 dados TEXT,
                 criado_em TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS clientes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                cpf_cnpj TEXT,
+                whatsapp TEXT,
+                telefone TEXT,
+                email TEXT,
+                data_nascimento TEXT,
+                endereco TEXT,
+                bairro TEXT,
+                cidade TEXT DEFAULT 'Campo Grande',
+                cep TEXT,
+                instagram TEXT,
+                observacoes TEXT,
+                origem TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'ativo',
+                cliente_3d_id INTEGER,
+                criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+                atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_clientes_cpf ON clientes(cpf_cnpj);
+            CREATE INDEX IF NOT EXISTS idx_clientes_whatsapp ON clientes(whatsapp);
+            CREATE INDEX IF NOT EXISTS idx_clientes_email ON clientes(email);
+
+            CREATE TABLE IF NOT EXISTS tags_cliente (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+                tag TEXT NOT NULL,
+                UNIQUE(cliente_id, tag)
+            );
         """)
 
 
@@ -225,10 +256,187 @@ def salvar_organizacao(dados: dict) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Clientes
+# ---------------------------------------------------------------------------
+
+ORIGENS_CLIENTE = (
+    "Instagram", "WhatsApp", "Indicacao", "Google", "Facebook",
+    "Evento", "Loja fisica", "Outro",
+)
+
+
+def listar_clientes(somente_ativos=True) -> list:
+    sql = "SELECT * FROM clientes"
+    if somente_ativos:
+        sql += " WHERE status = 'ativo'"
+    sql += " ORDER BY nome"
+    with conectar() as conn:
+        clientes = [dict(r) for r in conn.execute(sql).fetchall()]
+        for c in clientes:
+            c["tags"] = _tags_do_cliente(conn, c["id"])
+        return clientes
+
+
+def buscar_cliente(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute("SELECT * FROM clientes WHERE id = ?", (id_,)).fetchone()
+        if not r:
+            return None
+        c = dict(r)
+        c["tags"] = _tags_do_cliente(conn, c["id"])
+        return c
+
+
+def _tags_do_cliente(conn, cliente_id: int) -> list:
+    return [r["tag"] for r in conn.execute(
+        "SELECT tag FROM tags_cliente WHERE cliente_id = ? ORDER BY tag",
+        (cliente_id,)).fetchall()]
+
+
+def campos_cliente(form) -> dict:
+    return {
+        "nome": (form.get("nome") or "").strip(),
+        "cpf_cnpj": _limpar_doc(form.get("cpf_cnpj") or ""),
+        "whatsapp": _limpar_fone(form.get("whatsapp") or ""),
+        "telefone": _limpar_fone(form.get("telefone") or ""),
+        "email": (form.get("email") or "").strip().lower(),
+        "data_nascimento": (form.get("data_nascimento") or "").strip(),
+        "endereco": (form.get("endereco") or "").strip(),
+        "bairro": (form.get("bairro") or "").strip(),
+        "cidade": (form.get("cidade") or "Campo Grande").strip(),
+        "cep": _limpar_doc(form.get("cep") or ""),
+        "instagram": (form.get("instagram") or "").strip().lstrip("@"),
+        "observacoes": (form.get("observacoes") or "").strip(),
+        "origem": (form.get("origem") or "").strip(),
+        "status": form.get("status", "ativo"),
+        "cliente_3d_id": form.get("cliente_3d_id") or None,
+    }
+
+
+def _limpar_doc(texto: str) -> str:
+    return "".join(c for c in texto if c.isdigit())
+
+
+def _limpar_fone(texto: str) -> str:
+    return "".join(c for c in texto if c.isdigit() or c == "+")
+
+
+def verificar_duplicidade(campo: str, valor: str, id_excluir: int | None = None) -> dict | None:
+    if not valor:
+        return None
+    with conectar() as conn:
+        sql = f"SELECT id, nome, {campo} FROM clientes WHERE {campo} = ? AND id != ?"
+        r = conn.execute(sql, (valor, id_excluir or 0)).fetchone()
+        return dict(r) if r else None
+
+
+def salvar_cliente(dados_: dict, id_: int | None = None, tags: list | None = None) -> int:
+    nome = dados_.get("nome", "").strip()
+    if not nome:
+        raise ErroDeCampo("nome", "Nome e obrigatorio.")
+
+    cpf = dados_.get("cpf_cnpj", "")
+    whatsapp = dados_.get("whatsapp", "")
+    email = dados_.get("email", "")
+
+    if cpf:
+        dup = verificar_duplicidade("cpf_cnpj", cpf, id_)
+        if dup:
+            raise ErroDeCampo("cpf_cnpj",
+                              f"CPF/CNPJ ja cadastrado para {dup['nome']}.")
+    if whatsapp:
+        dup = verificar_duplicidade("whatsapp", whatsapp, id_)
+        if dup:
+            raise ErroDeCampo("whatsapp",
+                              f"WhatsApp ja cadastrado para {dup['nome']}.")
+    if email:
+        dup = verificar_duplicidade("email", email, id_)
+        if dup:
+            raise ErroDeCampo("email",
+                              f"E-mail ja cadastrado para {dup['nome']}.")
+
+    agora_ = formato.agora()
+    with conectar() as conn:
+        if id_:
+            conn.execute(
+                "UPDATE clientes SET nome=?, cpf_cnpj=?, whatsapp=?, telefone=?,"
+                " email=?, data_nascimento=?, endereco=?, bairro=?, cidade=?,"
+                " cep=?, instagram=?, observacoes=?, origem=?, status=?,"
+                " cliente_3d_id=?, atualizado_em=? WHERE id = ?",
+                (nome, cpf, whatsapp, dados_.get("telefone", ""),
+                 email, dados_.get("data_nascimento", ""),
+                 dados_.get("endereco", ""), dados_.get("bairro", ""),
+                 dados_.get("cidade", "Campo Grande"), dados_.get("cep", ""),
+                 dados_.get("instagram", ""), dados_.get("observacoes", ""),
+                 dados_.get("origem", ""), dados_.get("status", "ativo"),
+                 dados_.get("cliente_3d_id"), agora_, id_))
+            novo_id = id_
+        else:
+            r = conn.execute(
+                "INSERT INTO clientes (nome, cpf_cnpj, whatsapp, telefone,"
+                " email, data_nascimento, endereco, bairro, cidade, cep,"
+                " instagram, observacoes, origem, status, cliente_3d_id,"
+                " criado_em, atualizado_em)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (nome, cpf, whatsapp, dados_.get("telefone", ""),
+                 email, dados_.get("data_nascimento", ""),
+                 dados_.get("endereco", ""), dados_.get("bairro", ""),
+                 dados_.get("cidade", "Campo Grande"), dados_.get("cep", ""),
+                 dados_.get("instagram", ""), dados_.get("observacoes", ""),
+                 dados_.get("origem", ""), dados_.get("status", "ativo"),
+                 dados_.get("cliente_3d_id"), agora_, agora_))
+            novo_id = r.lastrowid
+
+        if tags is not None:
+            conn.execute("DELETE FROM tags_cliente WHERE cliente_id = ?", (novo_id,))
+            for tag in tags:
+                tag = tag.strip()
+                if tag:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO tags_cliente (cliente_id, tag)"
+                        " VALUES (?, ?)", (novo_id, tag))
+
+        return novo_id
+
+
+def link_whatsapp(numero: str) -> str:
+    n = _limpar_fone(numero)
+    if not n:
+        return ""
+    if not n.startswith("55"):
+        n = "55" + n
+    return f"https://wa.me/{n}"
+
+
+def exportar_clientes_csv(clientes: list) -> str:
+    import csv
+    import io
+    saida = io.StringIO()
+    escritor = csv.writer(saida)
+    escritor.writerow(["Nome", "WhatsApp", "Cidade", "Bairro", "Origem",
+                       "Instagram", "Tags", "Status"])
+    for c in clientes:
+        escritor.writerow([
+            c.get("nome", ""),
+            c.get("whatsapp", ""),
+            c.get("cidade", ""),
+            c.get("bairro", ""),
+            c.get("origem", ""),
+            c.get("instagram", ""),
+            ", ".join(c.get("tags", [])),
+            c.get("status", ""),
+        ])
+    return saida.getvalue()
+
+
+# ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
 
 def resumo_painel() -> dict:
+    with conectar() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM clientes WHERE status='ativo'").fetchone()[0]
     return {
-        "vazio": True,
+        "vazio": total == 0,
+        "total_clientes": total,
     }

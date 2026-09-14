@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} cliente — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">{{ 'Editar cliente' if atual.get('id') else 'Novo cliente' }}</h2>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form method="post" class="formulario" data-avisar>
+    <div class="cartao" style="padding:20px">
+      <h3 class="form-secao">Dados pessoais</h3>
+
+      <label class="campo" id="campo-nome">
+        <span class="campo-rotulo">Nome completo</span>
+        <input type="text" name="nome" value="{{ atual.get('nome', '') }}" required autofocus>
+        {% if campo_erro == 'nome' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+      </label>
+
+      <div class="campo-duplo">
+        <label class="campo" id="campo-cpf_cnpj">
+          <span class="campo-rotulo">CPF / CNPJ</span>
+          <input type="text" name="cpf_cnpj" value="{{ atual.get('cpf_cnpj', '') }}"
+                 inputmode="numeric" placeholder="Somente numeros">
+          {% if campo_erro == 'cpf_cnpj' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+        </label>
+
+        <label class="campo" id="campo-data_nascimento">
+          <span class="campo-rotulo">Data de nascimento</span>
+          <input type="date" name="data_nascimento" value="{{ atual.get('data_nascimento', '') }}">
+        </label>
+      </div>
+
+      <h3 class="form-secao">Contato</h3>
+
+      <div class="campo-duplo">
+        <label class="campo" id="campo-whatsapp">
+          <span class="campo-rotulo">WhatsApp</span>
+          <input type="tel" name="whatsapp" value="{{ atual.get('whatsapp', '') }}"
+                 inputmode="tel" placeholder="67999991234">
+          {% if campo_erro == 'whatsapp' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+        </label>
+
+        <label class="campo" id="campo-telefone">
+          <span class="campo-rotulo">Telefone fixo</span>
+          <input type="tel" name="telefone" value="{{ atual.get('telefone', '') }}"
+                 inputmode="tel">
+        </label>
+      </div>
+
+      <div class="campo-duplo">
+        <label class="campo" id="campo-email">
+          <span class="campo-rotulo">E-mail</span>
+          <input type="email" name="email" value="{{ atual.get('email', '') }}">
+          {% if campo_erro == 'email' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+        </label>
+
+        <label class="campo" id="campo-instagram">
+          <span class="campo-rotulo">Instagram</span>
+          <input type="text" name="instagram" value="{{ atual.get('instagram', '') }}"
+                 placeholder="sem o @">
+        </label>
+      </div>
+
+      <h3 class="form-secao">Endereco</h3>
+
+      <label class="campo" id="campo-endereco">
+        <span class="campo-rotulo">Endereco</span>
+        <input type="text" name="endereco" value="{{ atual.get('endereco', '') }}">
+      </label>
+
+      <div class="campo-triplo">
+        <label class="campo" id="campo-bairro">
+          <span class="campo-rotulo">Bairro</span>
+          <input type="text" name="bairro" value="{{ atual.get('bairro', '') }}">
+        </label>
+
+        <label class="campo" id="campo-cidade">
+          <span class="campo-rotulo">Cidade</span>
+          <input type="text" name="cidade" value="{{ atual.get('cidade', 'Campo Grande') }}">
+        </label>
+
+        <label class="campo" id="campo-cep">
+          <span class="campo-rotulo">CEP</span>
+          <input type="text" name="cep" value="{{ atual.get('cep', '') }}"
+                 inputmode="numeric" placeholder="79000000">
+        </label>
+      </div>
+
+      <h3 class="form-secao">Informacoes adicionais</h3>
+
+      <div class="campo-duplo">
+        <label class="campo" id="campo-origem">
+          <span class="campo-rotulo">Como conheceu</span>
+          <select name="origem">
+            <option value="">—</option>
+            {% for o in origens %}
+              <option value="{{ o }}" {{ 'selected' if atual.get('origem') == o }}>{{ o }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        {% if atual.get('id') %}
+        <label class="campo" id="campo-status">
+          <span class="campo-rotulo">Status</span>
+          <select name="status">
+            <option value="ativo" {{ 'selected' if atual.get('status', 'ativo') == 'ativo' }}>Ativo</option>
+            <option value="inativo" {{ 'selected' if atual.get('status') == 'inativo' }}>Inativo</option>
+          </select>
+        </label>
+        {% endif %}
+      </div>
+
+      <label class="campo" id="campo-tags">
+        <span class="campo-rotulo">Tags (separadas por virgula)</span>
+        <input type="text" name="tags"
+               value="{{ atual.get('tags', [])|join(', ') if atual.get('tags') is iterable and atual.get('tags') is not string else atual.get('tags', '') }}"
+               placeholder="VIP, recorrente, inadimplente">
+      </label>
+
+      <label class="campo" id="campo-observacoes">
+        <span class="campo-rotulo">Observacoes</span>
+        <textarea name="observacoes" rows="3">{{ atual.get('observacoes', '') }}</textarea>
+      </label>
+    </div>
+
+    <div class="barra-acoes">
+      <button type="submit" class="botao primario">Salvar</button>
+      <a href="{{ url_for('lista_clientes') }}" class="botao vazado">Cancelar</a>
+    </div>
+  </form>
+</main>
+{% endblock %}

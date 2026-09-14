@@ -24,8 +24,17 @@
       <h3>Bem-vindo ao Morumbi Festas!</h3>
       <p>O sistema esta pronto. Nas proximas versoes voce tera aqui o painel
       com os pedidos do dia, agenda e indicadores comerciais.</p>
-      <p>Comece cadastrando os produtos e clientes.</p>
+      <p><a href="{{ url_for('editar_cliente') }}" class="botao primario">Cadastrar primeiro cliente</a></p>
     </div>
+  </div>
+
+{% else %}
+
+  <div class="placar">
+    <a href="{{ url_for('lista_clientes') }}" id="v-clientes">
+      <span class="rotulo">Clientes ativos</span>
+      <span class="valor">{{ total_clientes }}</span>
+    </a>
   </div>
 
 {% endif %}

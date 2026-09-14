@@ -67,8 +67,20 @@ def mes_por_extenso(ref=None) -> str:
     return MESES[ref.month].capitalize()
 
 
+def whatsapp_link(numero) -> str:
+    if not numero:
+        return ""
+    n = "".join(c for c in str(numero) if c.isdigit() or c == "+")
+    if not n:
+        return ""
+    if not n.startswith("55"):
+        n = "55" + n
+    return f"https://wa.me/{n}"
+
+
 def registrar(app):
     app.jinja_env.filters["dinheiro"] = dinheiro
     app.jinja_env.filters["numero"] = numero
     app.jinja_env.filters["data"] = fmt_data
     app.jinja_env.filters["datahora"] = fmt_datahora
+    app.jinja_env.filters["whatsapp_link"] = whatsapp_link

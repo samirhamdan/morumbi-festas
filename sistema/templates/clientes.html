@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block titulo %}Clientes — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Clientes</h2>
+    <span class="abas">
+      <a href="{{ url_for('lista_clientes') }}" class="{{ 'aqui' if ver == 'ativos' }}">Ativos</a>
+      <a href="{{ url_for('lista_clientes', ver='inativos') }}" class="{{ 'aqui' if ver == 'inativos' }}">Inativos</a>
+      <a href="{{ url_for('lista_clientes', ver='todos') }}" class="{{ 'aqui' if ver == 'todos' }}">Todos</a>
+    </span>
+    <a class="botao" href="{{ url_for('editar_cliente') }}">Novo cliente</a>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form class="peneira" method="get">
+    {% if ver != 'ativos' %}<input type="hidden" name="ver" value="{{ ver }}">{% endif %}
+    <label class="busca">
+      <span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Nome, WhatsApp, e-mail ou CPF"
+             autocomplete="off" enterkeyhint="search">
+    </label>
+    <select name="origem" onchange="this.form.submit()">
+      <option value="">Todas as origens</option>
+      {% for o in origens %}
+        <option value="{{ o }}" {{ 'selected' if origem_filtro == o }}>{{ o }}</option>
+      {% endfor %}
+    </select>
+    {% if todas_tags %}
+    <select name="tag" onchange="this.form.submit()">
+      <option value="">Todas as tags</option>
+      {% for t in todas_tags %}
+        <option value="{{ t }}" {{ 'selected' if tag_filtro == t }}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button class="botao vazado" type="submit">Buscar</button>
+  </form>
+
+  {% if clientes %}
+  <div class="cartao cartao-tabela"><div class="rolagem">
+    <table class="tabela">
+      <thead><tr>
+        <th>Nome</th>
+        <th>WhatsApp</th>
+        <th>Cidade</th>
+        <th>Origem</th>
+        <th>Tags</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        {% for c in clientes %}
+        <tr class="{{ 'inativo' if c.status != 'ativo' }}">
+          <td data-rotulo="Nome" class="chave">
+            <a href="{{ url_for('editar_cliente', id_=c.id) }}">{{ c.nome }}</a>
+            {% if c.status != 'ativo' %}<span class="etiqueta cinza">inativo</span>{% endif %}
+          </td>
+          <td data-rotulo="WhatsApp">
+            {% if c.whatsapp %}
+              <a href="{{ c.whatsapp|whatsapp_link }}" target="_blank" rel="noopener" class="link-wpp">{{ c.whatsapp }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td data-rotulo="Cidade">{{ c.cidade or '—' }}</td>
+          <td data-rotulo="Origem" class="estado">
+            {% if c.origem %}<span class="etiqueta azul">{{ c.origem }}</span>{% else %}—{% endif %}
+          </td>
+          <td data-rotulo="Tags">
+            {% for tag in c.tags %}<span class="etiqueta laranja">{{ tag }}</span> {% endfor %}
+            {% if not c.tags %}—{% endif %}
+          </td>
+          <td class="num acao"><a href="{{ url_for('editar_cliente', id_=c.id) }}">editar</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="6" class="num">
+            {{ clientes|length }} cliente(s)
+            · <a href="{{ url_for('exportar_clientes', ver=ver, origem=origem_filtro) }}">Exportar CSV</a>
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div></div>
+  {% elif busca %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum resultado para "{{ busca }}".</b>
+    <span>Tente buscar por nome, WhatsApp, e-mail ou CPF.</span>
+  </div>
+  {% else %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum cliente {{ 'inativo' if ver == 'inativos' else 'cadastrado' }}.</b>
+    {% if ver != 'inativos' %}
+    <span><a href="{{ url_for('editar_cliente') }}">Cadastrar o primeiro cliente</a></span>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

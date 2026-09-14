@@ -35,3 +35,11 @@ ORDENS_USUARIOS = (
 )
 
 BUSCA_USUARIOS = ("nome", "login", "perfil")
+
+ORDENS_CLIENTES = (
+    ("nome", "Nome", lambda c: (c.get("nome") or "").lower()),
+    ("cidade", "Cidade", lambda c: (c.get("cidade") or "").lower()),
+    ("criado_em", "Data cadastro", lambda c: c.get("criado_em") or ""),
+)
+
+BUSCA_CLIENTES = ("nome", "whatsapp", "email", "cpf_cnpj", "cidade", "bairro", "instagram")

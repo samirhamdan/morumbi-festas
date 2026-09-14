@@ -511,6 +511,49 @@ body.bancada { background: var(--fundo); }
   color: var(--vermelho);
 }
 
+.campo-duplo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+
+.campo-triplo {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0 16px;
+}
+
+.form-secao {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--roxo);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin: 20px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--borda);
+}
+.form-secao:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+
+.link-wpp { color: #25D366; font-weight: 500; }
+.link-wpp:hover { color: #128C7E; }
+
+.peneira select {
+  padding: 8px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: var(--superficie);
+  color: var(--texto);
+  min-height: 44px;
+}
+.peneira select:focus {
+  outline: none;
+  border-color: var(--roxo);
+  box-shadow: 0 0 0 3px rgba(74,35,112,.1);
+}
+
 .barra-acoes {
   display: flex;
   gap: 8px;
@@ -666,6 +709,9 @@ body.bancada { background: var(--fundo); }
   .tabela tfoot { display: none; }
 
   .placar { grid-template-columns: repeat(2, 1fr); }
+
+  .campo-duplo,
+  .campo-triplo { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 400px) {
