@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block titulo %}Vitrine — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Vitrine</h2>
+    <a class="botao vazado" href="{{ url_for('catalogo') }}" target="_blank">Ver catalogo publico</a>
+  </div>
+
+  <form class="peneira" method="get">
+    <label class="busca">
+      <span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Buscar produto ou kit..."
+             autocomplete="off" enterkeyhint="search">
+    </label>
+    {% if categorias %}
+    <select name="categoria" onchange="this.form.submit()">
+      <option value="">Todas categorias</option>
+      {% for c in categorias %}
+      <option value="{{ c.id }}" {{ 'selected' if cat_filtro == c.id|string }}>{{ c.nome }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button class="botao vazado" type="submit">Buscar</button>
+  </form>
+
+  {% if kits %}
+  <h3 class="form-secao" style="border-top:none;padding-top:0">Kits</h3>
+  <div class="cat-grade">
+    {% for k in kits %}
+    <div class="cat-card cat-card-interno">
+      {% if k.foto_capa %}
+      <img src="{{ url_for('static', filename=k.foto_capa.arquivo) }}" alt="{{ k.nome }}" class="cat-card-foto">
+      {% else %}
+      <div class="cat-card-sem-foto">Sem foto</div>
+      {% endif %}
+      <div class="cat-card-info">
+        <h3 class="cat-card-nome"><a href="{{ url_for('editar_kit', id_=k.id) }}">{{ k.nome }}</a></h3>
+        <p class="cat-card-preco">{{ k.preco|dinheiro }}</p>
+        <span class="cat-card-tipo">Kit — {{ k.itens|length }} ite{{ 'ns' if k.itens|length != 1 else 'm' }}</span>
+        {% if k.get('publicado') %}
+        <span class="etiqueta verde" style="margin-top:4px;display:inline-block">publicado</span>
+        {% else %}
+        <span class="etiqueta cinza" style="margin-top:4px;display:inline-block">nao publicado</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if produtos %}
+  <h3 class="form-secao">Produtos</h3>
+  <div class="cat-grade">
+    {% for p in produtos %}
+    <div class="cat-card cat-card-interno">
+      {% if p.foto_capa %}
+      <img src="{{ url_for('static', filename=p.foto_capa.arquivo) }}" alt="{{ p.nome }}" class="cat-card-foto">
+      {% else %}
+      <div class="cat-card-sem-foto">Sem foto</div>
+      {% endif %}
+      <div class="cat-card-info">
+        <h3 class="cat-card-nome"><a href="{{ url_for('editar_produto', id_=p.id) }}">{{ p.nome }}</a></h3>
+        <p class="cat-card-preco">{{ p.preco_locacao|dinheiro }}</p>
+        {% if p.get('categoria_nome') %}
+        <span class="cat-card-tipo">{{ p.categoria_nome }}</span>
+        {% endif %}
+        {% if p.get('publicado') %}
+        <span class="etiqueta verde" style="margin-top:4px;display:inline-block">publicado</span>
+        {% else %}
+        <span class="etiqueta cinza" style="margin-top:4px;display:inline-block">nao publicado</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not produtos and not kits %}
+  <div class="cartao cartao-vazio">
+    {% if busca %}
+    <b>Nenhum resultado para "{{ busca }}".</b>
+    {% else %}
+    <b>Nenhum produto ou kit cadastrado.</b>
+    <span><a href="{{ url_for('editar_produto') }}">Cadastrar primeiro produto</a></span>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

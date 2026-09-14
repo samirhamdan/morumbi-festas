@@ -47,6 +47,11 @@
         </label>
       </div>
 
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin:8px 0 12px" id="campo-publicado">
+        <input type="checkbox" name="publicado" value="1" {{ 'checked' if atual.get('publicado') }}>
+        Publicar no catalogo
+      </label>
+
       <label class="campo" id="campo-descricao">
         <span class="campo-rotulo">Descricao</span>
         <textarea name="descricao" rows="3">{{ atual.get('descricao', '') }}</textarea>

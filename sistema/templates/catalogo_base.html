@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}Catalogo — Morumbi Festas{% endblock %}</title>
+{% block meta %}{% endblock %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', filename='sistema.css') }}">
+</head>
+<body class="publico">
+
+<header class="cat-topo">
+  <div class="cat-topo-inner">
+    <a href="{{ url_for('catalogo') }}" class="cat-marca">
+      <span class="cat-morumbi">MORUMBI</span>
+      <span class="cat-festas">FESTAS</span>
+    </a>
+    {% if org and org.get('whatsapp') %}
+    <a href="{{ org.whatsapp|whatsapp_link }}" class="botao cat-btn-wpp" target="_blank" rel="noopener">
+      WhatsApp
+    </a>
+    {% endif %}
+  </div>
+</header>
+
+<main class="cat-corpo">
+  {% block conteudo %}{% endblock %}
+</main>
+
+<footer class="cat-rodape">
+  <div class="cat-rodape-inner">
+    <span class="cat-morumbi" style="font-size:16px">MORUMBI</span>
+    <span class="cat-festas" style="font-size:16px">FESTAS</span>
+    {% if org %}
+      <p>{{ org.get('endereco', '') }}{% if org.get('bairro') %}, {{ org.bairro }}{% endif %}{% if org.get('cidade') %} — {{ org.cidade }}{% endif %}</p>
+      {% if org.get('whatsapp') %}<p>WhatsApp: {{ org.whatsapp }}</p>{% endif %}
+      {% if org.get('instagram') %}<p>Instagram: {{ org.instagram }}</p>{% endif %}
+    {% endif %}
+    <p style="margin-top:12px;font-size:12px;color:var(--suave)">Locacao de decoracao para eventos</p>
+  </div>
+</footer>
+
+</body>
+</html>

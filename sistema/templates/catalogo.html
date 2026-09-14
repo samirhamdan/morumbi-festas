@@ -1,0 +1,88 @@
+{% extends "catalogo_base.html" %}
+{% block titulo %}Catalogo — Morumbi Festas{% endblock %}
+{% block meta %}
+<meta property="og:title" content="Catalogo — Morumbi Festas">
+<meta property="og:description" content="Locacao de decoracao para eventos em Campo Grande/MS">
+<meta property="og:type" content="website">
+{% endblock %}
+{% block conteudo %}
+
+<div class="cat-busca-topo">
+  <form class="cat-busca" method="get">
+    <input type="search" name="q" value="{{ busca }}" placeholder="Buscar produto ou kit..."
+           autocomplete="off" enterkeyhint="search">
+    <button type="submit" class="botao">Buscar</button>
+  </form>
+
+  {% if categorias %}
+  <div class="cat-filtros">
+    <a href="{{ url_for('catalogo') }}" class="cat-filtro {{ 'ativo' if not cat_filtro }}">Todos</a>
+    {% for c in categorias %}
+    <a href="{{ url_for('catalogo', categoria=c.id) }}" class="cat-filtro {{ 'ativo' if cat_filtro == c.id|string }}">{{ c.nome }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{% if kits %}
+<section class="cat-secao">
+  <h2 class="cat-secao-titulo">Kits</h2>
+  <div class="cat-grade">
+    {% for k in kits %}
+    <a href="{{ url_for('catalogo_kit', id_=k.id) }}" class="cat-card">
+      {% if k.foto_capa %}
+      <img src="{{ url_for('static', filename=k.foto_capa.arquivo) }}" alt="{{ k.nome }}" class="cat-card-foto">
+      {% else %}
+      <div class="cat-card-sem-foto">Sem foto</div>
+      {% endif %}
+      <div class="cat-card-info">
+        <h3 class="cat-card-nome">{{ k.nome }}</h3>
+        <p class="cat-card-preco">{{ k.preco|dinheiro }}</p>
+        {% if k.soma_produtos > k.preco and k.preco > 0 %}
+        <span class="cat-card-economia">{{ ((k.soma_produtos - k.preco) / k.soma_produtos * 100)|round|int }}% de economia</span>
+        {% endif %}
+        <span class="cat-card-tipo">Kit com {{ k.itens|length }} ite{{ 'ns' if k.itens|length != 1 else 'm' }}</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if produtos %}
+<section class="cat-secao">
+  <h2 class="cat-secao-titulo">Produtos</h2>
+  <div class="cat-grade">
+    {% for p in produtos %}
+    <a href="{{ url_for('catalogo_produto', id_=p.id) }}" class="cat-card">
+      {% if p.foto_capa %}
+      <img src="{{ url_for('static', filename=p.foto_capa.arquivo) }}" alt="{{ p.nome }}" class="cat-card-foto">
+      {% else %}
+      <div class="cat-card-sem-foto">Sem foto</div>
+      {% endif %}
+      <div class="cat-card-info">
+        <h3 class="cat-card-nome">{{ p.nome }}</h3>
+        <p class="cat-card-preco">{{ p.preco_locacao|dinheiro }}</p>
+        {% if p.get('categoria_nome') %}
+        <span class="cat-card-tipo">{{ p.categoria_nome }}</span>
+        {% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if not produtos and not kits %}
+<div class="cat-vazio">
+  {% if busca %}
+  <h3>Nenhum resultado para "{{ busca }}"</h3>
+  <p>Tente buscar por outro termo.</p>
+  {% else %}
+  <h3>Catalogo em breve</h3>
+  <p>Estamos preparando nossos produtos para voce.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

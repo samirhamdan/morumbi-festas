@@ -1,0 +1,63 @@
+{% extends "catalogo_base.html" %}
+{% block titulo %}{{ kit.nome }} — Morumbi Festas{% endblock %}
+{% block meta %}
+<meta property="og:title" content="{{ kit.nome }} — Morumbi Festas">
+<meta property="og:description" content="{{ kit.descricao[:160] if kit.descricao else 'Kit de locacao para eventos' }}">
+<meta property="og:type" content="product">
+{% if kit.foto_capa %}
+<meta property="og:image" content="{{ url_for('static', filename=kit.foto_capa.arquivo, _external=True) }}">
+{% endif %}
+{% endblock %}
+{% block conteudo %}
+
+<nav class="cat-voltar">
+  <a href="{{ url_for('catalogo') }}">← Voltar ao catalogo</a>
+</nav>
+
+<div class="cat-detalhe">
+  <div class="cat-detalhe-fotos">
+    {% if kit.fotos %}
+      {% for foto in kit.fotos %}
+      <img src="{{ url_for('static', filename=foto.arquivo) }}" alt="{{ kit.nome }}"
+           class="cat-foto-grande {{ 'cat-foto-principal' if foto.principal }}">
+      {% endfor %}
+    {% else %}
+    <div class="cat-card-sem-foto" style="height:300px">Sem foto</div>
+    {% endif %}
+  </div>
+
+  <div class="cat-detalhe-info">
+    <span class="cat-card-tipo">Kit com {{ kit.itens|length }} ite{{ 'ns' if kit.itens|length != 1 else 'm' }}</span>
+
+    <h1 class="cat-detalhe-nome">{{ kit.nome }}</h1>
+
+    <p class="cat-detalhe-preco">{{ kit.preco|dinheiro }}</p>
+
+    {% if kit.soma_produtos > kit.preco and kit.preco > 0 %}
+    <p class="cat-card-economia" style="font-size:15px">
+      {{ ((kit.soma_produtos - kit.preco) / kit.soma_produtos * 100)|round|int }}% de economia
+      em relacao aos produtos avulsos ({{ kit.soma_produtos|dinheiro }})
+    </p>
+    {% endif %}
+
+    {% if kit.descricao %}
+    <p class="cat-detalhe-desc">{{ kit.descricao }}</p>
+    {% endif %}
+
+    <h3 class="cat-comp-titulo">O que inclui</h3>
+    <ul class="cat-comp-lista">
+      {% for item in kit.itens %}
+      <li>{{ item.quantidade }}x {{ item.produto_nome }}</li>
+      {% endfor %}
+    </ul>
+
+    {% if org and org.get('whatsapp') %}
+    <a href="{{ org.whatsapp|whatsapp_link }}?text=Ola! Gostaria de saber sobre o kit: {{ kit.nome }}"
+       class="botao primario cat-btn-orcamento" target="_blank" rel="noopener">
+      Solicitar orcamento
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

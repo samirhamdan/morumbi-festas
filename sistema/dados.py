@@ -112,6 +112,7 @@ def inicializar():
                 valor_referencia REAL NOT NULL DEFAULT 0,
                 quantidade_total INTEGER NOT NULL DEFAULT 1,
                 status TEXT NOT NULL DEFAULT 'disponivel',
+                publicado INTEGER NOT NULL DEFAULT 0,
                 localizacao TEXT DEFAULT '',
                 observacoes TEXT DEFAULT '',
                 criado_em TEXT NOT NULL DEFAULT (datetime('now')),
@@ -141,6 +142,7 @@ def inicializar():
                 descricao TEXT DEFAULT '',
                 preco REAL NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'ativo',
+                publicado INTEGER NOT NULL DEFAULT 0,
                 criado_em TEXT NOT NULL DEFAULT (datetime('now')),
                 atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
             );
@@ -161,6 +163,15 @@ def inicializar():
                 criado_em TEXT NOT NULL DEFAULT (datetime('now'))
             );
         """)
+
+        # Migracao: adicionar coluna publicado em bancos existentes
+        for tabela in ("produtos", "kits"):
+            colunas = [r[1] for r in conn.execute(
+                f"PRAGMA table_info({tabela})").fetchall()]
+            if "publicado" not in colunas:
+                conn.execute(
+                    f"ALTER TABLE {tabela} ADD COLUMN publicado"
+                    " INTEGER NOT NULL DEFAULT 0")
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +668,7 @@ def campos_produto(form) -> dict:
         "valor_referencia": _float(form.get("valor_referencia")),
         "quantidade_total": _int(form.get("quantidade_total")),
         "status": form.get("status", "disponivel"),
+        "publicado": 1 if form.get("publicado") else 0,
         "localizacao": (form.get("localizacao") or "").strip(),
         "observacoes": (form.get("observacoes") or "").strip(),
     }
@@ -681,14 +693,15 @@ def salvar_produto(dados_: dict, id_: int | None = None,
             conn.execute(
                 "UPDATE produtos SET nome=?, categoria_id=?, descricao=?,"
                 " preco_locacao=?, valor_referencia=?, quantidade_total=?,"
-                " status=?, localizacao=?, observacoes=?, atualizado_em=?"
-                " WHERE id = ?",
+                " status=?, publicado=?, localizacao=?, observacoes=?,"
+                " atualizado_em=? WHERE id = ?",
                 (nome, dados_.get("categoria_id"),
                  dados_.get("descricao", ""),
                  dados_.get("preco_locacao", 0),
                  dados_.get("valor_referencia", 0),
                  dados_.get("quantidade_total", 1),
-                 status, dados_.get("localizacao", ""),
+                 status, dados_.get("publicado", 0),
+                 dados_.get("localizacao", ""),
                  dados_.get("observacoes", ""), agora_, id_))
             novo_id = id_
         else:
@@ -696,14 +709,15 @@ def salvar_produto(dados_: dict, id_: int | None = None,
             r = conn.execute(
                 "INSERT INTO produtos (codigo_sku, nome, categoria_id, descricao,"
                 " preco_locacao, valor_referencia, quantidade_total, status,"
-                " localizacao, observacoes, criado_em, atualizado_em)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                " publicado, localizacao, observacoes, criado_em, atualizado_em)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (sku, nome, dados_.get("categoria_id"),
                  dados_.get("descricao", ""),
                  dados_.get("preco_locacao", 0),
                  dados_.get("valor_referencia", 0),
                  dados_.get("quantidade_total", 1),
-                 status, dados_.get("localizacao", ""),
+                 status, dados_.get("publicado", 0),
+                 dados_.get("localizacao", ""),
                  dados_.get("observacoes", ""), agora_, agora_))
             novo_id = r.lastrowid
 
@@ -846,6 +860,7 @@ def campos_kit(form) -> dict:
         "descricao": (form.get("descricao") or "").strip(),
         "preco": _float(form.get("preco")),
         "status": form.get("status", "ativo"),
+        "publicado": 1 if form.get("publicado") else 0,
     }
 
 
@@ -863,15 +878,17 @@ def salvar_kit(dados_: dict, id_: int | None = None) -> int:
         if id_:
             conn.execute(
                 "UPDATE kits SET nome=?, descricao=?, preco=?,"
-                " status=?, atualizado_em=? WHERE id = ?",
+                " status=?, publicado=?, atualizado_em=? WHERE id = ?",
                 (nome, dados_.get("descricao", ""),
-                 dados_.get("preco", 0), status, agora_, id_))
+                 dados_.get("preco", 0), status,
+                 dados_.get("publicado", 0), agora_, id_))
             return id_
         r = conn.execute(
             "INSERT INTO kits (nome, descricao, preco, status,"
-            " criado_em, atualizado_em) VALUES (?,?,?,?,?,?)",
+            " publicado, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?)",
             (nome, dados_.get("descricao", ""),
-             dados_.get("preco", 0), status, agora_, agora_))
+             dados_.get("preco", 0), status,
+             dados_.get("publicado", 0), agora_, agora_))
         return r.lastrowid
 
 
@@ -978,3 +995,78 @@ def resumo_painel() -> dict:
         "total_produtos": total_produtos,
         "total_kits": total_kits,
     }
+
+
+# ---------------------------------------------------------------------------
+# Catalogo publico
+# ---------------------------------------------------------------------------
+
+def catalogo_produtos(categoria_id: int | None = None,
+                      busca: str | None = None) -> list:
+    sql = ("SELECT p.*, c.nome AS categoria_nome"
+           " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id"
+           " WHERE p.status = 'disponivel' AND p.publicado = 1")
+    params: list = []
+    if categoria_id:
+        sql += " AND p.categoria_id = ?"
+        params.append(categoria_id)
+    sql += " ORDER BY p.nome"
+    with conectar() as conn:
+        prods = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        for p in prods:
+            p["foto_capa"] = _foto_capa(conn, p["id"])
+            p["disponibilidade"] = p["quantidade_total"]
+        if busca:
+            from sistema.listas import filtrar, BUSCA_PRODUTOS
+            prods = filtrar(prods, busca, BUSCA_PRODUTOS)
+        return prods
+
+
+def catalogo_kits(busca: str | None = None) -> list:
+    sql = "SELECT * FROM kits WHERE status = 'ativo' AND publicado = 1 ORDER BY nome"
+    with conectar() as conn:
+        kits = [dict(r) for r in conn.execute(sql).fetchall()]
+        for k in kits:
+            k["itens"] = _itens_do_kit(conn, k["id"])
+            k["foto_capa"] = _foto_capa_kit(conn, k["id"])
+            k["soma_produtos"] = sum(
+                (i.get("preco_locacao") or 0) * i["quantidade"]
+                for i in k["itens"])
+        if busca:
+            from sistema.listas import filtrar, BUSCA_KITS
+            kits = filtrar(kits, busca, BUSCA_KITS)
+        return kits
+
+
+def produto_publico(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute(
+            "SELECT p.*, c.nome AS categoria_nome"
+            " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id"
+            " WHERE p.id = ? AND p.status = 'disponivel' AND p.publicado = 1",
+            (id_,)).fetchone()
+        if not r:
+            return None
+        p = dict(r)
+        p["fotos"] = _fotos_do_produto(conn, p["id"])
+        p["foto_capa"] = _foto_capa(conn, p["id"])
+        p["tags"] = _tags_do_produto(conn, p["id"])
+        p["disponibilidade"] = p["quantidade_total"]
+        return p
+
+
+def kit_publico(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute(
+            "SELECT * FROM kits WHERE id = ? AND status = 'ativo' AND publicado = 1",
+            (id_,)).fetchone()
+        if not r:
+            return None
+        k = dict(r)
+        k["itens"] = _itens_do_kit(conn, k["id"])
+        k["fotos"] = _fotos_do_kit(conn, k["id"])
+        k["foto_capa"] = _foto_capa_kit(conn, k["id"])
+        k["soma_produtos"] = sum(
+            (i.get("preco_locacao") or 0) * i["quantidade"]
+            for i in k["itens"])
+        return k

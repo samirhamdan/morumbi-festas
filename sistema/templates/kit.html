@@ -55,6 +55,11 @@
         {% endif %}
       </div>
 
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin:8px 0 12px" id="campo-publicado">
+        <input type="checkbox" name="publicado" value="1" {{ 'checked' if atual.get('publicado') }}>
+        Publicar no catalogo
+      </label>
+
       {% if atual.get('soma_produtos') and atual.get('preco') and atual.soma_produtos > atual.preco %}
       <p style="font-size:14px;color:var(--verde);margin:8px 0 0">
         Economia de {{ (atual.soma_produtos - atual.preco)|dinheiro }}

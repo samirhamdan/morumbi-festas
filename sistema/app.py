@@ -22,6 +22,7 @@ MENU = (
         ("lista_clientes", "Clientes"),
     )),
     ("Catalogo", (
+        ("catalogo_interno", "Vitrine"),
         ("lista_produtos", "Produtos"),
         ("lista_kits", "Kits"),
         ("lista_categorias", "Categorias"),
@@ -638,5 +639,83 @@ def criar_app() -> Flask:
         dados.definir_foto_principal_kit(foto_id, id_)
         flash("Foto de capa definida.", "ok")
         return redirect(url_for("editar_kit", id_=id_))
+
+    # ------------------------------------------------------------------
+    # Catalogo publico
+    # ------------------------------------------------------------------
+
+    @app.route("/catalogo")
+    def catalogo():
+        busca = request.args.get("q", "")
+        cat_id = request.args.get("categoria", "")
+        cat_id_int = None
+        if cat_id:
+            try:
+                cat_id_int = int(cat_id)
+            except (TypeError, ValueError):
+                cat_id = ""
+
+        produtos = dados.catalogo_produtos(cat_id_int, busca or None)
+        kits = dados.catalogo_kits(busca or None)
+        org = dados.organizacao()
+
+        return render_template("catalogo.html",
+                               produtos=produtos,
+                               kits=kits,
+                               categorias=dados.listar_categorias(),
+                               busca=busca,
+                               cat_filtro=cat_id,
+                               org=org)
+
+    @app.route("/catalogo/produto/<int:id_>")
+    def catalogo_produto(id_):
+        produto = dados.produto_publico(id_)
+        if not produto:
+            abort(404)
+        org = dados.organizacao()
+        return render_template("catalogo_produto.html",
+                               produto=produto, org=org)
+
+    @app.route("/catalogo/kit/<int:id_>")
+    def catalogo_kit(id_):
+        kit = dados.kit_publico(id_)
+        if not kit:
+            abort(404)
+        org = dados.organizacao()
+        return render_template("catalogo_kit.html",
+                               kit=kit, org=org)
+
+    # ------------------------------------------------------------------
+    # Catalogo interno
+    # ------------------------------------------------------------------
+
+    @app.route("/catalogo-interno")
+    @auth.exige_login
+    def catalogo_interno():
+        busca = request.args.get("q", "")
+        cat_id = request.args.get("categoria", "")
+        cat_id_int = None
+        if cat_id:
+            try:
+                cat_id_int = int(cat_id)
+            except (TypeError, ValueError):
+                cat_id = ""
+
+        produtos = dados.listar_produtos("disponivel")
+        if cat_id_int:
+            produtos = [p for p in produtos if p.get("categoria_id") == cat_id_int]
+        kits = dados.listar_kits("ativo")
+
+        if busca:
+            from sistema.listas import filtrar, BUSCA_PRODUTOS, BUSCA_KITS
+            produtos = filtrar(produtos, busca, BUSCA_PRODUTOS)
+            kits = filtrar(kits, busca, BUSCA_KITS)
+
+        return render_template("catalogo_interno.html",
+                               produtos=produtos,
+                               kits=kits,
+                               categorias=dados.listar_categorias(),
+                               busca=busca,
+                               cat_filtro=cat_id)
 
     return app

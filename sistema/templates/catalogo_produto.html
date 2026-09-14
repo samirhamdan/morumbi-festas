@@ -1,0 +1,59 @@
+{% extends "catalogo_base.html" %}
+{% block titulo %}{{ produto.nome }} — Morumbi Festas{% endblock %}
+{% block meta %}
+<meta property="og:title" content="{{ produto.nome }} — Morumbi Festas">
+<meta property="og:description" content="{{ produto.descricao[:160] if produto.descricao else 'Locacao de decoracao para eventos' }}">
+<meta property="og:type" content="product">
+{% if produto.foto_capa %}
+<meta property="og:image" content="{{ url_for('static', filename=produto.foto_capa.arquivo, _external=True) }}">
+{% endif %}
+{% endblock %}
+{% block conteudo %}
+
+<nav class="cat-voltar">
+  <a href="{{ url_for('catalogo') }}">← Voltar ao catalogo</a>
+</nav>
+
+<div class="cat-detalhe">
+  <div class="cat-detalhe-fotos">
+    {% if produto.fotos %}
+      {% for foto in produto.fotos %}
+      <img src="{{ url_for('static', filename=foto.arquivo) }}" alt="{{ produto.nome }}"
+           class="cat-foto-grande {{ 'cat-foto-principal' if foto.principal }}">
+      {% endfor %}
+    {% else %}
+    <div class="cat-card-sem-foto" style="height:300px">Sem foto</div>
+    {% endif %}
+  </div>
+
+  <div class="cat-detalhe-info">
+    {% if produto.categoria_nome %}
+    <span class="cat-card-tipo">{{ produto.categoria_nome }}</span>
+    {% endif %}
+
+    <h1 class="cat-detalhe-nome">{{ produto.nome }}</h1>
+
+    <p class="cat-detalhe-preco">{{ produto.preco_locacao|dinheiro }}</p>
+
+    {% if produto.descricao %}
+    <p class="cat-detalhe-desc">{{ produto.descricao }}</p>
+    {% endif %}
+
+    {% if produto.tags %}
+    <div class="cat-tags">
+      {% for tag in produto.tags %}
+      <span class="etiqueta roxo">{{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if org and org.get('whatsapp') %}
+    <a href="{{ org.whatsapp|whatsapp_link }}?text=Ola! Gostaria de saber sobre o produto: {{ produto.nome }}"
+       class="botao primario cat-btn-orcamento" target="_blank" rel="noopener">
+      Solicitar orcamento
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
