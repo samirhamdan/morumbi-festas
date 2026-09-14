@@ -35,6 +35,10 @@
       <span class="rotulo">Clientes ativos</span>
       <span class="valor">{{ total_clientes }}</span>
     </a>
+    <a href="{{ url_for('lista_produtos') }}" id="v-produtos">
+      <span class="rotulo">Produtos ativos</span>
+      <span class="valor">{{ total_produtos }}</span>
+    </a>
   </div>
 
 {% endif %}

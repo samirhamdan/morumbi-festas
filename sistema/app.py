@@ -6,8 +6,12 @@ import os
 from flask import (Flask, Response, abort, flash, redirect, render_template,
                    request, session, url_for)
 from werkzeug.security import generate_password_hash
+from werkzeug.utils import secure_filename
 
 from sistema import auth, dados, formato, listas
+
+UPLOAD_EXTENSOES = {".jpg", ".jpeg", ".png", ".webp"}
+UPLOAD_MAX_MB = 10
 
 
 MENU = (
@@ -16,6 +20,10 @@ MENU = (
     )),
     ("Comercial", (
         ("lista_clientes", "Clientes"),
+    )),
+    ("Catalogo", (
+        ("lista_produtos", "Produtos"),
+        ("lista_categorias", "Categorias"),
     )),
     ("Administracao", (
         ("lista_usuarios", "Usuarios"),
@@ -247,5 +255,216 @@ def criar_app() -> Flask:
             csv_texto,
             mimetype="text/csv",
             headers={"Content-Disposition": "attachment; filename=clientes.csv"})
+
+    # ------------------------------------------------------------------
+    # Categorias
+    # ------------------------------------------------------------------
+
+    @app.route("/categorias")
+    @auth.exige_login
+    def lista_categorias():
+        arvore = dados.categorias_arvore()
+        return render_template("categorias.html", arvore=arvore,
+                               categorias=dados.listar_categorias())
+
+    @app.route("/categoria", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def salvar_categoria():
+        nome = (request.form.get("nome") or "").strip()
+        pai_id = request.form.get("pai_id") or None
+        if pai_id:
+            try:
+                pai_id = int(pai_id)
+            except (TypeError, ValueError):
+                pai_id = None
+        id_ = request.form.get("id") or None
+        if id_:
+            try:
+                id_ = int(id_)
+            except (TypeError, ValueError):
+                id_ = None
+
+        try:
+            novo_id = dados.salvar_categoria(nome, pai_id, id_)
+            acao = "alterou" if id_ else "criou"
+            dados.registrar_acao(
+                session.get("usuario_id"), f"categoria_{acao}",
+                f"{acao.capitalize()} categoria {nome}",
+                {"categoria_id": novo_id})
+            flash(f"Categoria {'atualizada' if id_ else 'criada'}.", "ok")
+        except dados.ErroDeCampo as e:
+            flash(str(e), "erro")
+
+        return redirect(url_for("lista_categorias"))
+
+    @app.route("/categoria/<int:id_>/excluir", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def excluir_categoria(id_):
+        try:
+            dados.excluir_categoria(id_)
+            dados.registrar_acao(
+                session.get("usuario_id"), "categoria_excluiu",
+                f"Excluiu categoria {id_}", {"categoria_id": id_})
+            flash("Categoria excluida.", "ok")
+        except dados.ErroDeCampo as e:
+            flash(str(e), "erro")
+        return redirect(url_for("lista_categorias"))
+
+    # ------------------------------------------------------------------
+    # Produtos
+    # ------------------------------------------------------------------
+
+    @app.route("/produtos")
+    @auth.exige_login
+    def lista_produtos():
+        ver = request.args.get("ver", "disponiveis")
+        if ver == "todos":
+            lista = dados.listar_produtos()
+        elif ver == "manutencao":
+            lista = dados.listar_produtos("manutencao")
+        elif ver == "inativos":
+            lista = dados.listar_produtos("inativo")
+        else:
+            lista = dados.listar_produtos("disponivel")
+
+        cat_id = request.args.get("categoria", "")
+        if cat_id:
+            try:
+                cat_id_int = int(cat_id)
+                lista = [p for p in lista if p.get("categoria_id") == cat_id_int]
+            except (TypeError, ValueError):
+                cat_id = ""
+
+        tag = request.args.get("tag", "")
+        if tag:
+            lista = [p for p in lista if tag in p.get("tags", [])]
+
+        busca = request.args.get("q", "")
+        lista = listas.filtrar(lista, busca, listas.BUSCA_PRODUTOS)
+
+        ordem = request.args.get("ordem", "")
+        invertido = request.args.get("dir") == "desc"
+        lista = listas.ordenar(lista, ordem, listas.ORDENS_PRODUTOS, invertido)
+
+        todas_tags = _todas_tags_produtos()
+
+        return render_template("produtos.html", produtos=lista,
+                               ver=ver, busca=busca, ordem=ordem,
+                               invertido=invertido,
+                               ordens=listas.ORDENS_PRODUTOS,
+                               categorias=dados.listar_categorias(),
+                               cat_filtro=cat_id,
+                               tag_filtro=tag,
+                               todas_tags=todas_tags)
+
+    def _todas_tags_produtos() -> list:
+        with dados.conectar() as conn:
+            return [r["tag"] for r in conn.execute(
+                "SELECT DISTINCT tag FROM tags_produto ORDER BY tag"
+            ).fetchall()]
+
+    @app.route("/produto", methods=["GET", "POST"])
+    @app.route("/produto/<int:id_>", methods=["GET", "POST"])
+    @auth.exige_perfil("admin")
+    def editar_produto(id_=None):
+        produto = dados.buscar_produto(id_) if id_ else None
+        if id_ and not produto:
+            abort(404)
+
+        if request.method == "POST":
+            campos = dados.campos_produto(request.form)
+            tags_texto = (request.form.get("tags") or "").strip()
+            tags = [t.strip() for t in tags_texto.split(",") if t.strip()] if tags_texto else []
+
+            try:
+                novo_id = dados.salvar_produto(campos, id_, tags)
+                acao = "alterou" if id_ else "criou"
+                dados.registrar_acao(
+                    session.get("usuario_id"), f"produto_{acao}",
+                    f"{acao.capitalize()} produto {campos['nome']}",
+                    {"produto_id": novo_id})
+                flash(f"Produto {'atualizado' if id_ else 'cadastrado'}.", "ok")
+                return redirect(url_for("editar_produto", id_=novo_id))
+            except dados.ErroDeCampo as e:
+                campos["tags"] = tags
+                return render_template("produto.html", atual=campos,
+                                       categorias=dados.listar_categorias(),
+                                       status_opcoes=dados.STATUS_PRODUTO,
+                                       **_erro(e))
+
+        return render_template("produto.html",
+                               atual=produto or {},
+                               categorias=dados.listar_categorias(),
+                               status_opcoes=dados.STATUS_PRODUTO)
+
+    def _pasta_fotos(produto_id: int) -> str:
+        pasta = os.path.join(app.static_folder, "uploads", "produtos",
+                             str(produto_id))
+        os.makedirs(pasta, exist_ok=True)
+        return pasta
+
+    @app.route("/produto/<int:id_>/foto", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def upload_foto(id_):
+        produto = dados.buscar_produto(id_)
+        if not produto:
+            abort(404)
+
+        arquivo = request.files.get("foto")
+        if not arquivo or not arquivo.filename:
+            flash("Selecione uma foto.", "erro")
+            return redirect(url_for("editar_produto", id_=id_))
+
+        nome_seguro = secure_filename(arquivo.filename)
+        _, ext = os.path.splitext(nome_seguro)
+        if ext.lower() not in UPLOAD_EXTENSOES:
+            flash("Formato invalido. Use JPG, PNG ou WebP.", "erro")
+            return redirect(url_for("editar_produto", id_=id_))
+
+        pasta = _pasta_fotos(id_)
+        caminho = os.path.join(pasta, nome_seguro)
+        arquivo.save(caminho)
+
+        try:
+            from PIL import Image
+            img = Image.open(caminho)
+            if max(img.size) > 1200:
+                img.thumbnail((1200, 1200), Image.LANCZOS)
+                img.save(caminho)
+        except ImportError:
+            pass
+
+        principal = request.form.get("principal") == "1"
+        caminho_rel = f"uploads/produtos/{id_}/{nome_seguro}"
+        dados.salvar_foto_produto(id_, caminho_rel, principal)
+
+        dados.registrar_acao(
+            session.get("usuario_id"), "produto_foto",
+            f"Adicionou foto ao produto {produto['nome']}",
+            {"produto_id": id_})
+        flash("Foto adicionada.", "ok")
+        return redirect(url_for("editar_produto", id_=id_))
+
+    @app.route("/produto/<int:id_>/foto/<int:foto_id>/excluir", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def excluir_foto(id_, foto_id):
+        foto = dados.excluir_foto_produto(foto_id)
+        if foto:
+            caminho = os.path.join(app.static_folder, foto["arquivo"])
+            if os.path.exists(caminho):
+                os.remove(caminho)
+            dados.registrar_acao(
+                session.get("usuario_id"), "produto_foto_excluiu",
+                f"Excluiu foto do produto {id_}",
+                {"produto_id": id_})
+            flash("Foto excluida.", "ok")
+        return redirect(url_for("editar_produto", id_=id_))
+
+    @app.route("/produto/<int:id_>/foto/<int:foto_id>/principal", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def definir_capa(id_, foto_id):
+        dados.definir_foto_principal(foto_id, id_)
+        flash("Foto de capa definida.", "ok")
+        return redirect(url_for("editar_produto", id_=id_))
 
     return app

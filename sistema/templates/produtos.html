@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block titulo %}Produtos — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Produtos</h2>
+    <span class="abas">
+      <a href="{{ url_for('lista_produtos') }}" class="{{ 'aqui' if ver == 'disponiveis' }}">Disponiveis</a>
+      <a href="{{ url_for('lista_produtos', ver='manutencao') }}" class="{{ 'aqui' if ver == 'manutencao' }}">Manutencao</a>
+      <a href="{{ url_for('lista_produtos', ver='inativos') }}" class="{{ 'aqui' if ver == 'inativos' }}">Inativos</a>
+      <a href="{{ url_for('lista_produtos', ver='todos') }}" class="{{ 'aqui' if ver == 'todos' }}">Todos</a>
+    </span>
+    {% if perfil == 'admin' %}
+    <a class="botao" href="{{ url_for('editar_produto') }}">Novo produto</a>
+    {% endif %}
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form class="peneira" method="get">
+    {% if ver != 'disponiveis' %}<input type="hidden" name="ver" value="{{ ver }}">{% endif %}
+    <label class="busca">
+      <span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Nome, SKU, descricao ou localizacao"
+             autocomplete="off" enterkeyhint="search">
+    </label>
+    <select name="categoria" onchange="this.form.submit()">
+      <option value="">Todas as categorias</option>
+      {% for c in categorias %}
+        <option value="{{ c.id }}" {{ 'selected' if cat_filtro == c.id|string }}>{{ c.nome }}</option>
+      {% endfor %}
+    </select>
+    {% if todas_tags %}
+    <select name="tag" onchange="this.form.submit()">
+      <option value="">Todas as tags</option>
+      {% for t in todas_tags %}
+        <option value="{{ t }}" {{ 'selected' if tag_filtro == t }}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button class="botao vazado" type="submit">Buscar</button>
+  </form>
+
+  {% if produtos %}
+  <div class="cartao cartao-tabela"><div class="rolagem">
+    <table class="tabela">
+      <thead><tr>
+        <th>SKU</th>
+        <th>Nome</th>
+        <th>Categoria</th>
+        <th>Preco</th>
+        <th>Qtd</th>
+        <th>Status</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        {% for p in produtos %}
+        <tr class="{{ 'inativo' if p.status == 'inativo' }}">
+          <td data-rotulo="SKU" class="mono">{{ p.codigo_sku }}</td>
+          <td data-rotulo="Nome" class="chave">
+            <a href="{{ url_for('editar_produto', id_=p.id) }}">{{ p.nome }}</a>
+          </td>
+          <td data-rotulo="Categoria">{{ p.categoria_nome or '—' }}</td>
+          <td data-rotulo="Preco" class="num">{{ p.preco_locacao|dinheiro }}</td>
+          <td data-rotulo="Qtd" class="num">{{ p.quantidade_total }}</td>
+          <td data-rotulo="Status" class="estado">
+            {% if p.status == 'disponivel' %}<span class="etiqueta verde">disponivel</span>
+            {% elif p.status == 'manutencao' %}<span class="etiqueta ambar">manutencao</span>
+            {% else %}<span class="etiqueta cinza">inativo</span>
+            {% endif %}
+          </td>
+          <td class="num acao"><a href="{{ url_for('editar_produto', id_=p.id) }}">editar</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="7" class="num">
+            {{ produtos|length }} produto(s)
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div></div>
+  {% elif busca %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum resultado para "{{ busca }}".</b>
+    <span>Tente buscar por nome, SKU ou descricao.</span>
+  </div>
+  {% else %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum produto {{ ver if ver != 'disponiveis' else 'disponivel' }}.</b>
+    {% if perfil == 'admin' and ver == 'disponiveis' %}
+    <span><a href="{{ url_for('editar_produto') }}">Cadastrar o primeiro produto</a></span>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

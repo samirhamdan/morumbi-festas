@@ -43,3 +43,12 @@ ORDENS_CLIENTES = (
 )
 
 BUSCA_CLIENTES = ("nome", "whatsapp", "email", "cpf_cnpj", "cidade", "bairro", "instagram")
+
+ORDENS_PRODUTOS = (
+    ("nome", "Nome", lambda p: (p.get("nome") or "").lower()),
+    ("codigo_sku", "SKU", lambda p: (p.get("codigo_sku") or "").lower()),
+    ("preco_locacao", "Preco", lambda p: p.get("preco_locacao") or 0),
+    ("quantidade_total", "Quantidade", lambda p: p.get("quantidade_total") or 0),
+)
+
+BUSCA_PRODUTOS = ("nome", "codigo_sku", "descricao", "localizacao", "categoria_nome")

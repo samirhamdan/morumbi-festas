@@ -718,5 +718,37 @@ body.bancada { background: var(--fundo); }
   .placar { grid-template-columns: 1fr; }
 }
 
+/* --- Grade de fotos --- */
+
+.grade-fotos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.foto-item {
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.foto-item.foto-capa { border-color: var(--roxo); }
+
+.foto-item img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+
+.foto-acoes {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
+  background: var(--fundo);
+}
+
 /* === Aviso de formulario nao salvo === */
 .formulario[data-avisar] { position: relative; }

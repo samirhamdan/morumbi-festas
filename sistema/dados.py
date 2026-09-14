@@ -93,6 +93,47 @@ def inicializar():
                 tag TEXT NOT NULL,
                 UNIQUE(cliente_id, tag)
             );
+
+            CREATE TABLE IF NOT EXISTS categorias (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                pai_id INTEGER REFERENCES categorias(id),
+                ordem INTEGER NOT NULL DEFAULT 0,
+                criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS produtos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                codigo_sku TEXT NOT NULL UNIQUE,
+                nome TEXT NOT NULL,
+                categoria_id INTEGER REFERENCES categorias(id),
+                descricao TEXT DEFAULT '',
+                preco_locacao REAL NOT NULL DEFAULT 0,
+                valor_referencia REAL NOT NULL DEFAULT 0,
+                quantidade_total INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'disponivel',
+                localizacao TEXT DEFAULT '',
+                observacoes TEXT DEFAULT '',
+                criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+                atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_produtos_sku ON produtos(codigo_sku);
+            CREATE INDEX IF NOT EXISTS idx_produtos_categoria ON produtos(categoria_id);
+
+            CREATE TABLE IF NOT EXISTS fotos_produto (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                produto_id INTEGER NOT NULL REFERENCES produtos(id),
+                arquivo TEXT NOT NULL,
+                principal INTEGER NOT NULL DEFAULT 0,
+                criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS tags_produto (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                produto_id INTEGER NOT NULL REFERENCES produtos(id),
+                tag TEXT NOT NULL,
+                UNIQUE(produto_id, tag)
+            );
         """)
 
 
@@ -430,13 +471,292 @@ def exportar_clientes_csv(clientes: list) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Categorias
+# ---------------------------------------------------------------------------
+
+def listar_categorias() -> list:
+    with conectar() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM categorias ORDER BY ordem, nome").fetchall()]
+
+
+def buscar_categoria(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute("SELECT * FROM categorias WHERE id = ?", (id_,)).fetchone()
+        return dict(r) if r else None
+
+
+def categorias_arvore() -> list:
+    cats = listar_categorias()
+    pais = [c for c in cats if not c["pai_id"]]
+    for p in pais:
+        p["filhos"] = [c for c in cats if c["pai_id"] == p["id"]]
+    return pais
+
+
+def salvar_categoria(nome: str, pai_id: int | None = None,
+                     id_: int | None = None) -> int:
+    nome = nome.strip()
+    if not nome:
+        raise ErroDeCampo("nome", "Nome da categoria e obrigatorio.")
+    with conectar() as conn:
+        if id_:
+            conn.execute("UPDATE categorias SET nome=?, pai_id=? WHERE id=?",
+                         (nome, pai_id, id_))
+            return id_
+        r = conn.execute(
+            "INSERT INTO categorias (nome, pai_id, criado_em) VALUES (?, ?, ?)",
+            (nome, pai_id, formato.agora()))
+        return r.lastrowid
+
+
+def excluir_categoria(id_: int):
+    with conectar() as conn:
+        em_uso = conn.execute(
+            "SELECT COUNT(*) FROM produtos WHERE categoria_id = ?", (id_,)
+        ).fetchone()[0]
+        if em_uso:
+            raise ErroDeCampo("nome", "Categoria em uso por produtos.")
+        filhos = conn.execute(
+            "SELECT COUNT(*) FROM categorias WHERE pai_id = ?", (id_,)
+        ).fetchone()[0]
+        if filhos:
+            raise ErroDeCampo("nome", "Categoria possui subcategorias.")
+        conn.execute("DELETE FROM categorias WHERE id = ?", (id_,))
+
+
+def _prefixo_categoria(conn, categoria_id: int | None) -> str:
+    if not categoria_id:
+        return "GER"
+    r = conn.execute("SELECT nome FROM categorias WHERE id = ?",
+                     (categoria_id,)).fetchone()
+    if not r:
+        return "GER"
+    nome = r["nome"].upper().replace(" ", "")
+    return nome[:3] if len(nome) >= 3 else nome.ljust(3, "X")
+
+
+def gerar_sku(categoria_id: int | None = None) -> str:
+    with conectar() as conn:
+        prefixo = _prefixo_categoria(conn, categoria_id)
+        r = conn.execute(
+            "SELECT COUNT(*) FROM produtos WHERE codigo_sku LIKE ?",
+            (f"{prefixo}-%",)).fetchone()[0]
+        seq = r + 1
+        return f"{prefixo}-{seq:04d}"
+
+
+# ---------------------------------------------------------------------------
+# Produtos
+# ---------------------------------------------------------------------------
+
+STATUS_PRODUTO = ("disponivel", "manutencao", "inativo")
+
+
+def listar_produtos(status: str | None = None) -> list:
+    sql = ("SELECT p.*, c.nome AS categoria_nome"
+           " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id")
+    params = []
+    if status:
+        sql += " WHERE p.status = ?"
+        params.append(status)
+    sql += " ORDER BY p.nome"
+    with conectar() as conn:
+        prods = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        for p in prods:
+            p["tags"] = _tags_do_produto(conn, p["id"])
+            p["foto_capa"] = _foto_capa(conn, p["id"])
+        return prods
+
+
+def buscar_produto(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute(
+            "SELECT p.*, c.nome AS categoria_nome"
+            " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id"
+            " WHERE p.id = ?", (id_,)).fetchone()
+        if not r:
+            return None
+        p = dict(r)
+        p["tags"] = _tags_do_produto(conn, p["id"])
+        p["fotos"] = _fotos_do_produto(conn, p["id"])
+        p["foto_capa"] = _foto_capa(conn, p["id"])
+        return p
+
+
+def _tags_do_produto(conn, produto_id: int) -> list:
+    return [r["tag"] for r in conn.execute(
+        "SELECT tag FROM tags_produto WHERE produto_id = ? ORDER BY tag",
+        (produto_id,)).fetchall()]
+
+
+def _fotos_do_produto(conn, produto_id: int) -> list:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM fotos_produto WHERE produto_id = ? ORDER BY principal DESC, id",
+        (produto_id,)).fetchall()]
+
+
+def _foto_capa(conn, produto_id: int) -> dict | None:
+    r = conn.execute(
+        "SELECT * FROM fotos_produto WHERE produto_id = ? ORDER BY principal DESC, id LIMIT 1",
+        (produto_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def campos_produto(form) -> dict:
+    def _float(val, padrao=0):
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return padrao
+
+    def _int(val, padrao=1):
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return padrao
+
+    cat = form.get("categoria_id") or None
+    if cat:
+        try:
+            cat = int(cat)
+        except (TypeError, ValueError):
+            cat = None
+
+    return {
+        "nome": (form.get("nome") or "").strip(),
+        "categoria_id": cat,
+        "descricao": (form.get("descricao") or "").strip(),
+        "preco_locacao": _float(form.get("preco_locacao")),
+        "valor_referencia": _float(form.get("valor_referencia")),
+        "quantidade_total": _int(form.get("quantidade_total")),
+        "status": form.get("status", "disponivel"),
+        "localizacao": (form.get("localizacao") or "").strip(),
+        "observacoes": (form.get("observacoes") or "").strip(),
+    }
+
+
+def salvar_produto(dados_: dict, id_: int | None = None,
+                   tags: list | None = None) -> int:
+    nome = dados_.get("nome", "").strip()
+    if not nome:
+        raise ErroDeCampo("nome", "Nome do produto e obrigatorio.")
+
+    status = dados_.get("status", "disponivel")
+    if status not in STATUS_PRODUTO:
+        raise ErroDeCampo("status", "Status invalido.")
+
+    agora_ = formato.agora()
+    with conectar() as conn:
+        if id_:
+            prod = conn.execute("SELECT codigo_sku FROM produtos WHERE id=?",
+                                (id_,)).fetchone()
+            sku = prod["codigo_sku"] if prod else gerar_sku(dados_.get("categoria_id"))
+            conn.execute(
+                "UPDATE produtos SET nome=?, categoria_id=?, descricao=?,"
+                " preco_locacao=?, valor_referencia=?, quantidade_total=?,"
+                " status=?, localizacao=?, observacoes=?, atualizado_em=?"
+                " WHERE id = ?",
+                (nome, dados_.get("categoria_id"),
+                 dados_.get("descricao", ""),
+                 dados_.get("preco_locacao", 0),
+                 dados_.get("valor_referencia", 0),
+                 dados_.get("quantidade_total", 1),
+                 status, dados_.get("localizacao", ""),
+                 dados_.get("observacoes", ""), agora_, id_))
+            novo_id = id_
+        else:
+            sku = gerar_sku(dados_.get("categoria_id"))
+            r = conn.execute(
+                "INSERT INTO produtos (codigo_sku, nome, categoria_id, descricao,"
+                " preco_locacao, valor_referencia, quantidade_total, status,"
+                " localizacao, observacoes, criado_em, atualizado_em)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (sku, nome, dados_.get("categoria_id"),
+                 dados_.get("descricao", ""),
+                 dados_.get("preco_locacao", 0),
+                 dados_.get("valor_referencia", 0),
+                 dados_.get("quantidade_total", 1),
+                 status, dados_.get("localizacao", ""),
+                 dados_.get("observacoes", ""), agora_, agora_))
+            novo_id = r.lastrowid
+
+        if tags is not None:
+            conn.execute("DELETE FROM tags_produto WHERE produto_id = ?", (novo_id,))
+            for tag in tags:
+                tag = tag.strip()
+                if tag:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO tags_produto (produto_id, tag)"
+                        " VALUES (?, ?)", (novo_id, tag))
+
+        return novo_id
+
+
+def disponibilidade(produto_id: int, data: str | None = None) -> int:
+    p = buscar_produto(produto_id)
+    if not p:
+        return 0
+    return p["quantidade_total"]
+
+
+# ---------------------------------------------------------------------------
+# Fotos de produto
+# ---------------------------------------------------------------------------
+
+def salvar_foto_produto(produto_id: int, arquivo: str, principal: bool = False) -> int:
+    with conectar() as conn:
+        if principal:
+            conn.execute("UPDATE fotos_produto SET principal=0 WHERE produto_id=?",
+                         (produto_id,))
+        existentes = conn.execute(
+            "SELECT COUNT(*) FROM fotos_produto WHERE produto_id=?",
+            (produto_id,)).fetchone()[0]
+        is_principal = 1 if (principal or existentes == 0) else 0
+        r = conn.execute(
+            "INSERT INTO fotos_produto (produto_id, arquivo, principal, criado_em)"
+            " VALUES (?, ?, ?, ?)",
+            (produto_id, arquivo, is_principal, formato.agora()))
+        return r.lastrowid
+
+
+def definir_foto_principal(foto_id: int, produto_id: int):
+    with conectar() as conn:
+        conn.execute("UPDATE fotos_produto SET principal=0 WHERE produto_id=?",
+                     (produto_id,))
+        conn.execute("UPDATE fotos_produto SET principal=1 WHERE id=?", (foto_id,))
+
+
+def excluir_foto_produto(foto_id: int) -> dict | None:
+    with conectar() as conn:
+        foto = conn.execute("SELECT * FROM fotos_produto WHERE id=?",
+                            (foto_id,)).fetchone()
+        if not foto:
+            return None
+        foto = dict(foto)
+        conn.execute("DELETE FROM fotos_produto WHERE id=?", (foto_id,))
+        if foto["principal"]:
+            outra = conn.execute(
+                "SELECT id FROM fotos_produto WHERE produto_id=? ORDER BY id LIMIT 1",
+                (foto["produto_id"],)).fetchone()
+            if outra:
+                conn.execute("UPDATE fotos_produto SET principal=1 WHERE id=?",
+                             (outra["id"],))
+        return foto
+
+
+# ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
 
 def resumo_painel() -> dict:
     with conectar() as conn:
-        total = conn.execute("SELECT COUNT(*) FROM clientes WHERE status='ativo'").fetchone()[0]
+        total_clientes = conn.execute(
+            "SELECT COUNT(*) FROM clientes WHERE status='ativo'").fetchone()[0]
+        total_produtos = conn.execute(
+            "SELECT COUNT(*) FROM produtos WHERE status != 'inativo'").fetchone()[0]
     return {
-        "vazio": total == 0,
-        "total_clientes": total,
+        "vazio": total_clientes == 0 and total_produtos == 0,
+        "total_clientes": total_clientes,
+        "total_produtos": total_produtos,
     }

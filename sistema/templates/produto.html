@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} produto — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">{{ 'Editar produto' if atual.get('id') else 'Novo produto' }}</h2>
+    {% if atual.get('codigo_sku') %}
+    <span class="etiqueta roxo" style="font-family:var(--mono);font-size:14px">{{ atual.codigo_sku }}</span>
+    {% endif %}
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form method="post" class="formulario" data-avisar>
+    <div class="cartao" style="padding:20px">
+      <h3 class="form-secao">Dados do produto</h3>
+
+      <label class="campo" id="campo-nome">
+        <span class="campo-rotulo">Nome do produto</span>
+        <input type="text" name="nome" value="{{ atual.get('nome', '') }}" required autofocus>
+        {% if campo_erro == 'nome' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+      </label>
+
+      <div class="campo-duplo">
+        <label class="campo" id="campo-categoria_id">
+          <span class="campo-rotulo">Categoria</span>
+          <select name="categoria_id">
+            <option value="">— Sem categoria —</option>
+            {% for c in categorias %}
+              <option value="{{ c.id }}" {{ 'selected' if atual.get('categoria_id') == c.id }}>{{ c.nome }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="campo" id="campo-status">
+          <span class="campo-rotulo">Status</span>
+          <select name="status">
+            {% for s in status_opcoes %}
+              <option value="{{ s }}" {{ 'selected' if atual.get('status', 'disponivel') == s }}>{{ s|capitalize }}</option>
+            {% endfor %}
+          </select>
+          {% if campo_erro == 'status' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+        </label>
+      </div>
+
+      <label class="campo" id="campo-descricao">
+        <span class="campo-rotulo">Descricao</span>
+        <textarea name="descricao" rows="3">{{ atual.get('descricao', '') }}</textarea>
+      </label>
+
+      <h3 class="form-secao">Valores e estoque</h3>
+
+      <div class="campo-triplo">
+        <label class="campo" id="campo-preco_locacao">
+          <span class="campo-rotulo">Preco de locacao (R$)</span>
+          <input type="number" name="preco_locacao" step="0.01" min="0"
+                 value="{{ '%.2f'|format(atual.get('preco_locacao', 0)) }}"
+                 inputmode="decimal">
+        </label>
+
+        <label class="campo" id="campo-valor_referencia">
+          <span class="campo-rotulo">Valor de referencia (R$)</span>
+          <input type="number" name="valor_referencia" step="0.01" min="0"
+                 value="{{ '%.2f'|format(atual.get('valor_referencia', 0)) }}"
+                 inputmode="decimal">
+        </label>
+
+        <label class="campo" id="campo-quantidade_total">
+          <span class="campo-rotulo">Quantidade total</span>
+          <input type="number" name="quantidade_total" step="1" min="0"
+                 value="{{ atual.get('quantidade_total', 1) }}"
+                 inputmode="numeric">
+        </label>
+      </div>
+
+      <h3 class="form-secao">Localizacao e observacoes</h3>
+
+      <label class="campo" id="campo-localizacao">
+        <span class="campo-rotulo">Localizacao fisica</span>
+        <input type="text" name="localizacao" value="{{ atual.get('localizacao', '') }}"
+               placeholder="Estante A3, prateleira 2">
+      </label>
+
+      <label class="campo" id="campo-tags">
+        <span class="campo-rotulo">Tags (separadas por virgula)</span>
+        <input type="text" name="tags"
+               value="{{ atual.get('tags', [])|join(', ') if atual.get('tags') is iterable and atual.get('tags') is not string else atual.get('tags', '') }}"
+               placeholder="mesa, cadeira, infantil">
+      </label>
+
+      <label class="campo" id="campo-observacoes">
+        <span class="campo-rotulo">Observacoes</span>
+        <textarea name="observacoes" rows="3">{{ atual.get('observacoes', '') }}</textarea>
+      </label>
+    </div>
+
+    <div class="barra-acoes">
+      <button type="submit" class="botao primario">Salvar</button>
+      <a href="{{ url_for('lista_produtos') }}" class="botao vazado">Cancelar</a>
+    </div>
+  </form>
+
+  {% if atual.get('id') %}
+  <div class="cartao" style="padding:20px;margin-top:20px">
+    <h3 class="form-secao" style="border-top:none;margin-top:0;padding-top:0">Fotos</h3>
+
+    {% if atual.get('fotos') %}
+    <div class="grade-fotos">
+      {% for foto in atual.fotos %}
+      <div class="foto-item {{ 'foto-capa' if foto.principal }}">
+        <img src="{{ url_for('static', filename=foto.arquivo) }}" alt="Foto do produto">
+        <div class="foto-acoes">
+          {% if not foto.principal %}
+          <form method="post" action="{{ url_for('definir_capa', id_=atual.id, foto_id=foto.id) }}" style="display:inline">
+            <button type="submit" class="botao vazado" style="font-size:12px;padding:4px 10px;min-height:auto">Capa</button>
+          </form>
+          {% else %}
+          <span class="etiqueta roxo">Capa</span>
+          {% endif %}
+          <form method="post" action="{{ url_for('excluir_foto', id_=atual.id, foto_id=foto.id) }}" style="display:inline">
+            <button type="submit" class="botao vazado" style="font-size:12px;padding:4px 10px;min-height:auto;color:var(--vermelho)">Excluir</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:var(--suave);font-size:14px">Nenhuma foto adicionada.</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('upload_foto', id_=atual.id) }}" enctype="multipart/form-data" style="margin-top:16px">
+      <div class="campo-duplo" style="align-items:end">
+        <label class="campo" style="margin-bottom:0">
+          <span class="campo-rotulo">Adicionar foto</span>
+          <input type="file" name="foto" accept=".jpg,.jpeg,.png,.webp">
+        </label>
+        <div style="display:flex;gap:8px;align-items:center;min-height:44px">
+          <label style="font-size:13px;color:var(--suave);display:flex;align-items:center;gap:4px">
+            <input type="checkbox" name="principal" value="1"> Foto de capa
+          </label>
+          <button type="submit" class="botao vazado">Enviar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

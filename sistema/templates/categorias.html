@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block titulo %}Categorias — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Categorias</h2>
+  </div>
+
+  {% include "_erro.html" %}
+
+  {% if perfil == 'admin' %}
+  <div class="cartao" style="padding:20px;margin-bottom:20px">
+    <h3 class="form-secao" style="border-top:none;margin-top:0;padding-top:0">Nova categoria</h3>
+    <form method="post" action="{{ url_for('salvar_categoria') }}" class="formulario">
+      <div class="campo-duplo">
+        <label class="campo" id="campo-nome" style="margin-bottom:0">
+          <span class="campo-rotulo">Nome</span>
+          <input type="text" name="nome" required placeholder="Ex: Infantil, Mesas, Estruturas">
+        </label>
+        <label class="campo" style="margin-bottom:0">
+          <span class="campo-rotulo">Categoria pai (opcional)</span>
+          <select name="pai_id">
+            <option value="">— Nenhuma (raiz) —</option>
+            {% for c in categorias %}
+              {% if not c.pai_id %}
+              <option value="{{ c.id }}">{{ c.nome }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <button type="submit" class="botao primario" style="margin-top:12px">Criar</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if arvore %}
+  <div class="cartao cartao-tabela"><div class="rolagem">
+    <table class="tabela">
+      <thead><tr>
+        <th>Categoria</th>
+        <th>Subcategorias</th>
+        {% if perfil == 'admin' %}<th></th>{% endif %}
+      </tr></thead>
+      <tbody>
+        {% for cat in arvore %}
+        <tr>
+          <td data-rotulo="Categoria" class="chave"><b>{{ cat.nome }}</b></td>
+          <td data-rotulo="Subcategorias">
+            {% for f in cat.filhos %}<span class="etiqueta roxo">{{ f.nome }}</span> {% endfor %}
+            {% if not cat.filhos %}—{% endif %}
+          </td>
+          {% if perfil == 'admin' %}
+          <td class="num acao">
+            <form method="post" action="{{ url_for('excluir_categoria', id_=cat.id) }}" style="display:inline">
+              <button type="submit" class="botao vazado" style="font-size:12px;padding:4px 10px;min-height:auto;color:var(--vermelho)">excluir</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% for f in cat.filhos %}
+        <tr>
+          <td data-rotulo="Categoria" style="padding-left:36px">{{ f.nome }}</td>
+          <td data-rotulo="Subcategorias">—</td>
+          {% if perfil == 'admin' %}
+          <td class="num acao">
+            <form method="post" action="{{ url_for('excluir_categoria', id_=f.id) }}" style="display:inline">
+              <button type="submit" class="botao vazado" style="font-size:12px;padding:4px 10px;min-height:auto;color:var(--vermelho)">excluir</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% else %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhuma categoria cadastrada.</b>
+    {% if perfil == 'admin' %}
+    <span>Use o formulario acima para criar a primeira.</span>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}
