@@ -1,0 +1,676 @@
+/* === Morumbi Festas — sistema.css === */
+
+:root {
+  --roxo: #4A2370;
+  --roxo-escuro: #371A56;
+  --roxo-claro: #6B3FA0;
+  --laranja: #F5921E;
+  --laranja-claro: #FFB347;
+  --verde: #28A745;
+  --vermelho: #DC3545;
+  --azul: #2196F3;
+  --ambar: #FFC107;
+
+  --fundo: #F5F3F8;
+  --superficie: #FFFFFF;
+  --texto: #2D2235;
+  --suave: #7A7084;
+  --borda: #E0D8E8;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+[hidden] { display: none !important; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Barlow', system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--texto);
+  background: var(--fundo);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--roxo); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* === Login (palco) === */
+
+body.palco {
+  background: linear-gradient(135deg, #1a0a2e 0%, var(--roxo-escuro) 40%, #2d1452 100%);
+  min-height: 100dvh;
+}
+
+.login-pagina {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 16px;
+}
+
+.login-caixa {
+  width: 100%;
+  max-width: 380px;
+}
+
+.login-logo {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-m {
+  width: 120px;
+  height: auto;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 4px 20px rgba(245,146,30,.25));
+}
+
+.login-marca {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+
+.login-morumbi {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 1px;
+}
+
+.login-festas {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--laranja);
+  letter-spacing: 1px;
+}
+
+.login-slogan {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(255,255,255,.5);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.login-form {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px;
+  padding: 28px 24px;
+  backdrop-filter: blur(8px);
+}
+
+.login-form .campo { margin-bottom: 16px; display: block; }
+
+.login-form .campo-rotulo {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,.7);
+  margin-bottom: 6px;
+}
+
+.login-form input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 8px;
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  outline: none;
+  transition: border-color .2s;
+}
+
+.login-form input:focus {
+  border-color: var(--laranja);
+  box-shadow: 0 0 0 3px rgba(245,146,30,.15);
+}
+
+.login-form input::placeholder { color: rgba(255,255,255,.3); }
+
+.login-botao {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  background: var(--laranja);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.login-botao:hover { background: #e0850f; }
+
+.login-form .avisos { margin-bottom: 16px; }
+.login-form .aviso {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.login-form .aviso.mal {
+  background: rgba(220,53,69,.15);
+  color: #ff8a95;
+  border: 1px solid rgba(220,53,69,.25);
+}
+
+/* === Bancada (sistema) === */
+
+body.bancada { background: var(--fundo); }
+
+/* --- Topo --- */
+
+.topo {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  height: 56px;
+  background: var(--roxo);
+  color: #fff;
+}
+
+.marca {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #fff;
+  text-decoration: none;
+}
+.marca:hover { text-decoration: none; }
+
+.marca-nome {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+
+.marca-festas {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--laranja);
+  letter-spacing: .5px;
+}
+
+.topo-usuario {
+  margin-left: auto;
+  font-size: 13px;
+  color: rgba(255,255,255,.7);
+}
+.topo-usuario a { color: rgba(255,255,255,.9); margin-left: 12px; }
+
+/* --- Gaveta --- */
+
+.gaveta-botao {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.gaveta-botao span {
+  display: block;
+  height: 2px;
+  background: #fff;
+  border-radius: 1px;
+}
+
+/* --- Lateral --- */
+
+.lateral {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  bottom: 0;
+  width: 220px;
+  background: var(--superficie);
+  border-right: 1px solid var(--borda);
+  overflow-y: auto;
+  padding: 12px 0;
+  z-index: 90;
+}
+
+.lateral .grupo { border-bottom: 1px solid var(--borda); }
+
+.lateral .grupo summary {
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--suave);
+  cursor: pointer;
+  list-style: none;
+}
+.lateral .grupo summary::-webkit-details-marker { display: none; }
+
+.lateral ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+}
+
+.lateral li a {
+  display: block;
+  padding: 8px 20px 8px 32px;
+  font-size: 14px;
+  color: var(--texto);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+  transition: background .15s;
+}
+.lateral li a:hover { background: var(--fundo); }
+.lateral li a.aqui {
+  color: var(--roxo);
+  font-weight: 600;
+  border-left-color: var(--laranja);
+  background: rgba(74,35,112,.04);
+}
+
+/* --- Pagina --- */
+
+.pagina {
+  margin-left: 220px;
+  padding: 24px 28px;
+  max-width: 1100px;
+}
+
+/* --- Cabecalho --- */
+
+.cabecalho-lista {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.secao {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--texto);
+  margin: 0;
+}
+
+.abas { display: flex; gap: 4px; }
+.abas a {
+  padding: 4px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  color: var(--suave);
+  text-decoration: none;
+}
+.abas a:hover { background: var(--borda); color: var(--texto); }
+.abas a.aqui { background: var(--roxo); color: #fff; }
+
+/* --- Botoes --- */
+
+.botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--borda);
+  background: var(--superficie);
+  color: var(--texto);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background .15s;
+  min-height: 44px;
+}
+.botao:hover { background: var(--fundo); text-decoration: none; }
+
+.botao.primario {
+  background: var(--roxo);
+  color: #fff;
+  border-color: var(--roxo);
+}
+.botao.primario:hover { background: var(--roxo-claro); }
+
+.botao.vazado {
+  background: transparent;
+  border-color: var(--borda);
+  color: var(--suave);
+}
+.botao.vazado:hover { color: var(--texto); background: var(--fundo); }
+
+/* --- Peneira --- */
+
+.peneira {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.peneira .busca {
+  flex: 1;
+  min-width: 200px;
+}
+
+.peneira input[type="search"],
+.peneira select {
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: var(--superficie);
+  color: var(--texto);
+  min-height: 44px;
+}
+
+.peneira input[type="search"]:focus,
+.peneira select:focus {
+  outline: none;
+  border-color: var(--roxo);
+  box-shadow: 0 0 0 3px rgba(74,35,112,.1);
+}
+
+/* --- Cards e tabelas --- */
+
+.cartao {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+
+.cartao-tabela { overflow: hidden; }
+.rolagem { overflow-x: auto; }
+
+.tabela {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tabela thead th {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--suave);
+  text-align: left;
+  border-bottom: 1px solid var(--borda);
+  white-space: nowrap;
+}
+
+.tabela tbody td {
+  padding: 10px 14px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--fundo);
+  vertical-align: middle;
+}
+
+.tabela tbody tr:last-child td { border-bottom: none; }
+
+.tabela .chave a { color: var(--texto); font-weight: 500; }
+.tabela .chave a:hover { color: var(--roxo); }
+
+.tabela .num { text-align: right; }
+.tabela .mono { font-family: var(--mono); font-size: 13px; }
+.tabela .acao { white-space: nowrap; }
+.tabela .acao a { color: var(--suave); font-size: 13px; }
+.tabela .acao a:hover { color: var(--roxo); }
+
+.tabela tfoot td {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--suave);
+  border-top: 1px solid var(--borda);
+}
+
+/* --- Etiquetas --- */
+
+.etiqueta {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.etiqueta.roxo   { background: rgba(74,35,112,.1);  color: var(--roxo); }
+.etiqueta.azul   { background: rgba(33,150,243,.1);  color: #1976D2; }
+.etiqueta.verde  { background: rgba(40,167,69,.1);   color: #1B8A3E; }
+.etiqueta.ambar  { background: rgba(255,193,7,.15);  color: #B8860B; }
+.etiqueta.cinza  { background: rgba(122,112,132,.1); color: var(--suave); }
+.etiqueta.laranja { background: rgba(245,146,30,.1); color: #D47A0A; }
+
+/* --- Formulario --- */
+
+.formulario { max-width: 600px; }
+
+.campo {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.campo-rotulo {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--suave);
+  margin-bottom: 4px;
+}
+
+.campo input,
+.campo select,
+.campo textarea {
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: var(--superficie);
+  color: var(--texto);
+  min-height: 44px;
+}
+
+.campo input:focus,
+.campo select:focus,
+.campo textarea:focus {
+  outline: none;
+  border-color: var(--roxo);
+  box-shadow: 0 0 0 3px rgba(74,35,112,.1);
+}
+
+.recado-campo {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vermelho);
+}
+
+.barra-acoes {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 16px 0;
+  position: sticky;
+  bottom: 0;
+  background: var(--fundo);
+}
+
+/* --- Avisos --- */
+
+.avisos { margin-bottom: 16px; }
+
+.aviso {
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.aviso.mal {
+  background: rgba(220,53,69,.08);
+  color: var(--vermelho);
+  border: 1px solid rgba(220,53,69,.15);
+}
+.aviso.bem {
+  background: rgba(40,167,69,.08);
+  color: var(--verde);
+  border: 1px solid rgba(40,167,69,.15);
+}
+
+/* --- Vazio --- */
+
+.cartao-vazio, .dash-vazio .vazio {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--suave);
+}
+.cartao-vazio b, .vazio h3 {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--texto);
+}
+
+.bloco {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+}
+
+/* --- Placar --- */
+
+.placar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.placar a {
+  display: block;
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  padding: 16px;
+  text-decoration: none;
+  transition: border-color .15s;
+}
+.placar a:hover { border-color: var(--roxo-claro); }
+
+.placar .rotulo {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--suave);
+}
+
+.placar .valor {
+  display: block;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--texto);
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0 2px;
+}
+
+.placar .nota {
+  font-size: 12px;
+  color: var(--suave);
+}
+
+/* --- Dash --- */
+
+.dash-secao { margin-bottom: 20px; }
+
+/* === Responsivo === */
+
+@media (max-width: 768px) {
+  .gaveta-botao { display: flex; }
+
+  .lateral {
+    display: none;
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--borda);
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    z-index: 90;
+  }
+  .lateral:not([hidden]) { display: block; }
+
+  .pagina { margin-left: 0; padding: 16px; }
+
+  .cabecalho-lista { flex-direction: column; align-items: flex-start; }
+
+  /* Tabela -> cartoes */
+  .tabela thead { display: none; }
+  .tabela tbody tr {
+    display: block;
+    background: var(--superficie);
+    border: 1px solid var(--borda);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+  }
+  .tabela tbody td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: none;
+  }
+  .tabela tbody td::before {
+    content: attr(data-rotulo);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--suave);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    margin-right: 12px;
+  }
+  .tabela tbody td.chave {
+    font-size: 16px;
+    font-weight: 600;
+    padding-bottom: 8px;
+  }
+  .tabela tbody td.chave::before { display: none; }
+  .tabela tbody td.acao { justify-content: flex-end; padding-top: 8px; }
+  .tabela tbody td.acao::before { display: none; }
+
+  .tabela tfoot { display: none; }
+
+  .placar { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 400px) {
+  .placar { grid-template-columns: 1fr; }
+}
+
+/* === Aviso de formulario nao salvo === */
+.formulario[data-avisar] { position: relative; }

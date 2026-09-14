@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block titulo %}Usuarios — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Usuarios</h2>
+    <span class="abas">
+      <a href="{{ url_for('lista_usuarios') }}" class="{{ 'aqui' if ver == 'ativos' }}">Ativos</a>
+      <a href="{{ url_for('lista_usuarios', ver='inativos') }}" class="{{ 'aqui' if ver == 'inativos' }}">Inativos</a>
+      <a href="{{ url_for('lista_usuarios', ver='todos') }}" class="{{ 'aqui' if ver == 'todos' }}">Todos</a>
+    </span>
+    <a class="botao" href="{{ url_for('editar_usuario') }}">Novo usuario</a>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form class="peneira" method="get">
+    {% if ver != 'ativos' %}<input type="hidden" name="ver" value="{{ ver }}">{% endif %}
+    <label class="busca">
+      <span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Nome ou login"
+             autocomplete="off" enterkeyhint="search">
+    </label>
+    <button class="botao vazado" type="submit">Buscar</button>
+  </form>
+
+  {% if usuarios %}
+  <div class="cartao cartao-tabela"><div class="rolagem">
+    <table class="tabela">
+      <thead><tr>
+        <th>Nome</th>
+        <th>Login</th>
+        <th>Perfil</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        {% for u in usuarios %}
+        <tr class="{{ 'inativo' if not u.ativo }}">
+          <td data-rotulo="Nome" class="chave">
+            <a href="{{ url_for('editar_usuario', id_=u.id) }}">{{ u.nome }}</a>
+            {% if not u.ativo %}<span class="etiqueta cinza">inativo</span>{% endif %}
+          </td>
+          <td data-rotulo="Login" class="mono">{{ u.login }}</td>
+          <td data-rotulo="Perfil" class="estado">
+            <span class="etiqueta {{ 'roxo' if u.perfil == 'admin' else 'azul' if u.perfil == 'comercial' else 'verde' if u.perfil == 'operacional' else 'ambar' }}">{{ u.perfil|capitalize }}</span>
+          </td>
+          <td class="num acao"><a href="{{ url_for('editar_usuario', id_=u.id) }}">editar</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><td colspan="4" class="num">{{ usuarios|length }} usuario(s)</td></tr>
+      </tfoot>
+    </table>
+  </div></div>
+  {% elif busca %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum resultado para "{{ busca }}".</b>
+    <span>Tente buscar por nome ou login.</span>
+  </div>
+  {% else %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum usuario {{ 'inativo' if ver == 'inativos' else 'cadastrado' }}.</b>
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

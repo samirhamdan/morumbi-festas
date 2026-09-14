@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} usuario — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">{{ 'Editar usuario' if atual.get('id') else 'Novo usuario' }}</h2>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form method="post" class="formulario" data-avisar>
+    <div class="cartao" style="padding:20px">
+      <label class="campo" id="campo-nome">
+        <span class="campo-rotulo">Nome</span>
+        <input type="text" name="nome" value="{{ atual.get('nome', '') }}" required autofocus>
+        {% if campo_erro == 'nome' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+      </label>
+
+      <label class="campo" id="campo-login">
+        <span class="campo-rotulo">Login</span>
+        <input type="text" name="login" value="{{ atual.get('login', '') }}" required
+               autocomplete="off">
+        {% if campo_erro == 'login' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+      </label>
+
+      <label class="campo" id="campo-senha">
+        <span class="campo-rotulo">Senha{{ ' (deixe vazio para manter)' if atual.get('id') }}</span>
+        <input type="password" name="senha" autocomplete="new-password"
+               {{ 'required' if not atual.get('id') }}>
+        {% if campo_erro == 'senha' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+      </label>
+
+      <label class="campo" id="campo-perfil">
+        <span class="campo-rotulo">Perfil</span>
+        <select name="perfil">
+          {% for p in perfis %}
+            <option value="{{ p }}" {{ 'selected' if atual.get('perfil') == p }}>{{ p|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      {% if atual.get('id') %}
+      <label class="campo" id="campo-ativo">
+        <span class="campo-rotulo">Status</span>
+        <select name="ativo">
+          <option value="1" {{ 'selected' if atual.get('ativo', 1) }}>Ativo</option>
+          <option value="0" {{ 'selected' if not atual.get('ativo', 1) }}>Inativo</option>
+        </select>
+      </label>
+      {% endif %}
+    </div>
+
+    <div class="barra-acoes">
+      <button type="submit" class="botao primario">Salvar</button>
+      <a href="{{ url_for('lista_usuarios') }}" class="botao vazado">Cancelar</a>
+    </div>
+  </form>
+</main>
+{% endblock %}

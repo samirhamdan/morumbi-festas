@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block titulo %}Dashboard — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina dash">
+
+{% if not com_senha %}
+  <div class="avisos">
+    <div class="aviso mal">Sem <b>FESTAS_SENHA</b> configurada: qualquer
+      pessoa que alcance este endereco entra. So permitido rodando no proprio
+      computador.</div>
+  </div>
+{% endif %}
+
+{% include "_erro.html" %}
+
+{% if vazio %}
+
+  <div class="dash-vazio bloco">
+    <div class="vazio">
+      <h3>Bem-vindo ao Morumbi Festas!</h3>
+      <p>O sistema esta pronto. Nas proximas versoes voce tera aqui o painel
+      com os pedidos do dia, agenda e indicadores comerciais.</p>
+      <p>Comece cadastrando os produtos e clientes.</p>
+    </div>
+  </div>
+
+{% endif %}
+
+</main>
+{% endblock %}

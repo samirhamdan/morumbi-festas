@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block titulo %}Entrar — Morumbi Festas{% endblock %}
+{% block corpo %}palco{% endblock %}
+{% block conteudo %}
+
+<main class="login-pagina">
+  <div class="login-caixa">
+
+    <div class="login-logo">
+      <svg viewBox="0 0 200 160" class="login-m" aria-hidden="true">
+        <polygon points="10,130 50,20 100,90" fill="#00BCD4"/>
+        <polygon points="50,20 75,55 100,20" fill="#4CAF50"/>
+        <polygon points="50,20 100,90 100,20" fill="#8BC34A"/>
+        <polygon points="100,20 100,90 150,20" fill="#FF9800"/>
+        <polygon points="100,90 125,55 150,20" fill="#FFC107"/>
+        <polygon points="100,90 150,20 190,130" fill="#E91E63"/>
+        <polygon points="150,20 170,75 190,130" fill="#9C27B0"/>
+        <polygon points="10,130 50,20 30,75" fill="#2196F3"/>
+      </svg>
+      <div class="login-marca">
+        <span class="login-morumbi">Morumbi</span>
+        <span class="login-festas">Festas</span>
+      </div>
+      <span class="login-slogan">Seu momento, sua festa</span>
+    </div>
+
+    <form method="post" class="login-form">
+      {% include "_erro.html" %}
+
+      <label class="campo" id="campo-login">
+        <span class="campo-rotulo">Login</span>
+        <input type="text" name="login" autocomplete="username" autofocus
+               required placeholder="seu login">
+      </label>
+
+      <label class="campo" id="campo-senha">
+        <span class="campo-rotulo">Senha</span>
+        <input type="password" name="senha" autocomplete="current-password"
+               required placeholder="sua senha">
+      </label>
+
+      <button type="submit" class="botao primario login-botao">Entrar</button>
+    </form>
+  </div>
+</main>
+
+{% endblock %}

@@ -1,0 +1,7 @@
+[project]
+name = "morumbi-festas"
+version = "0.1.0"
+description = "Sistema de gestao Morumbi Festas"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

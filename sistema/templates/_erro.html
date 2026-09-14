@@ -1,0 +1,14 @@
+{% if erro %}
+<div class="avisos">
+  <div class="aviso mal"{% if campo_erro %} onclick="document.getElementById('campo-{{ campo_erro }}')?.scrollIntoView({behavior:'smooth',block:'center'})"{% endif %}>
+    {{ erro }}
+  </div>
+</div>
+{% endif %}
+{% with msgs = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in msgs %}
+  <div class="avisos">
+    <div class="aviso {{ 'bem' if cat == 'ok' else 'mal' }}">{{ msg }}</div>
+  </div>
+  {% endfor %}
+{% endwith %}

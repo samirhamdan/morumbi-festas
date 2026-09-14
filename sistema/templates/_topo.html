@@ -1,0 +1,32 @@
+<header class="topo">
+  <button class="gaveta-botao" aria-label="Menu" aria-expanded="false"
+          onclick="var nav=document.getElementById('nav');var ab=nav.hidden;nav.hidden=!ab;this.setAttribute('aria-expanded',ab)">
+    <span></span><span></span><span></span>
+  </button>
+
+  <a class="marca" href="{{ url_for('painel') }}">
+    <span class="marca-nome">Morumbi</span>
+    <span class="marca-festas">Festas</span>
+  </a>
+
+  <span class="topo-usuario">
+    {{ usuario_nome }}
+    <a href="{{ url_for('sair') }}">Sair</a>
+  </span>
+</header>
+
+<nav id="nav" class="lateral" hidden>
+  {% for grupo, itens in menu %}
+    {% set perfil_ok = grupo != 'Administracao' or perfil == 'admin' %}
+    {% if perfil_ok %}
+    <details class="grupo" {{ 'open' if grupo == grupo_ativo }}>
+      <summary>{{ grupo }}</summary>
+      <ul>
+        {% for ep, rotulo in itens %}
+          <li><a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}">{{ rotulo }}</a></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  {% endfor %}
+</nav>
