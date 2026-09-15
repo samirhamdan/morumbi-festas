@@ -43,6 +43,18 @@
       <span class="rotulo">Kits ativos</span>
       <span class="valor">{{ total_kits }}</span>
     </a>
+    <a href="{{ url_for('lista_leads') }}" id="v-leads">
+      <span class="rotulo">Leads em andamento</span>
+      <span class="valor">{{ total_leads }}</span>
+    </a>
+    <a href="{{ url_for('lista_orcamentos') }}" id="v-orcamentos">
+      <span class="rotulo">Orcamentos abertos</span>
+      <span class="valor">{{ total_orcamentos }}</span>
+    </a>
+    <a href="{{ url_for('lista_pedidos') }}" id="v-pedidos">
+      <span class="rotulo">Pedidos ativos</span>
+      <span class="valor">{{ total_pedidos }}</span>
+    </a>
   </div>
 
 {% endif %}

@@ -11,6 +11,9 @@
     {% if atual.get('codigo_sku') %}
     <span class="etiqueta roxo" style="font-family:var(--mono);font-size:14px">{{ atual.codigo_sku }}</span>
     {% endif %}
+    {% if atual.get('id') %}
+    <a class="botao vazado" href="{{ url_for('disponibilidade_produto', id_=atual.id) }}">Ver disponibilidade</a>
+    {% endif %}
   </div>
 
   {% include "_erro.html" %}

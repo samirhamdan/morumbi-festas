@@ -1,6 +1,6 @@
 <header class="topo">
   <button class="gaveta-botao" aria-label="Menu" aria-expanded="false"
-          onclick="var nav=document.getElementById('nav');var ab=nav.hidden;nav.hidden=!ab;this.setAttribute('aria-expanded',ab)">
+          onclick="var nav=document.getElementById('nav');nav.classList.toggle('aberta');this.setAttribute('aria-expanded',nav.classList.contains('aberta'))">
     <span></span><span></span><span></span>
   </button>
 
@@ -15,7 +15,7 @@
   </span>
 </header>
 
-<nav id="nav" class="lateral" hidden>
+<nav id="nav" class="lateral">
   {% for grupo, itens in menu %}
     {% set perfil_ok = grupo != 'Administracao' or perfil == 'admin' %}
     {% if perfil_ok %}

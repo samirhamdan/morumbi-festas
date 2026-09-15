@@ -940,4 +940,119 @@ def criar_app() -> Flask:
             abort(404)
         return render_template("pedido_festas.html", pedido=ped)
 
+    @app.route("/pedido/novo", methods=["GET", "POST"])
+    @app.route("/pedido/<int:id_>/editar", methods=["GET", "POST"])
+    @auth.exige_perfil("admin", "comercial")
+    def editar_pedido(id_=None):
+        atual = dados.buscar_pedido_festas(id_) if id_ else {}
+        if id_ and not atual:
+            abort(404)
+
+        if request.method == "POST":
+            try:
+                d = dados.campos_pedido_festas(request.form)
+                itens = []
+                i = 0
+                while True:
+                    desc = request.form.get(f"item_descricao_{i}")
+                    if desc is None:
+                        break
+                    itens.append({
+                        "tipo": request.form.get(f"item_tipo_{i}", "produto"),
+                        "item_id": int(request.form.get(f"item_item_id_{i}") or 0) or None,
+                        "descricao": desc,
+                        "quantidade": request.form.get(f"item_quantidade_{i}", "1"),
+                        "preco_unitario": request.form.get(f"item_preco_{i}", "0"),
+                    })
+                    i += 1
+                novo_id = dados.salvar_pedido_festas(d, itens, id_)
+                dados.registrar_acao(
+                    session.get("usuario_id"), "pedido",
+                    f"{'Editou' if id_ else 'Criou'} pedido #{novo_id}")
+                flash("Pedido salvo.", "ok")
+                return redirect(url_for("ver_pedido", id_=novo_id))
+            except (dados.ErroDeCampo, ValueError) as e:
+                flash(str(e), "erro")
+                return redirect(url_for("editar_pedido", id_=id_) if id_
+                                else url_for("editar_pedido"))
+
+        return render_template("pedido.html", atual=atual,
+                               clientes=dados.listar_clientes(),
+                               status_comercial=dados.STATUS_PEDIDO_COMERCIAL,
+                               status_operacional=dados.STATUS_PEDIDO_OPERACIONAL)
+
+    @app.route("/pedido/<int:id_>/cancelar", methods=["POST"])
+    @auth.exige_perfil("admin", "comercial")
+    def cancelar_pedido_rota(id_):
+        motivo = (request.form.get("motivo") or "").strip()
+        try:
+            dados.cancelar_pedido(id_, motivo)
+            dados.registrar_acao(
+                session.get("usuario_id"), "pedido",
+                f"Cancelou pedido #{id_}")
+            flash("Pedido cancelado.", "ok")
+        except ValueError as e:
+            flash(str(e), "erro")
+        return redirect(url_for("ver_pedido", id_=id_))
+
+    # ------------------------------------------------------------------
+    # Disponibilidade
+    # ------------------------------------------------------------------
+
+    MESES_PT = [
+        "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+    ]
+
+    @app.route("/disponibilidade/<int:id_>")
+    @auth.exige_login
+    def disponibilidade_produto(id_):
+        import calendar as cal_mod
+        from datetime import date
+
+        produto = dados.buscar_produto(id_)
+        if not produto:
+            abort(404)
+
+        ano = request.args.get("ano", type=int) or date.today().year
+        mes = request.args.get("mes", type=int) or date.today().month
+        if mes < 1 or mes > 12:
+            mes = date.today().month
+
+        calendario = dados.disponibilidade_calendario(id_, ano, mes)
+        _, _ = cal_mod.monthrange(ano, mes)
+        primeiro_dia_semana = cal_mod.weekday(ano, mes, 1)
+        offset_dia = (primeiro_dia_semana + 1) % 7
+
+        if mes == 1:
+            ano_ant, mes_ant = ano - 1, 12
+        else:
+            ano_ant, mes_ant = ano, mes - 1
+        if mes == 12:
+            ano_prox, mes_prox = ano + 1, 1
+        else:
+            ano_prox, mes_prox = ano, mes + 1
+
+        return render_template("disponibilidade.html",
+                               produto=produto,
+                               calendario=calendario,
+                               ano=ano, mes=mes,
+                               ano_ant=ano_ant, mes_ant=mes_ant,
+                               ano_prox=ano_prox, mes_prox=mes_prox,
+                               offset_dia=offset_dia,
+                               meses=MESES_PT)
+
+    @app.route("/api/disponibilidade")
+    @auth.exige_login
+    def api_disponibilidade():
+        from flask import jsonify
+        produto_id = request.args.get("produto_id", type=int)
+        data_inicio = request.args.get("data_inicio", "")
+        data_fim = request.args.get("data_fim", "")
+        if not produto_id:
+            return jsonify({"erro": "produto_id obrigatorio"}), 400
+        disp = dados.disponibilidade(produto_id, data_inicio or None,
+                                     data_fim or None)
+        return jsonify({"disponivel": disp})
+
     return app

@@ -15,6 +15,11 @@ ETAPAS_LEAD = (
 )
 ETAPAS_ALT_LEAD = ("perdido", "cancelado")
 STATUS_ORCAMENTO = ("rascunho", "enviado", "aceito", "recusado")
+STATUS_PEDIDO_COMERCIAL = ("confirmado", "entregue", "devolvido", "cancelado")
+STATUS_PEDIDO_OPERACIONAL = (
+    "preparacao", "separado", "montado", "entregue",
+    "recolhido", "conferido", "cancelado",
+)
 
 CAMINHO_BD = os.environ.get("FESTAS_DADOS", "morumbi_festas.db")
 
@@ -253,6 +258,20 @@ def inicializar():
                 conn.execute(
                     f"ALTER TABLE {tabela} ADD COLUMN publicado"
                     " INTEGER NOT NULL DEFAULT 0")
+
+        # Migracao S07: colunas de reserva em pedidos
+        cols_pedido = [r[1] for r in conn.execute(
+            "PRAGMA table_info(pedidos)").fetchall()]
+        if "data_retirada" not in cols_pedido:
+            conn.execute(
+                "ALTER TABLE pedidos ADD COLUMN data_retirada TEXT")
+        if "data_devolucao" not in cols_pedido:
+            conn.execute(
+                "ALTER TABLE pedidos ADD COLUMN data_devolucao TEXT")
+        if "motivo_cancelamento" not in cols_pedido:
+            conn.execute(
+                "ALTER TABLE pedidos ADD COLUMN motivo_cancelamento"
+                " TEXT DEFAULT ''")
 
 
 # ---------------------------------------------------------------------------
@@ -814,11 +833,28 @@ def salvar_produto(dados_: dict, id_: int | None = None,
         return novo_id
 
 
-def disponibilidade(produto_id: int, data: str | None = None) -> int:
-    p = buscar_produto(produto_id)
-    if not p:
-        return 0
-    return p["quantidade_total"]
+def disponibilidade(produto_id: int, data_inicio: str | None = None,
+                    data_fim: str | None = None) -> int:
+    with conectar() as conn:
+        r = conn.execute("SELECT quantidade_total, status FROM produtos WHERE id=?",
+                         (produto_id,)).fetchone()
+        if not r:
+            return 0
+        if r["status"] == "manutencao":
+            return 0
+        total = r["quantidade_total"]
+        if not data_inicio or not data_fim:
+            return total
+        reservado = conn.execute(
+            "SELECT COALESCE(SUM(ip.quantidade), 0) FROM itens_pedido ip"
+            " JOIN pedidos p ON p.id = ip.pedido_id"
+            " WHERE ip.tipo = 'produto' AND ip.item_id = ?"
+            " AND p.status_comercial != 'cancelado'"
+            " AND p.data_retirada IS NOT NULL"
+            " AND p.data_devolucao IS NOT NULL"
+            " AND p.data_retirada <= ? AND p.data_devolucao >= ?",
+            (produto_id, data_fim, data_inicio)).fetchone()[0]
+        return max(total - reservado, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -996,7 +1032,8 @@ def remover_item_kit(item_id: int):
         conn.execute("DELETE FROM itens_kit WHERE id = ?", (item_id,))
 
 
-def disponibilidade_kit(kit_id: int, data: str | None = None) -> int:
+def disponibilidade_kit(kit_id: int, data_inicio: str | None = None,
+                        data_fim: str | None = None) -> int:
     kit = buscar_kit(kit_id)
     if not kit or not kit["itens"]:
         return 0
@@ -1006,7 +1043,7 @@ def disponibilidade_kit(kit_id: int, data: str | None = None) -> int:
             return 0
         if item["produto_status"] == "inativo":
             return 0
-        disp_produto = disponibilidade(item["produto_id"], data)
+        disp_produto = disponibilidade(item["produto_id"], data_inicio, data_fim)
         kits_possiveis = disp_produto // item["quantidade"] if item["quantidade"] > 0 else 0
         if minimo is None or kits_possiveis < minimo:
             minimo = kits_possiveis
@@ -1070,11 +1107,23 @@ def resumo_painel() -> dict:
             "SELECT COUNT(*) FROM produtos WHERE status != 'inativo'").fetchone()[0]
         total_kits = conn.execute(
             "SELECT COUNT(*) FROM kits WHERE status = 'ativo'").fetchone()[0]
+        total_leads = conn.execute(
+            "SELECT COUNT(*) FROM leads WHERE status NOT IN ('perdido','cancelado','concluido')"
+        ).fetchone()[0]
+        total_orcamentos = conn.execute(
+            "SELECT COUNT(*) FROM orcamentos WHERE status IN ('rascunho','enviado')"
+        ).fetchone()[0]
+        total_pedidos = conn.execute(
+            "SELECT COUNT(*) FROM pedidos WHERE status_comercial != 'cancelado'"
+        ).fetchone()[0]
     return {
         "vazio": total_clientes == 0 and total_produtos == 0 and total_kits == 0,
         "total_clientes": total_clientes,
         "total_produtos": total_produtos,
         "total_kits": total_kits,
+        "total_leads": total_leads,
+        "total_orcamentos": total_orcamentos,
+        "total_pedidos": total_pedidos,
     }
 
 
@@ -1496,3 +1545,168 @@ def converter_orcamento_em_pedido(orcamento_id: int) -> int:
                 "UPDATE leads SET status='contratado', atualizado_em=?"
                 " WHERE id=?", (agora_, orc["lead_id"]))
         return pedido_id
+
+
+def campos_pedido_festas(form) -> dict:
+    def _int(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "cliente_id": _int(form.get("cliente_id")),
+        "data_evento": (form.get("data_evento") or "").strip() or None,
+        "data_retirada": (form.get("data_retirada") or "").strip() or None,
+        "data_devolucao": (form.get("data_devolucao") or "").strip() or None,
+        "status_comercial": form.get("status_comercial", "confirmado"),
+        "status_operacional": form.get("status_operacional", "preparacao"),
+        "observacoes": (form.get("observacoes") or "").strip(),
+    }
+
+
+def _verificar_disponibilidade_itens(conn, itens: list, data_retirada: str,
+                                     data_devolucao: str,
+                                     pedido_id: int | None = None):
+    for item in itens:
+        if item.get("tipo") != "produto" or not item.get("item_id"):
+            continue
+        pid = item["item_id"]
+        r = conn.execute(
+            "SELECT quantidade_total, status, nome FROM produtos WHERE id=?",
+            (pid,)).fetchone()
+        if not r:
+            continue
+        if r["status"] == "manutencao":
+            raise ErroDeCampo(
+                "item_descricao_0",
+                f"Produto '{r['nome']}' esta em manutencao.")
+        total = r["quantidade_total"]
+        sql = (
+            "SELECT COALESCE(SUM(ip.quantidade), 0) FROM itens_pedido ip"
+            " JOIN pedidos p ON p.id = ip.pedido_id"
+            " WHERE ip.tipo = 'produto' AND ip.item_id = ?"
+            " AND p.status_comercial != 'cancelado'"
+            " AND p.data_retirada IS NOT NULL"
+            " AND p.data_devolucao IS NOT NULL"
+            " AND p.data_retirada <= ? AND p.data_devolucao >= ?")
+        params: list = [pid, data_devolucao, data_retirada]
+        if pedido_id:
+            sql += " AND p.id != ?"
+            params.append(pedido_id)
+        reservado = conn.execute(sql, params).fetchone()[0]
+        livre = total - reservado
+        qtd = int(item.get("quantidade") or 1)
+        if qtd > livre:
+            raise ErroDeCampo(
+                "item_descricao_0",
+                f"Quantidade insuficiente para '{r['nome']}' nesta data."
+                f" Disponivel: {livre}, solicitado: {qtd}.")
+
+
+def salvar_pedido_festas(dados_: dict, itens: list,
+                         id_: int | None = None) -> int:
+    if not dados_.get("cliente_id"):
+        raise ErroDeCampo("cliente_id", "Cliente e obrigatorio.")
+
+    sc = dados_.get("status_comercial", "confirmado")
+    if sc not in STATUS_PEDIDO_COMERCIAL:
+        raise ErroDeCampo("status_comercial", "Status comercial invalido.")
+
+    so = dados_.get("status_operacional", "preparacao")
+    if so not in STATUS_PEDIDO_OPERACIONAL:
+        raise ErroDeCampo("status_operacional", "Status operacional invalido.")
+
+    agora_ = formato.agora()
+    data_ret = dados_.get("data_retirada")
+    data_dev = dados_.get("data_devolucao")
+    if data_ret and data_dev and data_ret > data_dev:
+        raise ErroDeCampo("data_devolucao",
+                          "Data de devolucao deve ser posterior a retirada.")
+
+    with conectar() as conn:
+        if data_ret and data_dev and sc != "cancelado":
+            _verificar_disponibilidade_itens(
+                conn, itens, data_ret, data_dev, id_)
+
+        if id_:
+            conn.execute(
+                "UPDATE pedidos SET cliente_id=?, data_evento=?,"
+                " data_retirada=?, data_devolucao=?,"
+                " status_comercial=?, status_operacional=?,"
+                " observacoes=?, atualizado_em=? WHERE id=?",
+                (dados_["cliente_id"], dados_.get("data_evento"),
+                 data_ret, data_dev, sc, so,
+                 dados_.get("observacoes", ""), agora_, id_))
+            conn.execute("DELETE FROM itens_pedido WHERE pedido_id=?", (id_,))
+            novo_id = id_
+        else:
+            r = conn.execute(
+                "INSERT INTO pedidos (cliente_id, data_evento,"
+                " data_retirada, data_devolucao,"
+                " status_comercial, status_operacional,"
+                " observacoes, criado_em, atualizado_em)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (dados_["cliente_id"], dados_.get("data_evento"),
+                 data_ret, data_dev, sc, so,
+                 dados_.get("observacoes", ""), agora_, agora_))
+            novo_id = r.lastrowid
+
+        for item in itens:
+            if not item.get("descricao", "").strip():
+                continue
+            conn.execute(
+                "INSERT INTO itens_pedido (pedido_id, tipo, item_id,"
+                " descricao, quantidade, preco_unitario)"
+                " VALUES (?,?,?,?,?,?)",
+                (novo_id, item.get("tipo", "produto"),
+                 item.get("item_id"), item["descricao"].strip(),
+                 int(item.get("quantidade") or 1),
+                 float(item.get("preco_unitario") or 0)))
+        return novo_id
+
+
+def cancelar_pedido(id_: int, motivo: str = ""):
+    agora_ = formato.agora()
+    with conectar() as conn:
+        ped = conn.execute("SELECT status_comercial FROM pedidos WHERE id=?",
+                           (id_,)).fetchone()
+        if not ped:
+            raise ValueError("Pedido nao encontrado.")
+        if ped["status_comercial"] == "cancelado":
+            raise ValueError("Pedido ja esta cancelado.")
+        conn.execute(
+            "UPDATE pedidos SET status_comercial='cancelado',"
+            " status_operacional='cancelado',"
+            " motivo_cancelamento=?, atualizado_em=? WHERE id=?",
+            (motivo, agora_, id_))
+
+
+def disponibilidade_calendario(produto_id: int, ano: int, mes: int) -> list:
+    import calendar
+    _, ultimo_dia = calendar.monthrange(ano, mes)
+    resultado = []
+    with conectar() as conn:
+        r = conn.execute("SELECT quantidade_total, status FROM produtos WHERE id=?",
+                         (produto_id,)).fetchone()
+        if not r:
+            return resultado
+        if r["status"] == "manutencao":
+            for dia in range(1, ultimo_dia + 1):
+                resultado.append({"dia": dia, "total": r["quantidade_total"],
+                                  "disponivel": 0})
+            return resultado
+        total = r["quantidade_total"]
+        for dia in range(1, ultimo_dia + 1):
+            d = f"{ano}-{mes:02d}-{dia:02d}"
+            reservado = conn.execute(
+                "SELECT COALESCE(SUM(ip.quantidade), 0) FROM itens_pedido ip"
+                " JOIN pedidos p ON p.id = ip.pedido_id"
+                " WHERE ip.tipo = 'produto' AND ip.item_id = ?"
+                " AND p.status_comercial != 'cancelado'"
+                " AND p.data_retirada IS NOT NULL AND p.data_devolucao IS NOT NULL"
+                " AND p.data_retirada <= ? AND p.data_devolucao >= ?",
+                (produto_id, d, d)).fetchone()[0]
+            resultado.append({"dia": dia, "total": total,
+                              "disponivel": max(total - reservado, 0)})
+    return resultado

@@ -8,7 +8,10 @@
 <main id="conteudo" class="pagina">
   <div class="cabecalho-lista">
     <h2 class="secao">Pedido #{{ pedido.id }}</h2>
-    <a class="botao vazado" href="{{ url_for('lista_pedidos') }}">Voltar</a>
+    <span>
+      <a class="botao vazado" href="{{ url_for('editar_pedido', id_=pedido.id) }}">Editar</a>
+      <a class="botao vazado" href="{{ url_for('lista_pedidos') }}">Voltar</a>
+    </span>
   </div>
 
   {% include "_erro.html" %}
@@ -27,6 +30,14 @@
           {% if pedido.data_evento %}
           <dt>Data do evento</dt>
           <dd>{{ pedido.data_evento|data }}</dd>
+          {% endif %}
+          {% if pedido.data_retirada %}
+          <dt>Data de retirada</dt>
+          <dd>{{ pedido.data_retirada|data }}</dd>
+          {% endif %}
+          {% if pedido.data_devolucao %}
+          <dt>Data de devolucao</dt>
+          <dd>{{ pedido.data_devolucao|data }}</dd>
           {% endif %}
           <dt>Criado em</dt>
           <dd>{{ pedido.criado_em|datahora }}</dd>

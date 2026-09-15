@@ -665,7 +665,7 @@ body.bancada { background: var(--fundo); }
     bottom: 0;
     z-index: 90;
   }
-  .lateral:not([hidden]) { display: block; }
+  .lateral.aberta { display: block; }
 
   .pagina { margin-left: 0; padding: 16px; }
 
@@ -1195,6 +1195,123 @@ a.cat-card:hover {
   margin: 0;
   color: var(--texto);
 }
+
+/* === Duas colunas === */
+
+.duas-colunas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.duas-colunas > * { min-width: 0; }
+
+@media (max-width: 768px) {
+  .duas-colunas { grid-template-columns: 1fr; }
+}
+
+/* === Acoes de formulario === */
+
+.acoes-formulario {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 16px 0;
+}
+.acoes-formulario.sticky {
+  position: sticky;
+  bottom: 0;
+  background: var(--fundo);
+}
+
+.botao.mini {
+  padding: 4px 10px;
+  font-size: 13px;
+  min-height: 32px;
+  border-radius: 6px;
+}
+.botao.perigoso {
+  color: var(--vermelho);
+  border-color: rgba(220,53,69,.3);
+}
+.botao.perigoso:hover {
+  background: rgba(220,53,69,.08);
+}
+
+/* === Calendario de disponibilidade === */
+
+.cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.cal-nav .cal-titulo {
+  font-size: 18px;
+  font-weight: 600;
+  min-width: 180px;
+  text-align: center;
+}
+
+.cal-grade {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 24px;
+}
+.cal-dia-nome {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--suave);
+  padding: 6px 0;
+}
+.cal-dia {
+  text-align: center;
+  padding: 10px 4px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 6px;
+  border: 1px solid var(--borda);
+  background: var(--superficie);
+}
+.cal-dia.vazio {
+  border: none;
+  background: transparent;
+}
+.cal-dia.disponivel { background: rgba(40,167,69,.1); border-color: rgba(40,167,69,.2); }
+.cal-dia.parcial   { background: rgba(255,193,7,.15); border-color: rgba(255,193,7,.25); }
+.cal-dia.esgotado  { background: rgba(220,53,69,.08); border-color: rgba(220,53,69,.15); color: var(--vermelho); }
+
+.cal-dia .cal-qtd {
+  display: block;
+  font-size: 11px;
+  color: var(--suave);
+  margin-top: 2px;
+}
+
+.cal-legenda {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--suave);
+}
+.cal-legenda span::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.cal-legenda .leg-disponivel::before { background: rgba(40,167,69,.3); }
+.cal-legenda .leg-parcial::before   { background: rgba(255,193,7,.4); }
+.cal-legenda .leg-esgotado::before  { background: rgba(220,53,69,.2); }
 
 /* === Aviso de formulario nao salvo === */
 .formulario[data-avisar] { position: relative; }

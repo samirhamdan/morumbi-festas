@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block titulo %}Disponibilidade — {{ produto.nome }} — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Disponibilidade: {{ produto.nome }}</h2>
+    <a class="botao vazado" href="{{ url_for('lista_produtos') }}">Voltar</a>
+  </div>
+
+  <div class="cartao" style="max-width:480px">
+    <dl class="detalhe-lista">
+      <dt>Quantidade total</dt>
+      <dd>{{ produto.quantidade_total }}</dd>
+      <dt>Status</dt>
+      <dd><span class="etiqueta {{ 'verde' if produto.status == 'disponivel' else 'vermelho' }}">{{ produto.status|capitalize }}</span></dd>
+    </dl>
+  </div>
+
+  <div class="cartao" style="max-width:480px">
+    <div class="cal-nav">
+      <a href="{{ url_for('disponibilidade_produto', id_=produto.id, ano=ano_ant, mes=mes_ant) }}"
+         class="botao mini vazado">&larr;</a>
+      <strong>{{ meses[mes - 1] }} {{ ano }}</strong>
+      <a href="{{ url_for('disponibilidade_produto', id_=produto.id, ano=ano_prox, mes=mes_prox) }}"
+         class="botao mini vazado">&rarr;</a>
+    </div>
+
+    <div class="cal-grade">
+      <span class="cal-dia-nome">Dom</span>
+      <span class="cal-dia-nome">Seg</span>
+      <span class="cal-dia-nome">Ter</span>
+      <span class="cal-dia-nome">Qua</span>
+      <span class="cal-dia-nome">Qui</span>
+      <span class="cal-dia-nome">Sex</span>
+      <span class="cal-dia-nome">Sab</span>
+
+      {% for _ in range(offset_dia) %}
+      <span></span>
+      {% endfor %}
+
+      {% for d in calendario %}
+      {% if d.disponivel == d.total %}
+        {% set cls = 'disponivel' %}
+      {% elif d.disponivel > 0 %}
+        {% set cls = 'parcial' %}
+      {% else %}
+        {% set cls = 'esgotado' %}
+      {% endif %}
+      <span class="cal-dia {{ cls }}">
+        {{ d.dia }}
+        <span class="cal-qtd">{{ d.disponivel }}/{{ d.total }}</span>
+      </span>
+      {% endfor %}
+    </div>
+
+    <div class="cal-legenda">
+      <span class="disponivel">Disponivel</span>
+      <span class="parcial">Parcial</span>
+      <span class="esgotado">Esgotado</span>
+    </div>
+  </div>
+</main>
+{% endblock %}

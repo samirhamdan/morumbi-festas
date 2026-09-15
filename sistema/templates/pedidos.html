@@ -8,6 +8,7 @@
 <main id="conteudo" class="pagina">
   <div class="cabecalho-lista">
     <h2 class="secao">Pedidos</h2>
+    <a class="botao primario" href="{{ url_for('editar_pedido') }}">Novo pedido</a>
   </div>
 
   {% include "_erro.html" %}
@@ -31,7 +32,9 @@
         <th>Total</th>
         <th>Comercial</th>
         <th>Operacional</th>
-        <th>Data</th>
+        <th>Retirada</th>
+        <th>Devolucao</th>
+        <th>Criado</th>
       </tr></thead>
       <tbody>
         {% for p in pedidos %}
@@ -42,7 +45,9 @@
           <td data-rotulo="Total" class="decide">{{ p.total|dinheiro }}</td>
           <td data-rotulo="Comercial" class="estado"><span class="etiqueta roxo">{{ p.status_comercial }}</span></td>
           <td data-rotulo="Operacional"><span class="etiqueta cinza">{{ p.status_operacional }}</span></td>
-          <td data-rotulo="Data">{{ p.criado_em|datahora }}</td>
+          <td data-rotulo="Retirada">{{ p.data_retirada|data if p.data_retirada else '—' }}</td>
+          <td data-rotulo="Devolucao">{{ p.data_devolucao|data if p.data_devolucao else '—' }}</td>
+          <td data-rotulo="Criado">{{ p.criado_em|datahora }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -54,7 +59,8 @@
     <b>Nenhum resultado para "{{ busca }}".</b>
     {% else %}
     <b>Nenhum pedido registrado.</b>
-    <span>Pedidos sao criados a partir da conversao de orcamentos.</span>
+    <span>Crie um pedido diretamente ou a partir de um orcamento.</span>
+    <a href="{{ url_for('editar_pedido') }}" class="botao primario" style="margin-top:8px">Novo pedido</a>
     {% endif %}
   </div>
   {% endif %}
