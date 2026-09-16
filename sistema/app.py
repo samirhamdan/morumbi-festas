@@ -301,13 +301,16 @@ def criar_app() -> Flask:
                                        origens=dados.ORIGENS_CLIENTE, **_erro(e))
 
         historico_evts = []
+        pedidos_cli = []
         if cliente and cliente.get("id"):
             historico_evts = dados.eventos_historico_cliente(cliente["id"])
+            pedidos_cli = dados.pedidos_cliente(cliente["id"])
 
         return render_template("cliente.html",
                                atual=cliente or {},
                                origens=dados.ORIGENS_CLIENTE,
-                               historico=historico_evts)
+                               historico=historico_evts,
+                               pedidos_cliente=pedidos_cli)
 
     @app.route("/clientes/exportar")
     @auth.exige_perfil("admin", "comercial")

@@ -1723,7 +1723,10 @@ def salvar_pedido_festas(dados_: dict, itens: list,
                  item.get("item_id"), item["descricao"].strip(),
                  int(item.get("quantidade") or 1),
                  float(item.get("preco_unitario") or 0)))
-        return novo_id
+
+    if sc in ("entregue", "devolvido", "cancelado"):
+        atualizar_classificacao_cliente(int(dados_["cliente_id"]))
+    return novo_id
 
 
 FLUXO_OPERACIONAL = {
@@ -1896,18 +1899,41 @@ def salvar_evento_historico(dados_evt: dict) -> int:
         return cur.lastrowid
 
 
+def pedidos_cliente(cliente_id: int) -> list:
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT id, data_evento, data_retirada, data_devolucao,"
+            " status_comercial, status_operacional, observacoes, valor_total"
+            " FROM pedidos WHERE cliente_id = ?"
+            " ORDER BY data_evento DESC",
+            (cliente_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def atualizar_classificacao_cliente(cliente_id: int):
     with conectar() as conn:
-        r = conn.execute(
+        r1 = conn.execute(
             "SELECT COUNT(*) FROM eventos_historico"
             " WHERE cliente_id = ? AND status_origem = 'entregue'",
             (cliente_id,)).fetchone()
-        total = r[0]
         r2 = conn.execute(
-            "SELECT MAX(data_evento) FROM eventos_historico"
-            " WHERE cliente_id = ? AND status_origem = 'entregue'",
+            "SELECT COUNT(*) FROM pedidos"
+            " WHERE cliente_id = ?"
+            " AND status_comercial IN ('entregue', 'devolvido')",
             (cliente_id,)).fetchone()
-        ultima = r2[0]
+        total = r1[0] + r2[0]
+
+        r3 = conn.execute(
+            "SELECT MAX(data_evento) FROM ("
+            "  SELECT data_evento FROM eventos_historico"
+            "  WHERE cliente_id = ? AND status_origem = 'entregue'"
+            "  UNION ALL"
+            "  SELECT data_evento FROM pedidos"
+            "  WHERE cliente_id = ?"
+            "  AND status_comercial IN ('entregue', 'devolvido')"
+            ")", (cliente_id, cliente_id)).fetchone()
+        ultima = r3[0]
+
         conn.execute(
             "UPDATE clientes SET total_festas = ?, classificacao = ?,"
             " ultima_festa = ? WHERE id = ?",
@@ -1917,8 +1943,14 @@ def atualizar_classificacao_cliente(cliente_id: int):
 def atualizar_todas_classificacoes():
     with conectar() as conn:
         clientes = conn.execute(
-            "SELECT DISTINCT cliente_id FROM eventos_historico"
-            " WHERE cliente_id IS NOT NULL").fetchall()
+            "SELECT DISTINCT cliente_id FROM ("
+            "  SELECT cliente_id FROM eventos_historico"
+            "  WHERE cliente_id IS NOT NULL"
+            "  UNION"
+            "  SELECT cliente_id FROM pedidos"
+            "  WHERE cliente_id IS NOT NULL"
+            "  AND status_comercial IN ('entregue', 'devolvido')"
+            ")").fetchall()
     for row in clientes:
         atualizar_classificacao_cliente(row[0])
 
