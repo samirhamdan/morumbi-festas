@@ -1666,6 +1666,67 @@ def salvar_pedido_festas(dados_: dict, itens: list,
         return novo_id
 
 
+FLUXO_OPERACIONAL = {
+    "preparacao": "separado",
+    "separado": "montado",
+    "montado": "entregue",
+    "entregue": "recolhido",
+    "recolhido": "conferido",
+}
+
+
+def listar_pedidos_operacional(status_operacional: str | None = None,
+                               busca: str | None = None) -> list:
+    sql = ("SELECT p.*, c.nome AS cliente_nome FROM pedidos p"
+           " LEFT JOIN clientes c ON c.id = p.cliente_id"
+           " WHERE p.status_comercial != 'cancelado'")
+    params: list = []
+    if status_operacional:
+        sql += " AND p.status_operacional = ?"
+        params.append(status_operacional)
+    sql += " ORDER BY COALESCE(p.data_retirada, p.data_evento, p.criado_em)"
+    with conectar() as conn:
+        peds = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        for ped in peds:
+            ped["itens"] = [dict(r) for r in conn.execute(
+                "SELECT * FROM itens_pedido WHERE pedido_id=? ORDER BY id",
+                (ped["id"],)).fetchall()]
+            ped["total"] = sum(
+                i["quantidade"] * i["preco_unitario"] for i in ped["itens"])
+        if busca:
+            b = busca.lower()
+            peds = [p for p in peds
+                    if b in (p.get("cliente_nome") or "").lower()
+                    or b in str(p.get("id", ""))]
+        return peds
+
+
+def avancar_status_operacional(pedido_id: int, observacao: str = "") -> str:
+    agora_ = formato.agora()
+    with conectar() as conn:
+        ped = conn.execute(
+            "SELECT status_comercial, status_operacional FROM pedidos WHERE id=?",
+            (pedido_id,)).fetchone()
+        if not ped:
+            raise ValueError("Pedido nao encontrado.")
+        if ped["status_comercial"] == "cancelado":
+            raise ValueError("Pedido cancelado nao pode avancar.")
+        atual = ped["status_operacional"]
+        if atual not in FLUXO_OPERACIONAL:
+            raise ValueError(f"Status '{atual}' nao pode avancar.")
+        proximo = FLUXO_OPERACIONAL[atual]
+        conn.execute(
+            "UPDATE pedidos SET status_operacional=?, atualizado_em=? WHERE id=?",
+            (proximo, agora_, pedido_id))
+        if observacao:
+            conn.execute(
+                "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
+                " VALUES (NULL, 'operacao', ?, ?, ?)",
+                (f"Pedido #{pedido_id}: {atual} -> {proximo}",
+                 json.dumps({"observacao": observacao}), agora_))
+        return proximo
+
+
 def cancelar_pedido(id_: int, motivo: str = ""):
     agora_ = formato.agora()
     with conectar() as conn:

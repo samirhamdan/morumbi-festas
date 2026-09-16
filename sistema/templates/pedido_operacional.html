@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block titulo %}Operacao — Pedido #{{ pedido.id }} — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Pedido #{{ pedido.id }}</h2>
+    <a class="botao vazado" href="{{ url_for('painel_operacional') }}">Voltar</a>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <div class="duas-colunas">
+    <div>
+      <div class="cartao">
+        <h3 class="form-secao" style="border-top:none;padding-top:0">Informacoes</h3>
+        <dl class="detalhe-lista">
+          <dt>Cliente</dt>
+          <dd>{{ pedido.cliente_nome or '—' }}</dd>
+          <dt>Status comercial</dt>
+          <dd><span class="etiqueta roxo">{{ pedido.status_comercial }}</span></dd>
+          <dt>Status operacional</dt>
+          <dd><span class="etiqueta op-etiqueta-{{ pedido.status_operacional }}">{{ pedido.status_operacional }}</span></dd>
+          {% if pedido.data_evento %}
+          <dt>Data do evento</dt>
+          <dd>{{ pedido.data_evento|data }}</dd>
+          {% endif %}
+          {% if pedido.data_retirada %}
+          <dt>Retirada</dt>
+          <dd>{{ pedido.data_retirada|data }}</dd>
+          {% endif %}
+          {% if pedido.data_devolucao %}
+          <dt>Devolucao</dt>
+          <dd>{{ pedido.data_devolucao|data }}</dd>
+          {% endif %}
+          {% if pedido.observacoes %}
+          <dt>Observacoes</dt>
+          <dd>{{ pedido.observacoes }}</dd>
+          {% endif %}
+        </dl>
+
+        {% if proximo %}
+        <form method="POST" action="{{ url_for('avancar_pedido', id_=pedido.id) }}" class="op-transicao">
+          <label class="op-obs-label">
+            Observacao (opcional)
+            <textarea name="observacao" rows="2" placeholder="Danos, faltas, problemas..."></textarea>
+          </label>
+          <button class="botao primario" type="submit">
+            Avancar para {{ proximo }}
+          </button>
+        </form>
+        {% elif pedido.status_operacional == 'conferido' %}
+        <div class="op-concluido">
+          Pedido concluido.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div>
+      <div class="cartao">
+        <h3 class="form-secao" style="border-top:none;padding-top:0">Itens do pedido</h3>
+        {% if pedido.itens %}
+        <table class="tabela" style="margin-top:0">
+          <thead><tr>
+            <th>Descricao</th>
+            <th>Tipo</th>
+            <th>Qtd</th>
+          </tr></thead>
+          <tbody>
+            {% for item in pedido.itens %}
+            <tr>
+              <td data-rotulo="Descricao">{{ item.descricao }}</td>
+              <td data-rotulo="Tipo">{{ item.tipo }}</td>
+              <td data-rotulo="Qtd">{{ item.quantidade }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p style="color:var(--suave)">Nenhum item.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}

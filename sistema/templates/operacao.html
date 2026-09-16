@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block titulo %}Operacao — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Painel Operacional</h2>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form class="peneira" method="get">
+    <label class="busca">
+      <span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Cliente ou pedido..."
+             autocomplete="off" enterkeyhint="search">
+    </label>
+    <select name="status" onchange="this.form.submit()">
+      <option value="">Todos os status</option>
+      {% for s in status_operacional %}
+        {% if s != 'cancelado' %}
+        <option value="{{ s }}" {{ 'selected' if filtro == s }}>{{ s|capitalize }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <button class="botao vazado" type="submit">Buscar</button>
+  </form>
+
+  {% if filtro %}
+  <div class="cartao">
+    <h3 class="op-col-titulo">{{ filtro|capitalize }} <span class="op-col-qtd">({{ pedidos|length }})</span></h3>
+    {% if pedidos %}
+    <div class="op-lista">
+      {% for p in pedidos %}
+      {% include "_card_operacao.html" %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="ag-vazio">Nenhum pedido com status "{{ filtro }}".</p>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="op-kanban">
+    {% for s in status_operacional %}
+      {% if s != 'cancelado' %}
+      <div class="op-coluna">
+        <h3 class="op-col-titulo">{{ s|capitalize }} <span class="op-col-qtd">({{ por_status[s]|length }})</span></h3>
+        {% for p in por_status[s] %}
+        {% include "_card_operacao.html" %}
+        {% endfor %}
+        {% if not por_status[s] %}
+        <span class="ag-vazio">—</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

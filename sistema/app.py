@@ -26,6 +26,7 @@ MENU = (
     )),
     ("Operacao", (
         ("agenda", "Agenda"),
+        ("painel_operacional", "Pedidos"),
     )),
     ("Catalogo", (
         ("catalogo_interno", "Vitrine"),
@@ -1012,6 +1013,55 @@ def criar_app() -> Flask:
         except ValueError as e:
             flash(str(e), "erro")
         return redirect(url_for("ver_pedido", id_=id_))
+
+    # ------------------------------------------------------------------
+    # Operacao — painel e transicoes
+    # ------------------------------------------------------------------
+
+    @app.route("/operacao")
+    @auth.exige_perfil("admin", "operacional", "gestor")
+    def painel_operacional():
+        busca = request.args.get("q", "")
+        filtro = request.args.get("status", "")
+        peds = dados.listar_pedidos_operacional(
+            status_operacional=filtro or None,
+            busca=busca or None)
+        por_status = {}
+        for s in dados.STATUS_PEDIDO_OPERACIONAL:
+            if s == "cancelado":
+                continue
+            por_status[s] = [p for p in peds if p["status_operacional"] == s]
+        return render_template("operacao.html",
+                               pedidos=peds,
+                               por_status=por_status,
+                               status_operacional=dados.STATUS_PEDIDO_OPERACIONAL,
+                               fluxo=dados.FLUXO_OPERACIONAL,
+                               busca=busca,
+                               filtro=filtro)
+
+    @app.route("/operacao/pedido/<int:id_>")
+    @auth.exige_perfil("admin", "operacional", "gestor")
+    def ver_pedido_operacional(id_):
+        ped = dados.buscar_pedido_festas(id_)
+        if not ped:
+            abort(404)
+        proximo = dados.FLUXO_OPERACIONAL.get(ped["status_operacional"])
+        return render_template("pedido_operacional.html",
+                               pedido=ped, proximo=proximo)
+
+    @app.route("/operacao/pedido/<int:id_>/avancar", methods=["POST"])
+    @auth.exige_perfil("admin", "operacional", "gestor")
+    def avancar_pedido(id_):
+        obs = (request.form.get("observacao") or "").strip()
+        try:
+            novo = dados.avancar_status_operacional(id_, obs)
+            dados.registrar_acao(
+                session.get("usuario_id"), "operacao",
+                f"Pedido #{id_} avancou para {novo}")
+            flash(f"Pedido avancou para {novo}.", "ok")
+        except ValueError as e:
+            flash(str(e), "erro")
+        return redirect(url_for("ver_pedido_operacional", id_=id_))
 
     # ------------------------------------------------------------------
     # Agenda

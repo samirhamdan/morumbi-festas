@@ -1,0 +1,16 @@
+<a class="op-card" href="{{ url_for('ver_pedido_operacional', id_=p.id) }}">
+  <div class="op-card-cab">
+    <span class="op-card-id">#{{ p.id }}</span>
+    <span class="etiqueta {{ 'verde' if p.status_comercial == 'confirmado' else 'azul' if p.status_comercial == 'entregue' else '' }}">{{ p.status_comercial }}</span>
+  </div>
+  <span class="op-card-cliente">{{ p.cliente_nome or '—' }}</span>
+  <div class="op-card-datas">
+    {% if p.data_retirada %}
+    <span title="Retirada">&#x2191; {{ p.data_retirada|data }}</span>
+    {% endif %}
+    {% if p.data_devolucao %}
+    <span title="Devolucao">&#x2193; {{ p.data_devolucao|data }}</span>
+    {% endif %}
+  </div>
+  <span class="op-card-itens">{{ p.itens|length }} {{ 'item' if p.itens|length == 1 else 'itens' }}</span>
+</a>
