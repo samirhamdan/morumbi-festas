@@ -1046,8 +1046,11 @@ def criar_app() -> Flask:
         if not ped:
             abort(404)
         proximo = dados.FLUXO_OPERACIONAL.get(ped["status_operacional"])
+        etapas = [s for s in dados.STATUS_PEDIDO_OPERACIONAL
+                  if s != "cancelado"]
         return render_template("pedido_operacional.html",
-                               pedido=ped, proximo=proximo)
+                               pedido=ped, proximo=proximo,
+                               etapas=etapas)
 
     @app.route("/operacao/pedido/<int:id_>/avancar", methods=["POST"])
     @auth.exige_perfil("admin", "operacional", "gestor")
