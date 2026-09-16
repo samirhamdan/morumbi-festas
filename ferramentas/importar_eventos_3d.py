@@ -8,6 +8,11 @@ eventos historicos para visualizacao na agenda.
 Idempotente: usa (origem, origem_id) como chave unica. Reexecucoes
 nao duplicam registros.
 
+Vinculacao de clientes:
+  1. Por cliente_3d_id (link direto)
+  2. Por nome (correspondencia case-insensitive)
+  3. Cria cliente novo no Festas para 3D sem correspondencia
+
 Uso:
     python3 ferramentas/importar_eventos_3d.py
 
@@ -20,6 +25,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import sys
+import unicodedata
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -35,6 +41,13 @@ ORIGEM = "Morumbi 3D"
 
 def agora() -> str:
     return datetime.now(FUSO).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _normalizar_nome(nome: str) -> str:
+    nome = nome.strip().lower()
+    nome = unicodedata.normalize("NFKD", nome)
+    nome = "".join(c for c in nome if not unicodedata.combining(c))
+    return " ".join(nome.split())
 
 
 def conectar_festas() -> sqlite3.Connection:
@@ -60,6 +73,56 @@ def _mapa_clientes(conn_festas: sqlite3.Connection) -> dict[int, int]:
     return {r["cliente_3d_id"]: r["id"] for r in rows}
 
 
+def _mapa_nomes(conn_festas: sqlite3.Connection) -> dict[str, int]:
+    """Retorna {nome_normalizado: cliente_festas_id}."""
+    rows = conn_festas.execute("SELECT id, nome FROM clientes").fetchall()
+    mapa = {}
+    for r in rows:
+        chave = _normalizar_nome(r["nome"])
+        if chave and chave not in mapa:
+            mapa[chave] = r["id"]
+    return mapa
+
+
+def _dados_cliente_3d(conn_3d: sqlite3.Connection,
+                      cliente_3d_id: int) -> dict:
+    """Busca dados do cliente na tabela do 3D (se existir)."""
+    try:
+        r = conn_3d.execute(
+            "SELECT * FROM clientes WHERE id = ?",
+            (cliente_3d_id,)).fetchone()
+        if r:
+            return dict(r)
+    except sqlite3.OperationalError:
+        pass
+    return {}
+
+
+def _criar_cliente_festas(conn_festas: sqlite3.Connection,
+                          nome: str, cliente_3d_id: int,
+                          dados_3d: dict, ts: str) -> int:
+    """Cria cliente no Festas a partir de dados do 3D."""
+    telefone = dados_3d.get("telefone", "") or dados_3d.get("celular", "") or ""
+    email = dados_3d.get("email", "") or ""
+    endereco = dados_3d.get("endereco", "") or ""
+    bairro = dados_3d.get("bairro", "") or ""
+    cidade = dados_3d.get("cidade", "") or "Campo Grande"
+    cpf = dados_3d.get("cpf", "") or dados_3d.get("cpf_cnpj", "") or ""
+
+    cur = conn_festas.execute(
+        "INSERT INTO clientes (nome, cpf_cnpj, whatsapp, telefone,"
+        " email, data_nascimento, endereco, bairro, cidade, cep,"
+        " instagram, observacoes, origem, status, cliente_3d_id,"
+        " criado_em, atualizado_em)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (nome.strip(), cpf, telefone, "",
+         email, "",
+         endereco, bairro, cidade, "",
+         "", f"Importado do Morumbi 3D", "Morumbi 3D", "ativo",
+         cliente_3d_id, ts, ts))
+    return cur.lastrowid
+
+
 def _ja_importados(conn_festas: sqlite3.Connection) -> set[int]:
     """Retorna set de origem_id ja importados."""
     rows = conn_festas.execute(
@@ -70,7 +133,8 @@ def _ja_importados(conn_festas: sqlite3.Connection) -> set[int]:
 
 def importar(conn_festas: sqlite3.Connection,
              conn_3d: sqlite3.Connection) -> dict:
-    mapa = _mapa_clientes(conn_festas)
+    mapa_id = _mapa_clientes(conn_festas)
+    mapa_nome = _mapa_nomes(conn_festas)
     ja = _ja_importados(conn_festas)
 
     pedidos_3d = conn_3d.execute(
@@ -84,7 +148,8 @@ def importar(conn_festas: sqlite3.Connection,
     ts = agora()
     importados = 0
     ignorados_dup = 0
-    sem_cliente = 0
+    vinculados_nome = 0
+    clientes_criados = 0
     por_status: dict[str, int] = {}
 
     for p in pedidos_3d:
@@ -93,9 +158,27 @@ def importar(conn_festas: sqlite3.Connection,
             ignorados_dup += 1
             continue
 
-        cliente_id_festas = mapa.get(p["cliente_id"])
+        cliente_id_festas = mapa_id.get(p["cliente_id"])
+
+        if not cliente_id_festas and p["cliente"]:
+            nome_norm = _normalizar_nome(p["cliente"])
+            cliente_id_festas = mapa_nome.get(nome_norm)
+            if cliente_id_festas:
+                vinculados_nome += 1
+                conn_festas.execute(
+                    "UPDATE clientes SET cliente_3d_id = ? WHERE id = ?",
+                    (p["cliente_id"], cliente_id_festas))
+                mapa_id[p["cliente_id"]] = cliente_id_festas
+
+        if not cliente_id_festas and p["cliente"]:
+            dados_3d = _dados_cliente_3d(conn_3d, p["cliente_id"])
+            cliente_id_festas = _criar_cliente_festas(
+                conn_festas, p["cliente"], p["cliente_id"], dados_3d, ts)
+            mapa_id[p["cliente_id"]] = cliente_id_festas
+            mapa_nome[_normalizar_nome(p["cliente"])] = cliente_id_festas
+            clientes_criados += 1
+
         if not cliente_id_festas:
-            sem_cliente += 1
             continue
 
         data_evento = p["entregue_em"] or p["prazo"] or p["criado_em"]
@@ -122,7 +205,8 @@ def importar(conn_festas: sqlite3.Connection,
     return {
         "importados": importados,
         "ignorados_duplicados": ignorados_dup,
-        "sem_cliente_vinculado": sem_cliente,
+        "vinculados_por_nome": vinculados_nome,
+        "clientes_criados": clientes_criados,
         "por_status": por_status,
         "total_3d": len(pedidos_3d),
     }
@@ -135,8 +219,13 @@ def atualizar_classificacoes(conn_festas: sqlite3.Connection) -> dict:
     rows = conn_festas.execute("""
         SELECT cliente_id, COUNT(*) as total,
                MAX(data_evento) as ultima
-        FROM eventos_historico
-        WHERE cliente_id IS NOT NULL AND status_origem = 'entregue'
+        FROM (
+            SELECT cliente_id, data_evento FROM eventos_historico
+            WHERE cliente_id IS NOT NULL AND status_origem = 'entregue'
+            UNION ALL
+            SELECT cliente_id, data_evento FROM pedidos
+            WHERE status_comercial IN ('entregue', 'devolvido')
+        )
         GROUP BY cliente_id
     """).fetchall()
 
@@ -188,7 +277,8 @@ if __name__ == "__main__":
     print(f"\n  Total pedidos 3D (exceto orcamento): {resultado['total_3d']}")
     print(f"  Importados: {resultado['importados']}")
     print(f"  Ignorados (duplicados): {resultado['ignorados_duplicados']}")
-    print(f"  Sem cliente vinculado: {resultado['sem_cliente_vinculado']}")
+    print(f"  Vinculados por nome: {resultado['vinculados_por_nome']}")
+    print(f"  Clientes criados: {resultado['clientes_criados']}")
     if resultado.get("por_status"):
         print("  Por status:")
         for s, c in resultado["por_status"].items():

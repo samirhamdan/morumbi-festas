@@ -325,7 +325,7 @@ class TesteImportarEventos3D:
     def test_importa_exceto_orcamento(self):
         r = self._importar()
         assert r["total_3d"] == 6
-        assert r["importados"] >= 4
+        assert r["importados"] == 6
 
     def test_ignora_orcamento(self):
         r = self._importar()
@@ -335,15 +335,21 @@ class TesteImportarEventos3D:
                 " WHERE status_origem = 'orcamento'").fetchall()
         assert len(orc) == 0
 
-    def test_sem_cliente_vinculado_conta(self):
+    def test_cria_cliente_sem_vinculo(self):
         r = self._importar()
-        assert r["sem_cliente_vinculado"] >= 1
+        assert r["clientes_criados"] >= 1
+        with dados.conectar() as conn:
+            sem_vinc = conn.execute(
+                "SELECT * FROM clientes WHERE nome='Sem Vinculo'").fetchone()
+            assert sem_vinc is not None
+            assert sem_vinc["cliente_3d_id"] == 3
 
     def test_idempotencia(self):
         r1 = self._importar()
+        assert r1["importados"] == 6
         r2 = self._importar()
         assert r2["importados"] == 0
-        assert r2["ignorados_duplicados"] == r1["importados"]
+        assert r2["ignorados_duplicados"] == 6
 
     def test_classificacao_atualizada(self):
         self._importar()
@@ -362,6 +368,29 @@ class TesteImportarEventos3D:
                 " WHERE nome='Joao Santos'").fetchone())
         assert joao["total_festas"] == 1
         assert joao["classificacao"] == "Cliente de 1 festa"
+
+    def test_vincula_por_nome(self):
+        """Cliente sem cliente_3d_id mas com nome igual e vinculado."""
+        with dados.conectar() as conn:
+            conn.execute(
+                "UPDATE clientes SET cliente_3d_id = NULL"
+                " WHERE nome = 'Maria Silva'")
+        r = self._importar()
+        assert r["vinculados_por_nome"] >= 1
+        with dados.conectar() as conn:
+            maria = conn.execute(
+                "SELECT cliente_3d_id FROM clientes"
+                " WHERE nome='Maria Silva'").fetchone()
+            assert maria["cliente_3d_id"] == 1
+
+    def test_sem_vinculo_historico_aparece(self):
+        self._importar()
+        with dados.conectar() as conn:
+            sem_vinc = conn.execute(
+                "SELECT id FROM clientes WHERE nome='Sem Vinculo'").fetchone()
+        evts = dados.eventos_historico_cliente(sem_vinc["id"])
+        assert len(evts) == 1
+        assert evts[0]["status_origem"] == "entregue"
 
     def test_eventos_aparecem_na_agenda(self):
         self._importar()
