@@ -24,6 +24,9 @@ MENU = (
         ("lista_orcamentos", "Orcamentos"),
         ("lista_pedidos", "Pedidos"),
     )),
+    ("Operacao", (
+        ("agenda", "Agenda"),
+    )),
     ("Catalogo", (
         ("catalogo_interno", "Vitrine"),
         ("lista_produtos", "Produtos"),
@@ -48,6 +51,21 @@ def _grupo_de(endpoint: str) -> str:
 def _erro(exc):
     campo = getattr(exc, "campo", None)
     return {"erro": str(exc), "campo_erro": campo}
+
+
+def _eventos_do_dia(eventos: list, data_str: str) -> list:
+    resultado = []
+    for e in eventos:
+        tipos = []
+        if e.get("data_evento") == data_str:
+            tipos.append("evento")
+        if e.get("data_retirada") == data_str:
+            tipos.append("retirada")
+        if e.get("data_devolucao") == data_str:
+            tipos.append("devolucao")
+        if tipos:
+            resultado.append({**e, "tipos_dia": tipos})
+    return resultado
 
 
 def criar_app() -> Flask:
@@ -996,13 +1014,119 @@ def criar_app() -> Flask:
         return redirect(url_for("ver_pedido", id_=id_))
 
     # ------------------------------------------------------------------
-    # Disponibilidade
+    # Agenda
     # ------------------------------------------------------------------
 
     MESES_PT = [
         "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
         "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
     ]
+
+    DIAS_SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
+
+    @app.route("/agenda")
+    @auth.exige_login
+    def agenda():
+        import calendar as cal_mod
+        from datetime import date, timedelta
+
+        hoje = date.today()
+        visao = request.args.get("visao", "mensal")
+        tipo = request.args.get("tipo") or None
+        status = request.args.get("status") or None
+
+        ano = request.args.get("ano", type=int) or hoje.year
+        mes = request.args.get("mes", type=int) or hoje.month
+        dia = request.args.get("dia", type=int) or hoje.day
+
+        if mes < 1 or mes > 12:
+            mes = hoje.month
+
+        if visao == "semanal":
+            ref = date(ano, mes, min(dia, cal_mod.monthrange(ano, mes)[1]))
+            seg = ref - timedelta(days=ref.weekday())
+            dom = seg + timedelta(days=6)
+            data_inicio = seg.isoformat()
+            data_fim = dom.isoformat()
+            eventos = dados.eventos_agenda(data_inicio, data_fim, tipo, status)
+            dias_semana = []
+            for i in range(7):
+                d = seg + timedelta(days=i)
+                evts_dia = _eventos_do_dia(eventos, d.isoformat())
+                dias_semana.append({"data": d, "eventos": evts_dia})
+            sem_ant = seg - timedelta(days=7)
+            sem_prox = seg + timedelta(days=7)
+            return render_template("agenda.html",
+                                   visao=visao, tipo=tipo or "",
+                                   status=status or "",
+                                   dias_semana=dias_semana,
+                                   seg=seg, dom=dom,
+                                   sem_ant=sem_ant, sem_prox=sem_prox,
+                                   meses=MESES_PT, hoje=hoje,
+                                   status_comercial=dados.STATUS_PEDIDO_COMERCIAL)
+
+        if visao == "diaria":
+            try:
+                ref = date(ano, mes, dia)
+            except ValueError:
+                ref = hoje
+            data_str = ref.isoformat()
+            eventos = dados.eventos_agenda(data_str, data_str, tipo, status)
+            retiradas = [e for e in eventos if e.get("data_retirada") == data_str]
+            devolucoes = [e for e in eventos if e.get("data_devolucao") == data_str]
+            eventos_dia = [e for e in eventos if e.get("data_evento") == data_str]
+            preparacoes = [e for e in eventos
+                           if e.get("status_operacional") == "preparacao"
+                           and e.get("data_retirada")
+                           and e["data_retirada"] >= data_str]
+            ant = ref - timedelta(days=1)
+            prox = ref + timedelta(days=1)
+            return render_template("agenda.html",
+                                   visao=visao, tipo=tipo or "",
+                                   status=status or "",
+                                   ref=ref,
+                                   retiradas=retiradas,
+                                   devolucoes=devolucoes,
+                                   eventos_dia=eventos_dia,
+                                   preparacoes=preparacoes,
+                                   ant=ant, prox=prox,
+                                   meses=MESES_PT, hoje=hoje,
+                                   status_comercial=dados.STATUS_PEDIDO_COMERCIAL)
+
+        # mensal (default)
+        _, ultimo_dia = cal_mod.monthrange(ano, mes)
+        data_inicio = f"{ano}-{mes:02d}-01"
+        data_fim = f"{ano}-{mes:02d}-{ultimo_dia:02d}"
+        eventos = dados.eventos_agenda(data_inicio, data_fim, tipo, status)
+
+        primeiro_dia_semana = cal_mod.weekday(ano, mes, 1)
+        offset_dia = (primeiro_dia_semana + 1) % 7
+
+        calendario = []
+        for d in range(1, ultimo_dia + 1):
+            data_str = f"{ano}-{mes:02d}-{d:02d}"
+            evts = _eventos_do_dia(eventos, data_str)
+            calendario.append({"dia": d, "data": data_str, "eventos": evts})
+
+        if mes == 1:
+            ano_ant, mes_ant = ano - 1, 12
+        else:
+            ano_ant, mes_ant = ano, mes - 1
+        if mes == 12:
+            ano_prox, mes_prox = ano + 1, 1
+        else:
+            ano_prox, mes_prox = ano, mes + 1
+
+        return render_template("agenda.html",
+                               visao=visao, tipo=tipo or "",
+                               status=status or "",
+                               calendario=calendario,
+                               offset_dia=offset_dia,
+                               ano=ano, mes=mes,
+                               ano_ant=ano_ant, mes_ant=mes_ant,
+                               ano_prox=ano_prox, mes_prox=mes_prox,
+                               meses=MESES_PT, hoje=hoje,
+                               status_comercial=dados.STATUS_PEDIDO_COMERCIAL)
 
     @app.route("/disponibilidade/<int:id_>")
     @auth.exige_login

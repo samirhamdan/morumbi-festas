@@ -1312,6 +1312,155 @@ a.cat-card:hover {
 .cal-legenda .leg-disponivel::before { background: rgba(40,167,69,.3); }
 .cal-legenda .leg-parcial::before   { background: rgba(255,193,7,.4); }
 .cal-legenda .leg-esgotado::before  { background: rgba(220,53,69,.2); }
+.cal-legenda .leg-evento::before    { background: var(--roxo-claro); }
+.cal-legenda .leg-retirada::before  { background: var(--laranja); }
+.cal-legenda .leg-devolucao::before { background: var(--azul); }
+
+/* === Agenda === */
+
+.agenda-controles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+.agenda-visoes {
+  display: flex;
+  gap: 6px;
+}
+.agenda-filtros {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-left: auto;
+}
+.agenda-filtro-label {
+  font-size: 13px;
+  color: var(--suave);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agenda-filtro-label select {
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  background: var(--superficie);
+}
+
+/* mensal */
+.ag-grade-mensal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 24px;
+}
+.ag-cel {
+  text-align: center;
+  padding: 8px 4px;
+  font-size: 14px;
+  border-radius: 6px;
+  border: 1px solid var(--borda);
+  background: var(--superficie);
+  text-decoration: none;
+  color: var(--texto);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 52px;
+  transition: border-color .15s;
+}
+.ag-cel:hover { border-color: var(--roxo-claro); text-decoration: none; }
+.ag-cel.ag-hoje {
+  border-color: var(--roxo);
+  background: rgba(74,35,112,.06);
+  font-weight: 600;
+}
+.ag-num { font-variant-numeric: tabular-nums; }
+.ag-badge {
+  display: inline-block;
+  background: var(--roxo);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 20px;
+  height: 20px;
+  line-height: 20px;
+  border-radius: 10px;
+  text-align: center;
+  padding: 0 5px;
+}
+
+/* semanal */
+.ag-semana {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+@media (max-width: 768px) {
+  .ag-semana { grid-template-columns: 1fr; }
+}
+.ag-semana-dia {
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--superficie);
+  min-height: 100px;
+}
+.ag-semana-dia.ag-hoje {
+  border-color: var(--roxo);
+  background: rgba(74,35,112,.04);
+}
+.ag-semana-cab {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--borda);
+}
+.ag-semana-nome { font-size: 12px; text-transform: uppercase; color: var(--suave); font-weight: 600; }
+.ag-semana-num { font-size: 16px; font-weight: 600; color: var(--roxo); }
+
+.ag-ev {
+  display: block;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-decoration: none;
+  color: var(--texto);
+  border-left: 3px solid var(--borda);
+}
+.ag-ev:hover { background: var(--fundo); text-decoration: none; }
+.ag-ev-evento    { border-left-color: var(--roxo-claro); }
+.ag-ev-retirada  { border-left-color: var(--laranja); }
+.ag-ev-devolucao { border-left-color: var(--azul); }
+
+.ag-ev-tipo { display: block; font-weight: 600; text-transform: capitalize; font-size: 10px; color: var(--suave); }
+.ag-ev-cliente { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-ev-status { font-size: 10px; }
+
+.ag-vazio { color: var(--suave); font-size: 13px; text-align: center; padding: 8px; }
+
+/* diaria */
+.ag-secao { margin-bottom: 24px; }
+.ag-secao-titulo {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 3px solid var(--borda);
+}
+.ag-cor-retirada  { border-left-color: var(--laranja); }
+.ag-cor-devolucao { border-left-color: var(--azul); }
+.ag-cor-evento    { border-left-color: var(--roxo-claro); }
+.ag-cor-preparacao { border-left-color: var(--verde); }
+.ag-secao-qtd { font-weight: 400; color: var(--suave); font-size: 14px; }
+.ag-tabela { font-size: 14px; }
 
 /* === Aviso de formulario nao salvo === */
 .formulario[data-avisar] { position: relative; }

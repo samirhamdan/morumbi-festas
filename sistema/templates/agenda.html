@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block titulo %}Agenda — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Agenda</h2>
+  </div>
+
+  <div class="agenda-controles cartao">
+    <div class="agenda-visoes">
+      <a class="botao mini {{ 'primario' if visao == 'mensal' else 'vazado' }}"
+         href="{{ url_for('agenda', visao='mensal', tipo=tipo, status=status) }}">Mensal</a>
+      <a class="botao mini {{ 'primario' if visao == 'semanal' else 'vazado' }}"
+         href="{{ url_for('agenda', visao='semanal', tipo=tipo, status=status) }}">Semanal</a>
+      <a class="botao mini {{ 'primario' if visao == 'diaria' else 'vazado' }}"
+         href="{{ url_for('agenda', visao='diaria', tipo=tipo, status=status) }}">Diaria</a>
+    </div>
+
+    <form class="agenda-filtros" method="GET" action="{{ url_for('agenda') }}">
+      <input type="hidden" name="visao" value="{{ visao }}">
+      {% if visao == 'mensal' %}
+        <input type="hidden" name="ano" value="{{ ano }}">
+        <input type="hidden" name="mes" value="{{ mes }}">
+      {% elif visao == 'semanal' %}
+        <input type="hidden" name="ano" value="{{ seg.year }}">
+        <input type="hidden" name="mes" value="{{ seg.month }}">
+        <input type="hidden" name="dia" value="{{ seg.day }}">
+      {% elif visao == 'diaria' %}
+        <input type="hidden" name="ano" value="{{ ref.year }}">
+        <input type="hidden" name="mes" value="{{ ref.month }}">
+        <input type="hidden" name="dia" value="{{ ref.day }}">
+      {% endif %}
+      <label class="agenda-filtro-label">
+        Tipo
+        <select name="tipo" onchange="this.form.submit()">
+          <option value="">Todos</option>
+          <option value="evento" {{ 'selected' if tipo == 'evento' }}>Evento</option>
+          <option value="retirada" {{ 'selected' if tipo == 'retirada' }}>Retirada</option>
+          <option value="devolucao" {{ 'selected' if tipo == 'devolucao' }}>Devolucao</option>
+        </select>
+      </label>
+      <label class="agenda-filtro-label">
+        Status
+        <select name="status" onchange="this.form.submit()">
+          <option value="">Todos</option>
+          {% for s in status_comercial %}
+            {% if s != 'cancelado' %}
+            <option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+
+  {# ========== VISAO MENSAL ========== #}
+  {% if visao == 'mensal' %}
+  <div class="cartao">
+    <div class="cal-nav">
+      <a href="{{ url_for('agenda', visao='mensal', ano=ano_ant, mes=mes_ant, tipo=tipo, status=status) }}"
+         class="botao mini vazado">&larr;</a>
+      <strong>{{ meses[mes - 1] }} {{ ano }}</strong>
+      <a href="{{ url_for('agenda', visao='mensal', ano=ano_prox, mes=mes_prox, tipo=tipo, status=status) }}"
+         class="botao mini vazado">&rarr;</a>
+    </div>
+
+    <div class="ag-grade-mensal">
+      <span class="cal-dia-nome">Dom</span>
+      <span class="cal-dia-nome">Seg</span>
+      <span class="cal-dia-nome">Ter</span>
+      <span class="cal-dia-nome">Qua</span>
+      <span class="cal-dia-nome">Qui</span>
+      <span class="cal-dia-nome">Sex</span>
+      <span class="cal-dia-nome">Sab</span>
+
+      {% for _ in range(offset_dia) %}
+      <span class="cal-dia vazio"></span>
+      {% endfor %}
+
+      {% for d in calendario %}
+      <a class="ag-cel {{ 'ag-hoje' if d.data == hoje.isoformat() }}"
+         href="{{ url_for('agenda', visao='diaria', ano=ano, mes=mes, dia=d.dia, tipo=tipo, status=status) }}">
+        <span class="ag-num">{{ d.dia }}</span>
+        {% if d.eventos %}
+        <span class="ag-badge">{{ d.eventos|length }}</span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+
+    <div class="cal-legenda">
+      <span class="leg-evento">Evento</span>
+      <span class="leg-retirada">Retirada</span>
+      <span class="leg-devolucao">Devolucao</span>
+    </div>
+  </div>
+
+  {# ========== VISAO SEMANAL ========== #}
+  {% elif visao == 'semanal' %}
+  <div class="cartao">
+    <div class="cal-nav">
+      <a href="{{ url_for('agenda', visao='semanal', ano=sem_ant.year, mes=sem_ant.month, dia=sem_ant.day, tipo=tipo, status=status) }}"
+         class="botao mini vazado">&larr;</a>
+      <strong>{{ seg.strftime('%d/%m') }} — {{ dom.strftime('%d/%m/%Y') }}</strong>
+      <a href="{{ url_for('agenda', visao='semanal', ano=sem_prox.year, mes=sem_prox.month, dia=sem_prox.day, tipo=tipo, status=status) }}"
+         class="botao mini vazado">&rarr;</a>
+    </div>
+
+    <div class="ag-semana">
+      {% for ds in dias_semana %}
+      <div class="ag-semana-dia {{ 'ag-hoje' if ds.data == hoje }}">
+        <div class="ag-semana-cab">
+          <span class="ag-semana-nome">{{ ['Seg','Ter','Qua','Qui','Sex','Sab','Dom'][loop.index0] }}</span>
+          <a class="ag-semana-num" href="{{ url_for('agenda', visao='diaria', ano=ds.data.year, mes=ds.data.month, dia=ds.data.day, tipo=tipo, status=status) }}">{{ ds.data.day }}</a>
+        </div>
+        {% for ev in ds.eventos %}
+        <a class="ag-ev ag-ev-{{ ev.tipos_dia[0] }}" href="{{ url_for('ver_pedido', id_=ev.id) }}">
+          <span class="ag-ev-tipo">{{ ev.tipos_dia|join(', ') }}</span>
+          <span class="ag-ev-cliente">{{ ev.cliente_nome or '—' }}</span>
+          <span class="ag-ev-status etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_operacional }}</span>
+        </a>
+        {% endfor %}
+        {% if not ds.eventos %}
+        <span class="ag-vazio">—</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ========== VISAO DIARIA ========== #}
+  {% elif visao == 'diaria' %}
+  <div class="cartao">
+    <div class="cal-nav">
+      <a href="{{ url_for('agenda', visao='diaria', ano=ant.year, mes=ant.month, dia=ant.day, tipo=tipo, status=status) }}"
+         class="botao mini vazado">&larr;</a>
+      <strong>{{ ref.strftime('%d/%m/%Y') }}
+        {% if ref == hoje %}<span class="etiqueta verde" style="font-size:11px;margin-left:8px">Hoje</span>{% endif %}
+      </strong>
+      <a href="{{ url_for('agenda', visao='diaria', ano=prox.year, mes=prox.month, dia=prox.day, tipo=tipo, status=status) }}"
+         class="botao mini vazado">&rarr;</a>
+    </div>
+
+    {% macro lista_pedidos_agenda(titulo, lista, classe) %}
+    <div class="ag-secao">
+      <h3 class="ag-secao-titulo {{ classe }}">{{ titulo }} <span class="ag-secao-qtd">({{ lista|length }})</span></h3>
+      {% if lista %}
+      <table class="tabela ag-tabela">
+        <thead>
+          <tr><th>Pedido</th><th>Cliente</th><th>Comercial</th><th>Operacional</th></tr>
+        </thead>
+        <tbody>
+          {% for ev in lista %}
+          <tr>
+            <td><a href="{{ url_for('ver_pedido', id_=ev.id) }}">#{{ ev.id }}</a></td>
+            <td>{{ ev.cliente_nome or '—' }}</td>
+            <td><span class="etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_comercial }}</span></td>
+            <td><span class="etiqueta">{{ ev.status_operacional }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="ag-vazio">Nenhum pedido</p>
+      {% endif %}
+    </div>
+    {% endmacro %}
+
+    {{ lista_pedidos_agenda("Retiradas", retiradas, "ag-cor-retirada") }}
+    {{ lista_pedidos_agenda("Devolucoes", devolucoes, "ag-cor-devolucao") }}
+    {{ lista_pedidos_agenda("Eventos", eventos_dia, "ag-cor-evento") }}
+    {{ lista_pedidos_agenda("Em preparacao", preparacoes, "ag-cor-preparacao") }}
+  </div>
+  {% endif %}
+
+</main>
+{% endblock %}

@@ -1682,6 +1682,55 @@ def cancelar_pedido(id_: int, motivo: str = ""):
             (motivo, agora_, id_))
 
 
+def eventos_agenda(data_inicio: str, data_fim: str,
+                    tipo: str | None = None,
+                    status_comercial: str | None = None) -> list:
+    sql = ("SELECT p.id, p.cliente_id, p.data_evento, p.data_retirada,"
+           " p.data_devolucao, p.status_comercial, p.status_operacional,"
+           " p.observacoes, c.nome AS cliente_nome"
+           " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
+           " WHERE p.status_comercial != 'cancelado'")
+    params: list = []
+
+    if status_comercial:
+        sql += " AND p.status_comercial = ?"
+        params.append(status_comercial)
+
+    partes_data: list[str] = []
+    if tipo == "evento":
+        partes_data.append(
+            "(p.data_evento IS NOT NULL"
+            " AND p.data_evento >= ? AND p.data_evento <= ?)")
+        params += [data_inicio, data_fim]
+    elif tipo == "retirada":
+        partes_data.append(
+            "(p.data_retirada IS NOT NULL"
+            " AND p.data_retirada >= ? AND p.data_retirada <= ?)")
+        params += [data_inicio, data_fim]
+    elif tipo == "devolucao":
+        partes_data.append(
+            "(p.data_devolucao IS NOT NULL"
+            " AND p.data_devolucao >= ? AND p.data_devolucao <= ?)")
+        params += [data_inicio, data_fim]
+    else:
+        partes_data.append(
+            "(p.data_evento IS NOT NULL"
+            " AND p.data_evento >= ? AND p.data_evento <= ?)")
+        partes_data.append(
+            "(p.data_retirada IS NOT NULL"
+            " AND p.data_retirada >= ? AND p.data_retirada <= ?)")
+        partes_data.append(
+            "(p.data_devolucao IS NOT NULL"
+            " AND p.data_devolucao >= ? AND p.data_devolucao <= ?)")
+        params += [data_inicio, data_fim] * 3
+
+    sql += " AND (" + " OR ".join(partes_data) + ")"
+    sql += " ORDER BY COALESCE(p.data_evento, p.data_retirada, p.data_devolucao)"
+
+    with conectar() as conn:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
 def disponibilidade_calendario(produto_id: int, ano: int, mes: int) -> list:
     import calendar
     _, ultimo_dia = calendar.monthrange(ano, mes)
