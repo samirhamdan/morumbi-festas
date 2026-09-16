@@ -96,7 +96,7 @@
       <span class="leg-evento">Evento</span>
       <span class="leg-retirada">Retirada</span>
       <span class="leg-devolucao">Devolucao</span>
-      <span class="leg-historico">Historico 3D</span>
+      <span class="leg-historico">Historico</span>
     </div>
   </div>
 
@@ -121,9 +121,9 @@
         {% for ev in ds.eventos %}
         {% if ev.get('historico') %}
         <span class="ag-ev ag-ev-historico">
-          <span class="ag-ev-tipo">3D</span>
+          <span class="ag-ev-tipo">{{ ev.origem[:10] if ev.origem else 'Hist' }}</span>
           <span class="ag-ev-cliente">{{ ev.cliente_nome or '—' }}</span>
-          <span class="ag-ev-status etiqueta">{{ ev.origem }}</span>
+          <span class="ag-ev-status etiqueta">{{ ev.status_origem or '—' }}</span>
         </span>
         {% else %}
         <a class="ag-ev ag-ev-{{ ev.tipos_dia[0] }}" href="{{ url_for('ver_pedido', id_=ev.id) }}">

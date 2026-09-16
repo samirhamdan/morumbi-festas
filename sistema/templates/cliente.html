@@ -168,15 +168,16 @@
     {% endif %}
 
     {% if historico %}
-    <h4 style="margin:16px 0 8px;font-size:14px;color:var(--suave)">Morumbi 3D</h4>
+    <h4 style="margin:16px 0 8px;font-size:14px;color:var(--suave)">Historico importado</h4>
     <table class="tabela" style="font-size:14px">
       <thead>
-        <tr><th>Data</th><th>Descricao</th><th>Canal</th><th>Valor</th><th>Status</th></tr>
+        <tr><th>Data</th><th>Origem</th><th>Descricao</th><th>Canal</th><th>Valor</th><th>Status</th></tr>
       </thead>
       <tbody>
         {% for h in historico %}
         <tr>
           <td>{{ h.data_evento or '—' }}</td>
+          <td><span class="etiqueta cinza">{{ h.origem or '—' }}</span></td>
           <td>{{ h.descricao or '—' }}</td>
           <td>{{ h.canal or '—' }}</td>
           <td>{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
