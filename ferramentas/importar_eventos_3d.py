@@ -23,6 +23,8 @@ import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 FUSO = timezone(timedelta(hours=-4))
 
 CAMINHO_FESTAS = os.environ.get("FESTAS_DADOS", "morumbi_festas.db")
