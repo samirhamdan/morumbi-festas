@@ -325,7 +325,7 @@ class TesteImportarEventos3D:
     def test_importa_exceto_orcamento(self):
         r = self._importar()
         assert r["total_3d"] == 6
-        assert r["importados"] == 6
+        assert r["importados"] == 5
 
     def test_ignora_orcamento(self):
         r = self._importar()
@@ -335,21 +335,19 @@ class TesteImportarEventos3D:
                 " WHERE status_origem = 'orcamento'").fetchall()
         assert len(orc) == 0
 
-    def test_cria_cliente_sem_vinculo(self):
+    def test_sem_correspondencia_para_revisao(self):
         r = self._importar()
-        assert r["clientes_criados"] >= 1
-        with dados.conectar() as conn:
-            sem_vinc = conn.execute(
-                "SELECT * FROM clientes WHERE nome='Sem Vinculo'").fetchone()
-            assert sem_vinc is not None
-            assert sem_vinc["cliente_3d_id"] == 3
+        assert len(r["sem_correspondencia"]) >= 1
+        pendente = r["sem_correspondencia"][0]
+        assert pendente["cliente_3d_nome"] == "Sem Vinculo"
+        assert pendente["cliente_3d_id"] == 3
 
     def test_idempotencia(self):
         r1 = self._importar()
-        assert r1["importados"] == 6
+        assert r1["importados"] == 5
         r2 = self._importar()
         assert r2["importados"] == 0
-        assert r2["ignorados_duplicados"] == 6
+        assert r2["ignorados_duplicados"] == 5
 
     def test_classificacao_atualizada(self):
         self._importar()
@@ -382,15 +380,6 @@ class TesteImportarEventos3D:
                 "SELECT cliente_3d_id FROM clientes"
                 " WHERE nome='Maria Silva'").fetchone()
             assert maria["cliente_3d_id"] == 1
-
-    def test_sem_vinculo_historico_aparece(self):
-        self._importar()
-        with dados.conectar() as conn:
-            sem_vinc = conn.execute(
-                "SELECT id FROM clientes WHERE nome='Sem Vinculo'").fetchone()
-        evts = dados.eventos_historico_cliente(sem_vinc["id"])
-        assert len(evts) == 1
-        assert evts[0]["status_origem"] == "entregue"
 
     def test_eventos_aparecem_na_agenda(self):
         self._importar()
