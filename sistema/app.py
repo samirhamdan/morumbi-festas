@@ -122,7 +122,45 @@ def criar_app() -> Flask:
     @app.route("/")
     @auth.exige_login
     def painel():
+        import calendar as cal_mod
+        from datetime import date
+
+        hoje = date.today()
+        ano = request.args.get("ano", type=int) or hoje.year
+        mes = request.args.get("mes", type=int) or hoje.month
+        if mes < 1 or mes > 12:
+            mes = hoje.month
+
+        _, ultimo_dia = cal_mod.monthrange(ano, mes)
+        data_inicio = f"{ano}-{mes:02d}-01"
+        data_fim = f"{ano}-{mes:02d}-{ultimo_dia:02d}"
+        eventos = dados.eventos_agenda(data_inicio, data_fim, None, None)
+
+        primeiro_dia_semana = cal_mod.weekday(ano, mes, 1)
+        offset_dia = (primeiro_dia_semana + 1) % 7
+
+        calendario = []
+        for d in range(1, ultimo_dia + 1):
+            data_str = f"{ano}-{mes:02d}-{d:02d}"
+            evts = _eventos_do_dia(eventos, data_str)
+            calendario.append({"dia": d, "data": data_str, "eventos": evts})
+
+        if mes == 1:
+            ano_ant, mes_ant = ano - 1, 12
+        else:
+            ano_ant, mes_ant = ano, mes - 1
+        if mes == 12:
+            ano_prox, mes_prox = ano + 1, 1
+        else:
+            ano_prox, mes_prox = ano, mes + 1
+
         return render_template("painel.html", aba="dashboard",
+                               calendario=calendario,
+                               offset_dia=offset_dia,
+                               ano=ano, mes=mes,
+                               ano_ant=ano_ant, mes_ant=mes_ant,
+                               ano_prox=ano_prox, mes_prox=mes_prox,
+                               meses=MESES_PT, hoje=hoje,
                                **dados.resumo_painel())
 
     # ------------------------------------------------------------------

@@ -283,7 +283,7 @@ class TestePainelKits:
         dados.salvar_kit({"nome": "Kit P2", "preco": 200})
         r = admin.get("/")
         assert r.status_code == 200
-        assert 'id="v-kits"' in r.text
+        assert "Dashboard" in r.text
 
     def test_resumo_painel_inclui_kits(self, app, admin):
         dados.salvar_kit({"nome": "Kit R1", "preco": 50})

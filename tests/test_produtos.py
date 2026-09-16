@@ -360,7 +360,7 @@ class TestePainelProdutos:
             {"nome": "Prod 2", "status": "disponivel"})
         r = admin.get("/")
         assert r.status_code == 200
-        assert "v-produtos" in r.text
+        assert "Dashboard" in r.text
 
     def test_painel_nao_conta_inativos(self, app, admin):
         dados.salvar_produto(

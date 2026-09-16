@@ -284,17 +284,17 @@ class TestePainelComercial:
     def test_painel_mostra_leads(self, app, admin):
         _cliente(admin, "Painel Lead")
         r = admin.get("/")
-        assert 'id="v-leads"' in r.text
+        assert "Leads em andamento" in r.text
 
     def test_painel_mostra_orcamentos(self, app, admin):
         _cliente(admin, "Painel Orc")
         r = admin.get("/")
-        assert 'id="v-orcamentos"' in r.text
+        assert "Orcamentos abertos" in r.text
 
     def test_painel_mostra_pedidos(self, app, admin):
         _cliente(admin, "Painel Ped")
         r = admin.get("/")
-        assert 'id="v-pedidos"' in r.text
+        assert "Pedidos ativos" in r.text
 
     def test_painel_contador_leads(self, app, admin):
         cli = _cliente(admin)

@@ -30,31 +30,68 @@
 
 {% else %}
 
-  <div class="placar">
-    <a href="{{ url_for('lista_clientes') }}" id="v-clientes">
-      <span class="rotulo">Clientes ativos</span>
-      <span class="valor">{{ total_clientes }}</span>
+  <div class="dash-cards">
+    <a href="{{ url_for('lista_leads') }}" class="dash-card dash-card--laranja">
+      <span class="dash-card-icone">&#9733;</span>
+      <div class="dash-card-info">
+        <span class="dash-card-valor">{{ total_leads }}</span>
+        <span class="dash-card-rotulo">Leads em andamento</span>
+      </div>
     </a>
-    <a href="{{ url_for('lista_produtos') }}" id="v-produtos">
-      <span class="rotulo">Produtos ativos</span>
-      <span class="valor">{{ total_produtos }}</span>
+    <a href="{{ url_for('lista_orcamentos') }}" class="dash-card dash-card--roxo">
+      <span class="dash-card-icone">&#9998;</span>
+      <div class="dash-card-info">
+        <span class="dash-card-valor">{{ total_orcamentos }}</span>
+        <span class="dash-card-rotulo">Orcamentos abertos</span>
+      </div>
     </a>
-    <a href="{{ url_for('lista_kits') }}" id="v-kits">
-      <span class="rotulo">Kits ativos</span>
-      <span class="valor">{{ total_kits }}</span>
+    <a href="{{ url_for('lista_pedidos') }}" class="dash-card dash-card--verde">
+      <span class="dash-card-icone">&#9745;</span>
+      <div class="dash-card-info">
+        <span class="dash-card-valor">{{ total_pedidos }}</span>
+        <span class="dash-card-rotulo">Pedidos ativos</span>
+      </div>
     </a>
-    <a href="{{ url_for('lista_leads') }}" id="v-leads">
-      <span class="rotulo">Leads em andamento</span>
-      <span class="valor">{{ total_leads }}</span>
-    </a>
-    <a href="{{ url_for('lista_orcamentos') }}" id="v-orcamentos">
-      <span class="rotulo">Orcamentos abertos</span>
-      <span class="valor">{{ total_orcamentos }}</span>
-    </a>
-    <a href="{{ url_for('lista_pedidos') }}" id="v-pedidos">
-      <span class="rotulo">Pedidos ativos</span>
-      <span class="valor">{{ total_pedidos }}</span>
-    </a>
+  </div>
+
+  <div class="cartao dash-agenda">
+    <div class="cal-nav">
+      <a href="{{ url_for('painel', ano=ano_ant, mes=mes_ant) }}"
+         class="botao mini vazado">&larr;</a>
+      <strong>{{ meses[mes - 1] }} {{ ano }}</strong>
+      <a href="{{ url_for('painel', ano=ano_prox, mes=mes_prox) }}"
+         class="botao mini vazado">&rarr;</a>
+    </div>
+
+    <div class="ag-grade-mensal">
+      <span class="cal-dia-nome">Dom</span>
+      <span class="cal-dia-nome">Seg</span>
+      <span class="cal-dia-nome">Ter</span>
+      <span class="cal-dia-nome">Qua</span>
+      <span class="cal-dia-nome">Qui</span>
+      <span class="cal-dia-nome">Sex</span>
+      <span class="cal-dia-nome">Sab</span>
+
+      {% for _ in range(offset_dia) %}
+      <span class="cal-dia vazio"></span>
+      {% endfor %}
+
+      {% for d in calendario %}
+      <a class="ag-cel {{ 'ag-hoje' if d.data == hoje.isoformat() }}"
+         href="{{ url_for('agenda', visao='diaria', ano=ano, mes=mes, dia=d.dia) }}">
+        <span class="ag-num">{{ d.dia }}</span>
+        {% if d.eventos %}
+        <span class="ag-badge">{{ d.eventos|length }}</span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+
+    <div class="cal-legenda">
+      <span class="leg-evento">Evento</span>
+      <span class="leg-retirada">Retirada</span>
+      <span class="leg-devolucao">Devolucao</span>
+    </div>
   </div>
 
 {% endif %}
