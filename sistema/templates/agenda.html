@@ -96,6 +96,7 @@
       <span class="leg-evento">Evento</span>
       <span class="leg-retirada">Retirada</span>
       <span class="leg-devolucao">Devolucao</span>
+      <span class="leg-historico">Historico 3D</span>
     </div>
   </div>
 
@@ -118,11 +119,19 @@
           <a class="ag-semana-num" href="{{ url_for('agenda', visao='diaria', ano=ds.data.year, mes=ds.data.month, dia=ds.data.day, tipo=tipo, status=status) }}">{{ ds.data.day }}</a>
         </div>
         {% for ev in ds.eventos %}
+        {% if ev.get('historico') %}
+        <span class="ag-ev ag-ev-historico">
+          <span class="ag-ev-tipo">3D</span>
+          <span class="ag-ev-cliente">{{ ev.cliente_nome or '—' }}</span>
+          <span class="ag-ev-status etiqueta">{{ ev.origem }}</span>
+        </span>
+        {% else %}
         <a class="ag-ev ag-ev-{{ ev.tipos_dia[0] }}" href="{{ url_for('ver_pedido', id_=ev.id) }}">
           <span class="ag-ev-tipo">{{ ev.tipos_dia|join(', ') }}</span>
           <span class="ag-ev-cliente">{{ ev.cliente_nome or '—' }}</span>
           <span class="ag-ev-status etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_operacional }}</span>
         </a>
+        {% endif %}
         {% endfor %}
         {% if not ds.eventos %}
         <span class="ag-vazio">—</span>
@@ -174,6 +183,27 @@
     {{ lista_pedidos_agenda("Devolucoes", devolucoes, "ag-cor-devolucao") }}
     {{ lista_pedidos_agenda("Eventos", eventos_dia, "ag-cor-evento") }}
     {{ lista_pedidos_agenda("Em preparacao", preparacoes, "ag-cor-preparacao") }}
+
+    {% if historicos is defined and historicos %}
+    <div class="ag-secao">
+      <h3 class="ag-secao-titulo ag-cor-historico">Historico importado <span class="ag-secao-qtd">({{ historicos|length }})</span></h3>
+      <table class="tabela ag-tabela">
+        <thead>
+          <tr><th>Origem</th><th>Cliente</th><th>Descricao</th><th>Valor</th></tr>
+        </thead>
+        <tbody>
+          {% for h in historicos %}
+          <tr>
+            <td><span class="etiqueta">{{ h.origem }}</span></td>
+            <td>{{ h.cliente_nome or '—' }}</td>
+            <td>{{ h.descricao or h.canal or '—' }}</td>
+            <td>{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
   </div>
   {% endif %}
 

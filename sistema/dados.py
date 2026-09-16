@@ -273,6 +273,66 @@ def inicializar():
                 "ALTER TABLE pedidos ADD COLUMN motivo_cancelamento"
                 " TEXT DEFAULT ''")
 
+        # Migracao: eventos historicos importados do 3D
+        tabelas = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "eventos_historico" not in tabelas:
+            conn.execute("""
+                CREATE TABLE eventos_historico (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cliente_id INTEGER REFERENCES clientes(id),
+                    origem_id INTEGER NOT NULL,
+                    origem TEXT NOT NULL DEFAULT 'Morumbi 3D',
+                    data_evento TEXT,
+                    descricao TEXT NOT NULL DEFAULT '',
+                    observacoes TEXT DEFAULT '',
+                    canal TEXT DEFAULT '',
+                    valor REAL DEFAULT 0,
+                    status_origem TEXT DEFAULT '',
+                    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_evt_hist_origem"
+                " ON eventos_historico (origem, origem_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS ix_evt_hist_cliente"
+                " ON eventos_historico (cliente_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS ix_evt_hist_data"
+                " ON eventos_historico (data_evento)")
+
+        # Migracao: classificacao de festas no cliente
+        cols_cliente = [r[1] for r in conn.execute(
+            "PRAGMA table_info(clientes)").fetchall()]
+        if "total_festas" not in cols_cliente:
+            conn.execute(
+                "ALTER TABLE clientes ADD COLUMN"
+                " total_festas INTEGER NOT NULL DEFAULT 0")
+        if "classificacao" not in cols_cliente:
+            conn.execute(
+                "ALTER TABLE clientes ADD COLUMN"
+                " classificacao TEXT NOT NULL DEFAULT 'Sem historico'")
+        if "ultima_festa" not in cols_cliente:
+            conn.execute(
+                "ALTER TABLE clientes ADD COLUMN ultima_festa TEXT")
+
+
+CLASSIFICACOES_FESTA = (
+    (0, "Sem historico"),
+    (1, "Cliente de 1 festa"),
+    (2, "Cliente recorrente"),
+    (5, "Cliente frequente"),
+    (10, "Cliente VIP historico"),
+)
+
+
+def classificar_festas(total: int) -> str:
+    for minimo, rotulo in reversed(CLASSIFICACOES_FESTA):
+        if total >= minimo:
+            return rotulo
+    return "Sem historico"
+
 
 # ---------------------------------------------------------------------------
 # Auditoria
@@ -1790,6 +1850,66 @@ def eventos_agenda(data_inicio: str, data_fim: str,
 
     with conectar() as conn:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def eventos_historico(data_inicio: str, data_fim: str) -> list:
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT h.id, h.cliente_id, h.data_evento, h.descricao,"
+            " h.observacoes, h.canal, h.valor, h.status_origem,"
+            " h.origem, h.origem_id, c.nome AS cliente_nome"
+            " FROM eventos_historico h"
+            " LEFT JOIN clientes c ON c.id = h.cliente_id"
+            " WHERE h.data_evento >= ? AND h.data_evento <= ?"
+            " ORDER BY h.data_evento",
+            (data_inicio, data_fim)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def salvar_evento_historico(dados_evt: dict) -> int:
+    with conectar() as conn:
+        cur = conn.execute(
+            "INSERT INTO eventos_historico"
+            " (cliente_id, origem_id, origem, data_evento, descricao,"
+            "  observacoes, canal, valor, status_origem)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (dados_evt.get("cliente_id"),
+             dados_evt["origem_id"],
+             dados_evt.get("origem", "Morumbi 3D"),
+             dados_evt.get("data_evento"),
+             dados_evt.get("descricao", ""),
+             dados_evt.get("observacoes", ""),
+             dados_evt.get("canal", ""),
+             dados_evt.get("valor", 0),
+             dados_evt.get("status_origem", "")))
+        return cur.lastrowid
+
+
+def atualizar_classificacao_cliente(cliente_id: int):
+    with conectar() as conn:
+        r = conn.execute(
+            "SELECT COUNT(*) FROM eventos_historico"
+            " WHERE cliente_id = ? AND status_origem = 'entregue'",
+            (cliente_id,)).fetchone()
+        total = r[0]
+        r2 = conn.execute(
+            "SELECT MAX(data_evento) FROM eventos_historico"
+            " WHERE cliente_id = ? AND status_origem = 'entregue'",
+            (cliente_id,)).fetchone()
+        ultima = r2[0]
+        conn.execute(
+            "UPDATE clientes SET total_festas = ?, classificacao = ?,"
+            " ultima_festa = ? WHERE id = ?",
+            (total, classificar_festas(total), ultima, cliente_id))
+
+
+def atualizar_todas_classificacoes():
+    with conectar() as conn:
+        clientes = conn.execute(
+            "SELECT DISTINCT cliente_id FROM eventos_historico"
+            " WHERE cliente_id IS NOT NULL").fetchall()
+    for row in clientes:
+        atualizar_classificacao_cliente(row[0])
 
 
 def disponibilidade_calendario(produto_id: int, ano: int, mes: int) -> list:

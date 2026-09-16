@@ -1376,6 +1376,7 @@ a.cat-card:hover {
 .cal-legenda .leg-evento::before    { background: var(--roxo-claro); }
 .cal-legenda .leg-retirada::before  { background: var(--laranja); }
 .cal-legenda .leg-devolucao::before { background: var(--azul); }
+.cal-legenda .leg-historico::before { background: #9e9e9e; }
 
 /* === Agenda === */
 
@@ -1520,8 +1521,11 @@ a.cat-card:hover {
 .ag-cor-devolucao { border-left-color: var(--azul); }
 .ag-cor-evento    { border-left-color: var(--roxo-claro); }
 .ag-cor-preparacao { border-left-color: var(--verde); }
+.ag-cor-historico  { border-left-color: #9e9e9e; }
 .ag-secao-qtd { font-weight: 400; color: var(--suave); font-size: 14px; }
 .ag-tabela { font-size: 14px; }
+.ag-ev-historico { opacity: .7; border-left: 3px solid #9e9e9e; }
+.ag-ev-historico .ag-ev-tipo { background: #9e9e9e; }
 
 /* === Operacao — kanban === */
 

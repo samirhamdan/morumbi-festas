@@ -54,7 +54,8 @@ def _erro(exc):
     return {"erro": str(exc), "campo_erro": campo}
 
 
-def _eventos_do_dia(eventos: list, data_str: str) -> list:
+def _eventos_do_dia(eventos: list, data_str: str,
+                    historico: list | None = None) -> list:
     resultado = []
     for e in eventos:
         tipos = []
@@ -66,6 +67,10 @@ def _eventos_do_dia(eventos: list, data_str: str) -> list:
             tipos.append("devolucao")
         if tipos:
             resultado.append({**e, "tipos_dia": tipos})
+    for h in (historico or []):
+        if h.get("data_evento") == data_str:
+            resultado.append({**h, "tipos_dia": ["historico"],
+                              "historico": True})
     return resultado
 
 
@@ -135,6 +140,7 @@ def criar_app() -> Flask:
         data_inicio = f"{ano}-{mes:02d}-01"
         data_fim = f"{ano}-{mes:02d}-{ultimo_dia:02d}"
         eventos = dados.eventos_agenda(data_inicio, data_fim, None, None)
+        hist = dados.eventos_historico(data_inicio, data_fim)
 
         primeiro_dia_semana = cal_mod.weekday(ano, mes, 1)
         offset_dia = (primeiro_dia_semana + 1) % 7
@@ -142,7 +148,7 @@ def criar_app() -> Flask:
         calendario = []
         for d in range(1, ultimo_dia + 1):
             data_str = f"{ano}-{mes:02d}-{d:02d}"
-            evts = _eventos_do_dia(eventos, data_str)
+            evts = _eventos_do_dia(eventos, data_str, hist)
             calendario.append({"dia": d, "data": data_str, "eventos": evts})
 
         if mes == 1:
@@ -1140,10 +1146,11 @@ def criar_app() -> Flask:
             data_inicio = seg.isoformat()
             data_fim = dom.isoformat()
             eventos = dados.eventos_agenda(data_inicio, data_fim, tipo, status)
+            hist = dados.eventos_historico(data_inicio, data_fim)
             dias_semana = []
             for i in range(7):
                 d = seg + timedelta(days=i)
-                evts_dia = _eventos_do_dia(eventos, d.isoformat())
+                evts_dia = _eventos_do_dia(eventos, d.isoformat(), hist)
                 dias_semana.append({"data": d, "eventos": evts_dia})
             sem_ant = seg - timedelta(days=7)
             sem_prox = seg + timedelta(days=7)
@@ -1163,9 +1170,11 @@ def criar_app() -> Flask:
                 ref = hoje
             data_str = ref.isoformat()
             eventos = dados.eventos_agenda(data_str, data_str, tipo, status)
+            hist = dados.eventos_historico(data_str, data_str)
             retiradas = [e for e in eventos if e.get("data_retirada") == data_str]
             devolucoes = [e for e in eventos if e.get("data_devolucao") == data_str]
             eventos_dia = [e for e in eventos if e.get("data_evento") == data_str]
+            historicos = [h for h in hist if h.get("data_evento") == data_str]
             preparacoes = [e for e in eventos
                            if e.get("status_operacional") == "preparacao"
                            and e.get("data_retirada")
@@ -1179,6 +1188,7 @@ def criar_app() -> Flask:
                                    retiradas=retiradas,
                                    devolucoes=devolucoes,
                                    eventos_dia=eventos_dia,
+                                   historicos=historicos,
                                    preparacoes=preparacoes,
                                    ant=ant, prox=prox,
                                    meses=MESES_PT, hoje=hoje,
@@ -1189,6 +1199,7 @@ def criar_app() -> Flask:
         data_inicio = f"{ano}-{mes:02d}-01"
         data_fim = f"{ano}-{mes:02d}-{ultimo_dia:02d}"
         eventos = dados.eventos_agenda(data_inicio, data_fim, tipo, status)
+        hist = dados.eventos_historico(data_inicio, data_fim)
 
         primeiro_dia_semana = cal_mod.weekday(ano, mes, 1)
         offset_dia = (primeiro_dia_semana + 1) % 7
@@ -1196,7 +1207,7 @@ def criar_app() -> Flask:
         calendario = []
         for d in range(1, ultimo_dia + 1):
             data_str = f"{ano}-{mes:02d}-{d:02d}"
-            evts = _eventos_do_dia(eventos, data_str)
+            evts = _eventos_do_dia(eventos, data_str, hist)
             calendario.append({"dia": d, "data": data_str, "eventos": evts})
 
         if mes == 1:
