@@ -23,6 +23,7 @@
   </form>
 
   {% if pedidos %}
+  <h3 class="secao" style="margin-top:16px;font-size:15px">Morumbi Festas</h3>
   <div class="cartao cartao-tabela"><div class="rolagem">
     <table class="tabela">
       <thead><tr>
@@ -53,7 +54,7 @@
       </tbody>
     </table>
   </div></div>
-  {% else %}
+  {% elif not historicos %}
   <div class="cartao cartao-vazio">
     {% if busca %}
     <b>Nenhum resultado para "{{ busca }}".</b>
@@ -63,6 +64,40 @@
     <a href="{{ url_for('editar_pedido') }}" class="botao primario" style="margin-top:8px">Novo pedido</a>
     {% endif %}
   </div>
+  {% endif %}
+
+  {% if historicos %}
+  <h3 class="secao" style="margin-top:24px;font-size:15px">Historico Morumbi 3D</h3>
+  <div class="cartao cartao-tabela"><div class="rolagem">
+    <table class="tabela">
+      <thead><tr>
+        <th>Origem</th>
+        <th>Cliente</th>
+        <th>Evento</th>
+        <th>Descricao</th>
+        <th>Canal</th>
+        <th>Valor</th>
+        <th>Status</th>
+      </tr></thead>
+      <tbody>
+        {% for h in historicos %}
+        <tr>
+          <td data-rotulo="Origem"><span class="etiqueta cinza">{{ h.origem }}</span></td>
+          <td data-rotulo="Cliente" class="chave">
+            {% if h.cliente_id %}
+            <a href="{{ url_for('editar_cliente', id_=h.cliente_id) }}">{{ h.cliente_nome or '—' }}</a>
+            {% else %}{{ h.cliente_nome or '—' }}{% endif %}
+          </td>
+          <td data-rotulo="Evento">{{ h.data_evento or '—' }}</td>
+          <td data-rotulo="Descricao">{{ h.descricao or '—' }}</td>
+          <td data-rotulo="Canal">{{ h.canal or '—' }}</td>
+          <td data-rotulo="Valor" class="decide">{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
+          <td data-rotulo="Status"><span class="etiqueta {{ 'verde' if h.status_origem == 'entregue' else '' }}">{{ h.status_origem }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
   {% endif %}
 </main>
 {% endblock %}

@@ -998,10 +998,13 @@ def criar_app() -> Flask:
     def lista_pedidos():
         busca = request.args.get("q", "")
         peds = dados.listar_pedidos()
+        hist = dados.listar_eventos_historico()
         if busca:
             from sistema.listas import filtrar, BUSCA_PEDIDOS
             peds = filtrar(peds, busca, BUSCA_PEDIDOS)
-        return render_template("pedidos.html", pedidos=peds, busca=busca)
+            hist = filtrar(hist, busca, ("cliente_nome", "descricao"))
+        return render_template("pedidos.html", pedidos=peds,
+                               historicos=hist, busca=busca)
 
     @app.route("/pedido/<int:id_>")
     @auth.exige_perfil("admin", "comercial", "operacional", "gestor")

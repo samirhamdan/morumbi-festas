@@ -1855,6 +1855,19 @@ def eventos_agenda(data_inicio: str, data_fim: str,
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
+def listar_eventos_historico() -> list:
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT h.id, h.cliente_id, h.data_evento, h.descricao,"
+            " h.observacoes, h.canal, h.valor, h.status_origem,"
+            " h.origem, h.origem_id, h.criado_em,"
+            " c.nome AS cliente_nome"
+            " FROM eventos_historico h"
+            " LEFT JOIN clientes c ON c.id = h.cliente_id"
+            " ORDER BY h.data_evento DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
 def eventos_historico(data_inicio: str, data_fim: str) -> list:
     with conectar() as conn:
         rows = conn.execute(
@@ -1902,10 +1915,14 @@ def salvar_evento_historico(dados_evt: dict) -> int:
 def pedidos_cliente(cliente_id: int) -> list:
     with conectar() as conn:
         rows = conn.execute(
-            "SELECT id, data_evento, data_retirada, data_devolucao,"
-            " status_comercial, status_operacional, observacoes, valor_total"
-            " FROM pedidos WHERE cliente_id = ?"
-            " ORDER BY data_evento DESC",
+            "SELECT p.id, p.data_evento, p.data_retirada, p.data_devolucao,"
+            " p.status_comercial, p.status_operacional, p.observacoes,"
+            " COALESCE(SUM(i.quantidade * i.preco_unitario), 0) AS valor_total"
+            " FROM pedidos p"
+            " LEFT JOIN itens_pedido i ON i.pedido_id = p.id"
+            " WHERE p.cliente_id = ?"
+            " GROUP BY p.id"
+            " ORDER BY p.data_evento DESC",
             (cliente_id,)).fetchall()
     return [dict(r) for r in rows]
 
