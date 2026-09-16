@@ -126,7 +126,7 @@ class TesteRotasOperacao:
     def test_painel_operacional_200(self, app, admin):
         r = admin.get("/operacao")
         assert r.status_code == 200
-        assert "Painel Operacional" in r.text
+        assert "Esteira de pedidos" in r.text
 
     def test_painel_mostra_pedido(self, app, admin):
         cli = _cliente(admin)

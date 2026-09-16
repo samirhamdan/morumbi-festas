@@ -22,11 +22,11 @@ MENU = (
         ("lista_clientes", "Clientes"),
         ("lista_leads", "Leads"),
         ("lista_orcamentos", "Orcamentos"),
-        ("lista_pedidos", "Pedidos"),
     )),
     ("Operacao", (
         ("agenda", "Agenda"),
-        ("painel_operacional", "Pedidos"),
+        ("lista_pedidos", "Pedidos"),
+        ("painel_operacional", "Esteira de pedidos"),
     )),
     ("Catalogo", (
         ("catalogo_interno", "Vitrine"),
@@ -942,7 +942,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/pedidos")
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
     def lista_pedidos():
         busca = request.args.get("q", "")
         peds = dados.listar_pedidos()
@@ -952,7 +952,7 @@ def criar_app() -> Flask:
         return render_template("pedidos.html", pedidos=peds, busca=busca)
 
     @app.route("/pedido/<int:id_>")
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
     def ver_pedido(id_):
         ped = dados.buscar_pedido_festas(id_)
         if not ped:
