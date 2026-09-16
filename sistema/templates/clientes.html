@@ -50,6 +50,7 @@
         <th>WhatsApp</th>
         <th>Cidade</th>
         <th>Origem</th>
+        <th>Classificacao</th>
         <th>Tags</th>
         <th></th>
       </tr></thead>
@@ -69,6 +70,11 @@
           <td data-rotulo="Origem" class="estado">
             {% if c.origem %}<span class="etiqueta azul">{{ c.origem }}</span>{% else %}—{% endif %}
           </td>
+          <td data-rotulo="Classificacao">
+            {% if c.total_festas %}
+            <span class="etiqueta {% if c.classificacao == 'Cliente VIP historico' %}verde{% elif c.classificacao == 'Cliente frequente' %}azul{% elif c.classificacao == 'Cliente recorrente' %}roxo{% endif %}">{{ c.classificacao }} ({{ c.total_festas }})</span>
+            {% else %}—{% endif %}
+          </td>
           <td data-rotulo="Tags">
             {% for tag in c.tags %}<span class="etiqueta laranja">{{ tag }}</span> {% endfor %}
             {% if not c.tags %}—{% endif %}
@@ -79,7 +85,7 @@
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="6" class="num">
+          <td colspan="7" class="num">
             {{ clientes|length }} cliente(s)
             · <a href="{{ url_for('exportar_clientes', ver=ver, origem=origem_filtro) }}">Exportar CSV</a>
           </td>

@@ -300,9 +300,14 @@ def criar_app() -> Flask:
                 return render_template("cliente.html", atual=campos,
                                        origens=dados.ORIGENS_CLIENTE, **_erro(e))
 
+        historico_evts = []
+        if cliente and cliente.get("id"):
+            historico_evts = dados.eventos_historico_cliente(cliente["id"])
+
         return render_template("cliente.html",
                                atual=cliente or {},
-                               origens=dados.ORIGENS_CLIENTE)
+                               origens=dados.ORIGENS_CLIENTE,
+                               historico=historico_evts)
 
     @app.route("/clientes/exportar")
     @auth.exige_perfil("admin", "comercial")

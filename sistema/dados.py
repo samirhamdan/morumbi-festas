@@ -1866,6 +1866,17 @@ def eventos_historico(data_inicio: str, data_fim: str) -> list:
     return [dict(r) for r in rows]
 
 
+def eventos_historico_cliente(cliente_id: int) -> list:
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT id, data_evento, descricao, observacoes, canal, valor,"
+            " status_origem, origem, origem_id"
+            " FROM eventos_historico WHERE cliente_id = ?"
+            " ORDER BY data_evento DESC",
+            (cliente_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def salvar_evento_historico(dados_evt: dict) -> int:
     with conectar() as conn:
         cur = conn.execute(

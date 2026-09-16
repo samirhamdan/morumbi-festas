@@ -134,5 +134,39 @@
       <a href="{{ url_for('lista_clientes') }}" class="botao vazado">Cancelar</a>
     </div>
   </form>
+
+  {% if atual.get('id') and (atual.get('total_festas') or historico) %}
+  <div class="cartao" style="padding:20px;margin-top:20px">
+    <h3 class="form-secao">Historico Morumbi 3D</h3>
+
+    <div class="cli-hist-resumo">
+      <span class="cli-hist-badge">{{ atual.get('total_festas', 0) }} festa{{ 's' if atual.get('total_festas', 0) != 1 }}</span>
+      <span class="etiqueta {% if atual.get('classificacao') == 'Cliente VIP historico' %}verde{% elif atual.get('classificacao') == 'Cliente frequente' %}azul{% elif atual.get('classificacao') == 'Cliente recorrente' %}roxo{% else %}{% endif %}">{{ atual.get('classificacao', 'Sem historico') }}</span>
+      {% if atual.get('ultima_festa') %}
+      <span class="cli-hist-ultima">Ultima: {{ atual.get('ultima_festa') }}</span>
+      {% endif %}
+    </div>
+
+    {% if historico %}
+    <table class="tabela" style="margin-top:12px;font-size:14px">
+      <thead>
+        <tr><th>Data</th><th>Descricao</th><th>Canal</th><th>Valor</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for h in historico %}
+        <tr>
+          <td>{{ h.data_evento or '—' }}</td>
+          <td>{{ h.descricao or '—' }}</td>
+          <td>{{ h.canal or '—' }}</td>
+          <td>{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
+          <td><span class="etiqueta {{ 'verde' if h.status_origem == 'entregue' else '' }}">{{ h.status_origem }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  {% endif %}
+
 </main>
 {% endblock %}
