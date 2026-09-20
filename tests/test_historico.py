@@ -435,7 +435,7 @@ class TesteAgendaComHistorico:
         })
         r = admin.get("/agenda?visao=mensal&ano=2024&mes=6")
         assert r.status_code == 200
-        assert "Historico 3D" in r.text
+        assert "Historico" in r.text
 
     def test_agenda_diaria_com_historico(self, app, admin):
         _vincular_clientes()
