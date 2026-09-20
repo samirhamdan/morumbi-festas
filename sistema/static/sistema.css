@@ -664,11 +664,14 @@ body.bancada { background: var(--fundo); }
 
 .dash-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 14px;
   margin-bottom: 20px;
 }
-@media (max-width: 600px) {
+@media (max-width: 900px) {
+  .dash-cards { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 500px) {
   .dash-cards { grid-template-columns: 1fr; }
 }
 .dash-card {
@@ -701,6 +704,7 @@ body.bancada { background: var(--fundo); }
 .dash-card--laranja .dash-card-icone { background: rgba(232,102,90,.12); color: var(--coral); }
 .dash-card--roxo .dash-card-icone    { background: rgba(107,76,154,.1); color: var(--roxo); }
 .dash-card--verde .dash-card-icone   { background: rgba(61,212,107,.1); color: var(--verde); }
+.dash-card--ciano .dash-card-icone   { background: rgba(0,212,224,.1); color: var(--ciano); }
 .dash-card-info { flex: 1; }
 .dash-card-valor {
   display: block;
@@ -720,8 +724,169 @@ body.bancada { background: var(--fundo); }
   margin-top: 2px;
 }
 
+/* Acoes rapidas */
+.dash-acoes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.dash-acoes-titulo {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--suave);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.dash-acoes-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Grid pendencias + agenda */
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .dash-grid { grid-template-columns: 1fr; }
+}
+
+/* Alertas de pendencia */
+.dash-alerta {
+  border-radius: 16px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+}
+.dash-alerta--vermelho {
+  background: rgba(232,102,90,.08);
+  border-left: 4px solid var(--coral);
+}
+.dash-alerta--laranja {
+  background: rgba(255,217,61,.08);
+  border-left: 4px solid var(--amarelo);
+}
+.dash-alerta--ciano {
+  background: rgba(0,212,224,.08);
+  border-left: 4px solid var(--ciano);
+}
+.dash-alerta--roxo {
+  background: rgba(107,76,154,.06);
+  border-left: 4px solid var(--roxo-claro);
+}
+.dash-alerta--ok {
+  background: rgba(61,212,107,.06);
+  border-left: 4px solid var(--verde);
+}
+.dash-alerta-titulo {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--texto);
+  margin: 0 0 8px;
+}
+.dash-alerta-msg {
+  font-size: 14px;
+  color: var(--suave);
+  margin: 0;
+}
+.dash-alerta-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dash-alerta-lista li {
+  margin-bottom: 4px;
+}
+.dash-alerta-lista a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--texto);
+  font-size: 14px;
+  padding: 4px 0;
+  transition: color .15s;
+}
+.dash-alerta-lista a:hover {
+  color: var(--roxo);
+  text-decoration: none;
+}
+.dash-alerta-detalhe {
+  font-size: 12px;
+  color: var(--suave);
+  margin-left: auto;
+}
+
+/* Proximos eventos */
+.dash-proximos {
+  padding: 16px 20px;
+}
+.dash-proximos-titulo {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--texto);
+  margin: 0 0 12px;
+}
+.dash-proximos-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dash-proximos-lista li {
+  border-bottom: 1px solid var(--borda);
+}
+.dash-proximos-lista li:last-child {
+  border-bottom: none;
+}
+.dash-proximos-lista a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--texto);
+  font-size: 14px;
+  padding: 8px 0;
+  transition: color .15s;
+}
+.dash-proximos-lista a:hover {
+  color: var(--roxo);
+  text-decoration: none;
+}
+.dash-proximos-data {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--roxo);
+  min-width: 45px;
+  font-variant-numeric: tabular-nums;
+}
+.dash-proximos-cliente {
+  flex: 1;
+}
+.dash-proximos-ver-mais {
+  display: block;
+  text-align: center;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--roxo);
+  text-decoration: none;
+}
+.dash-proximos-ver-mais:hover {
+  text-decoration: underline;
+}
+
+/* Agenda no dashboard */
 .dash-agenda {
-  max-width: 700px;
+  max-width: none;
+}
+.dash-agenda-link {
+  text-align: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--borda);
 }
 
 .dash-secao { margin-bottom: 20px; }

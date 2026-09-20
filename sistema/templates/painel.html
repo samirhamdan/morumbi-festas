@@ -22,14 +22,14 @@
   <div class="dash-vazio bloco">
     <div class="vazio">
       <h3>Bem-vindo ao Morumbi Festas!</h3>
-      <p>O sistema esta pronto. Nas proximas versoes voce tera aqui o painel
-      com os pedidos do dia, agenda e indicadores comerciais.</p>
+      <p>O sistema esta pronto. Comece cadastrando seu primeiro cliente.</p>
       <p><a href="{{ url_for('editar_cliente') }}" class="botao primario">Cadastrar primeiro cliente</a></p>
     </div>
   </div>
 
 {% else %}
 
+  {# === CARDS INDICADORES === #}
   <div class="dash-cards">
     <a href="{{ url_for('lista_leads') }}" class="dash-card dash-card--laranja">
       <span class="dash-card-icone">&#9733;</span>
@@ -52,47 +52,179 @@
         <span class="dash-card-rotulo">Pedidos ativos</span>
       </div>
     </a>
+    <a href="{{ url_for('painel_operacional') }}" class="dash-card dash-card--ciano">
+      <span class="dash-card-icone">&#9881;</span>
+      <div class="dash-card-info">
+        <span class="dash-card-valor">{{ pendencias_op }}</span>
+        <span class="dash-card-rotulo">Pendencias operacionais</span>
+      </div>
+    </a>
   </div>
 
-  <div class="cartao dash-agenda">
-    <div class="cal-nav">
-      <a href="{{ url_for('painel', ano=ano_ant, mes=mes_ant) }}"
-         class="botao mini vazado">&larr;</a>
-      <strong>{{ meses[mes - 1] }} {{ ano }}</strong>
-      <a href="{{ url_for('painel', ano=ano_prox, mes=mes_prox) }}"
-         class="botao mini vazado">&rarr;</a>
+  {# === ACOES RAPIDAS === #}
+  <div class="dash-acoes">
+    <span class="dash-acoes-titulo">+ Novo</span>
+    <div class="dash-acoes-btns">
+      <a href="{{ url_for('editar_lead') }}" class="botao mini vazado">Lead</a>
+      <a href="{{ url_for('editar_orcamento') }}" class="botao mini vazado">Orcamento</a>
+      <a href="{{ url_for('editar_pedido') }}" class="botao mini vazado">Pedido</a>
+      <a href="{{ url_for('editar_cliente') }}" class="botao mini vazado">Cliente</a>
+      {% if perfil in ('admin', 'comercial', 'gestor') %}
+      <a href="{{ url_for('editar_produto') }}" class="botao mini vazado">Produto</a>
+      <a href="{{ url_for('editar_kit') }}" class="botao mini vazado">Kit</a>
+      {% endif %}
     </div>
+  </div>
 
-    <div class="ag-grade-mensal">
-      <span class="cal-dia-nome">Dom</span>
-      <span class="cal-dia-nome">Seg</span>
-      <span class="cal-dia-nome">Ter</span>
-      <span class="cal-dia-nome">Qua</span>
-      <span class="cal-dia-nome">Qui</span>
-      <span class="cal-dia-nome">Sex</span>
-      <span class="cal-dia-nome">Sab</span>
+  {# === LAYOUT PRINCIPAL: PENDENCIAS + AGENDA === #}
+  <div class="dash-grid">
 
-      {% for _ in range(offset_dia) %}
-      <span class="cal-dia vazio"></span>
-      {% endfor %}
+    {# --- COLUNA ESQUERDA: PENDENCIAS --- #}
+    <div class="dash-col-pendencias">
 
-      {% for d in calendario %}
-      <a class="ag-cel {{ 'ag-hoje' if d.data == hoje.isoformat() }}"
-         href="{{ url_for('agenda', visao='diaria', ano=ano, mes=mes, dia=d.dia) }}">
-        <span class="ag-num">{{ d.dia }}</span>
-        {% if d.eventos %}
-        <span class="ag-badge">{{ d.eventos|length }}</span>
+      {% set tem_pendencias = retiradas_hoje or devolucoes_hoje or devolucoes_atrasadas or orcamentos_sem_retorno %}
+
+      {% if devolucoes_atrasadas %}
+      <div class="dash-alerta dash-alerta--vermelho">
+        <h4 class="dash-alerta-titulo">Devolucoes atrasadas ({{ devolucoes_atrasadas|length }})</h4>
+        <ul class="dash-alerta-lista">
+          {% for d in devolucoes_atrasadas %}
+          <li>
+            <a href="{{ url_for('ver_pedido', id_=d.id) }}">
+              <strong>#{{ d.id }}</strong> {{ d.cliente_nome or '—' }}
+              <span class="dash-alerta-detalhe">{{ d.data_devolucao }}</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if retiradas_hoje %}
+      <div class="dash-alerta dash-alerta--laranja">
+        <h4 class="dash-alerta-titulo">Retiradas hoje ({{ retiradas_hoje|length }})</h4>
+        <ul class="dash-alerta-lista">
+          {% for r in retiradas_hoje %}
+          <li>
+            <a href="{{ url_for('ver_pedido', id_=r.id) }}">
+              <strong>#{{ r.id }}</strong> {{ r.cliente_nome or '—' }}
+              <span class="etiqueta">{{ r.status_operacional }}</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if devolucoes_hoje %}
+      <div class="dash-alerta dash-alerta--ciano">
+        <h4 class="dash-alerta-titulo">Devolucoes hoje ({{ devolucoes_hoje|length }})</h4>
+        <ul class="dash-alerta-lista">
+          {% for d in devolucoes_hoje %}
+          <li>
+            <a href="{{ url_for('ver_pedido', id_=d.id) }}">
+              <strong>#{{ d.id }}</strong> {{ d.cliente_nome or '—' }}
+              <span class="etiqueta">{{ d.status_operacional }}</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if orcamentos_sem_retorno %}
+      <div class="dash-alerta dash-alerta--roxo">
+        <h4 class="dash-alerta-titulo">Orcamentos aguardando retorno ({{ orcamentos_sem_retorno|length }})</h4>
+        <ul class="dash-alerta-lista">
+          {% for o in orcamentos_sem_retorno %}
+          <li>
+            <a href="{{ url_for('editar_orcamento', id_=o.id) }}">
+              <strong>#{{ o.id }}</strong> {{ o.cliente_nome or '—' }}
+              <span class="dash-alerta-detalhe">{{ o.criado_em[:10] if o.criado_em else '' }}</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if not tem_pendencias %}
+      <div class="dash-alerta dash-alerta--ok">
+        <h4 class="dash-alerta-titulo">Tudo em dia</h4>
+        <p class="dash-alerta-msg">Nenhuma pendencia para hoje.</p>
+      </div>
+      {% endif %}
+
+      {% if proximos_eventos %}
+      <div class="dash-proximos cartao">
+        <h4 class="dash-proximos-titulo">Proximos 7 dias</h4>
+        <ul class="dash-proximos-lista">
+          {% for ev in proximos_eventos[:8] %}
+          <li>
+            <a href="{{ url_for('ver_pedido', id_=ev.id) }}">
+              <span class="dash-proximos-data">{{ (ev.data_evento or ev.data_retirada or ev.data_devolucao or '')[-5:] }}</span>
+              <span class="dash-proximos-cliente">{{ ev.cliente_nome or '—' }}</span>
+              <span class="etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_operacional }}</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+        {% if proximos_eventos|length > 8 %}
+        <a href="{{ url_for('agenda') }}" class="dash-proximos-ver-mais">Ver todos na agenda &rarr;</a>
         {% endif %}
-      </a>
-      {% endfor %}
+      </div>
+      {% endif %}
+
     </div>
 
-    <div class="cal-legenda">
-      <span class="leg-evento">Evento</span>
-      <span class="leg-retirada">Retirada</span>
-      <span class="leg-devolucao">Devolucao</span>
-      <span class="leg-historico">Historico</span>
+    {# --- COLUNA DIREITA: AGENDA MENSAL --- #}
+    <div class="dash-col-agenda">
+      <div class="cartao dash-agenda">
+        <div class="cal-nav">
+          <a href="{{ url_for('painel', ano=ano_ant, mes=mes_ant) }}"
+             class="botao mini vazado">&larr;</a>
+          <strong>{{ meses[mes - 1] }} {{ ano }}</strong>
+          <a href="{{ url_for('painel', ano=ano_prox, mes=mes_prox) }}"
+             class="botao mini vazado">&rarr;</a>
+        </div>
+
+        <div class="ag-grade-mensal">
+          <span class="cal-dia-nome">Dom</span>
+          <span class="cal-dia-nome">Seg</span>
+          <span class="cal-dia-nome">Ter</span>
+          <span class="cal-dia-nome">Qua</span>
+          <span class="cal-dia-nome">Qui</span>
+          <span class="cal-dia-nome">Sex</span>
+          <span class="cal-dia-nome">Sab</span>
+
+          {% for _ in range(offset_dia) %}
+          <span class="cal-dia vazio"></span>
+          {% endfor %}
+
+          {% for d in calendario %}
+          <a class="ag-cel {{ 'ag-hoje' if d.data == hoje.isoformat() }}"
+             href="{{ url_for('agenda', visao='diaria', ano=ano, mes=mes, dia=d.dia) }}">
+            <span class="ag-num">{{ d.dia }}</span>
+            {% if d.eventos %}
+            <span class="ag-badge">{{ d.eventos|length }}</span>
+            {% endif %}
+          </a>
+          {% endfor %}
+        </div>
+
+        <div class="cal-legenda">
+          <span class="leg-evento">Evento</span>
+          <span class="leg-retirada">Retirada</span>
+          <span class="leg-devolucao">Devolucao</span>
+          <span class="leg-historico">Historico</span>
+        </div>
+
+        <div class="dash-agenda-link">
+          <a href="{{ url_for('agenda') }}" class="botao mini vazado">Abrir agenda completa &rarr;</a>
+        </div>
+      </div>
     </div>
+
   </div>
 
 {% endif %}

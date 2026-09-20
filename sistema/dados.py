@@ -1160,6 +1160,11 @@ def excluir_foto_kit(foto_id: int) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def resumo_painel() -> dict:
+    from datetime import date, timedelta
+    hoje = date.today().isoformat()
+    amanha = (date.today() + timedelta(days=1)).isoformat()
+    proximos_7 = (date.today() + timedelta(days=7)).isoformat()
+
     with conectar() as conn:
         total_clientes = conn.execute(
             "SELECT COUNT(*) FROM clientes WHERE status='ativo'").fetchone()[0]
@@ -1176,6 +1181,53 @@ def resumo_painel() -> dict:
         total_pedidos = conn.execute(
             "SELECT COUNT(*) FROM pedidos WHERE status_comercial != 'cancelado'"
         ).fetchone()[0]
+        pendencias_op = conn.execute(
+            "SELECT COUNT(*) FROM pedidos"
+            " WHERE status_comercial != 'cancelado'"
+            " AND status_operacional IN ('preparacao','separado','montado')"
+        ).fetchone()[0]
+
+        retiradas_hoje = [dict(r) for r in conn.execute(
+            "SELECT p.id, p.data_retirada, p.status_operacional,"
+            " c.nome AS cliente_nome"
+            " FROM pedidos p LEFT JOIN clientes c ON c.id=p.cliente_id"
+            " WHERE p.data_retirada=? AND p.status_comercial != 'cancelado'"
+            " ORDER BY c.nome", (hoje,)).fetchall()]
+
+        devolucoes_hoje = [dict(r) for r in conn.execute(
+            "SELECT p.id, p.data_devolucao, p.status_operacional,"
+            " c.nome AS cliente_nome"
+            " FROM pedidos p LEFT JOIN clientes c ON c.id=p.cliente_id"
+            " WHERE p.data_devolucao=? AND p.status_comercial != 'cancelado'"
+            " ORDER BY c.nome", (hoje,)).fetchall()]
+
+        devolucoes_atrasadas = [dict(r) for r in conn.execute(
+            "SELECT p.id, p.data_devolucao, p.status_operacional,"
+            " c.nome AS cliente_nome"
+            " FROM pedidos p LEFT JOIN clientes c ON c.id=p.cliente_id"
+            " WHERE p.data_devolucao < ? AND p.status_comercial != 'cancelado'"
+            " AND p.status_operacional NOT IN ('recolhido','conferido','cancelado')"
+            " ORDER BY p.data_devolucao", (hoje,)).fetchall()]
+
+        orcamentos_sem_retorno = [dict(r) for r in conn.execute(
+            "SELECT o.id, o.criado_em, c.nome AS cliente_nome"
+            " FROM orcamentos o LEFT JOIN clientes c ON c.id=o.cliente_id"
+            " WHERE o.status='enviado'"
+            " ORDER BY o.criado_em", ).fetchall()]
+
+        proximos_eventos = [dict(r) for r in conn.execute(
+            "SELECT p.id, p.data_evento, p.data_retirada, p.data_devolucao,"
+            " p.status_comercial, p.status_operacional,"
+            " c.nome AS cliente_nome"
+            " FROM pedidos p LEFT JOIN clientes c ON c.id=p.cliente_id"
+            " WHERE p.status_comercial != 'cancelado'"
+            " AND (p.data_evento BETWEEN ? AND ?"
+            "      OR p.data_retirada BETWEEN ? AND ?"
+            "      OR p.data_devolucao BETWEEN ? AND ?)"
+            " ORDER BY COALESCE(p.data_evento, p.data_retirada, p.data_devolucao)",
+            (amanha, proximos_7, amanha, proximos_7,
+             amanha, proximos_7)).fetchall()]
+
     return {
         "vazio": total_clientes == 0 and total_produtos == 0 and total_kits == 0,
         "total_clientes": total_clientes,
@@ -1184,6 +1236,12 @@ def resumo_painel() -> dict:
         "total_leads": total_leads,
         "total_orcamentos": total_orcamentos,
         "total_pedidos": total_pedidos,
+        "pendencias_op": pendencias_op,
+        "retiradas_hoje": retiradas_hoje,
+        "devolucoes_hoje": devolucoes_hoje,
+        "devolucoes_atrasadas": devolucoes_atrasadas,
+        "orcamentos_sem_retorno": orcamentos_sem_retorno,
+        "proximos_eventos": proximos_eventos,
     }
 
 
