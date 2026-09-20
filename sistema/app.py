@@ -160,6 +160,8 @@ def criar_app() -> Flask:
         else:
             ano_prox, mes_prox = ano, mes + 1
 
+        faturamento = dados.faturamento_mensal(ano, mes)
+
         return render_template("painel.html", aba="dashboard",
                                calendario=calendario,
                                offset_dia=offset_dia,
@@ -167,6 +169,7 @@ def criar_app() -> Flask:
                                ano_ant=ano_ant, mes_ant=mes_ant,
                                ano_prox=ano_prox, mes_prox=mes_prox,
                                meses=MESES_PT, hoje=hoje,
+                               faturamento=faturamento,
                                **dados.resumo_painel())
 
     # ------------------------------------------------------------------
@@ -1068,6 +1071,23 @@ def criar_app() -> Flask:
         except ValueError as e:
             flash(str(e), "erro")
         return redirect(url_for("ver_pedido", id_=id_))
+
+    @app.route("/faturamento")
+    @auth.exige_perfil("admin", "comercial", "gestor")
+    def faturamento():
+        from datetime import date
+        hoje = date.today()
+        ano = request.args.get("ano", type=int) or hoje.year
+        mes = request.args.get("mes", type=int) or hoje.month
+        if mes < 1 or mes > 12:
+            mes = hoje.month
+        fat = dados.faturamento_mensal(ano, mes)
+        return render_template("faturamento.html",
+                               pedidos=fat["pedidos"],
+                               total=fat["total"],
+                               quantidade=fat["quantidade"],
+                               ano=ano, mes=mes,
+                               meses=MESES_PT)
 
     # ------------------------------------------------------------------
     # Operacao — painel e transicoes

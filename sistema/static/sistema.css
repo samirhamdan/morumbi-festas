@@ -664,12 +664,9 @@ body.bancada { background: var(--fundo); }
 
 .dash-cards {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 14px;
   margin-bottom: 20px;
-}
-@media (max-width: 900px) {
-  .dash-cards { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 500px) {
   .dash-cards { grid-template-columns: 1fr; }
@@ -705,6 +702,7 @@ body.bancada { background: var(--fundo); }
 .dash-card--roxo .dash-card-icone    { background: rgba(107,76,154,.1); color: var(--roxo); }
 .dash-card--verde .dash-card-icone   { background: rgba(61,212,107,.1); color: var(--verde); }
 .dash-card--ciano .dash-card-icone   { background: rgba(0,212,224,.1); color: var(--ciano); }
+.dash-card--dourado .dash-card-icone { background: rgba(255,217,61,.15); color: #D4A017; }
 .dash-card-info { flex: 1; }
 .dash-card-valor {
   display: block;
@@ -720,6 +718,12 @@ body.bancada { background: var(--fundo); }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .5px;
+  color: var(--suave);
+  margin-top: 2px;
+}
+.dash-card-sub {
+  display: block;
+  font-size: 11px;
   color: var(--suave);
   margin-top: 2px;
 }

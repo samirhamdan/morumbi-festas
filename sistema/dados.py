@@ -1245,6 +1245,36 @@ def resumo_painel() -> dict:
     }
 
 
+def faturamento_mensal(ano: int, mes: int) -> dict:
+    data_inicio = f"{ano}-{mes:02d}-01"
+    if mes == 12:
+        data_fim = f"{ano + 1}-01-01"
+    else:
+        data_fim = f"{ano}-{mes + 1:02d}-01"
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT p.id, p.cliente_id, p.data_evento, p.data_retirada,"
+            " p.data_devolucao, p.status_comercial, p.status_operacional,"
+            " c.nome AS cliente_nome"
+            " FROM pedidos p LEFT JOIN clientes c ON c.id=p.cliente_id"
+            " WHERE p.status_comercial='devolvido'"
+            " AND p.data_devolucao >= ? AND p.data_devolucao < ?"
+            " ORDER BY p.data_devolucao",
+            (data_inicio, data_fim)).fetchall()
+        pedidos = []
+        total = 0.0
+        for r in rows:
+            ped = dict(r)
+            soma = conn.execute(
+                "SELECT COALESCE(SUM(quantidade * preco_unitario), 0)"
+                " FROM itens_pedido WHERE pedido_id=?",
+                (ped["id"],)).fetchone()[0]
+            ped["total"] = soma
+            total += soma
+            pedidos.append(ped)
+    return {"total": total, "pedidos": pedidos, "quantidade": len(pedidos)}
+
+
 # ---------------------------------------------------------------------------
 # Catalogo publico
 # ---------------------------------------------------------------------------

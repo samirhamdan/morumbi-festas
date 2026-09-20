@@ -59,6 +59,14 @@
         <span class="dash-card-rotulo">Pendencias operacionais</span>
       </div>
     </a>
+    <a href="{{ url_for('faturamento', ano=ano, mes=mes) }}" class="dash-card dash-card--dourado">
+      <span class="dash-card-icone">&#9733;</span>
+      <div class="dash-card-info">
+        <span class="dash-card-valor">{{ "R$ {:,.2f}".format(faturamento.total).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+        <span class="dash-card-rotulo">Faturamento {{ meses[mes - 1] }}</span>
+        <span class="dash-card-sub">{{ faturamento.quantidade }} pedido{{ 's' if faturamento.quantidade != 1 }} finalizado{{ 's' if faturamento.quantidade != 1 }}</span>
+      </div>
+    </a>
   </div>
 
   {# === ACOES RAPIDAS === #}

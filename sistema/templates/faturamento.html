@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block titulo %}Faturamento — Morumbi Festas{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Faturamento — {{ meses[mes - 1]|capitalize }} {{ ano }}</h2>
+  </div>
+
+  <div class="dash-cards" style="max-width:400px;margin-bottom:20px">
+    <div class="dash-card dash-card--dourado">
+      <span class="dash-card-icone">&#9733;</span>
+      <div class="dash-card-info">
+        <span class="dash-card-valor">{{ "R$ {:,.2f}".format(total).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+        <span class="dash-card-rotulo">{{ quantidade }} pedido{{ 's' if quantidade != 1 }} finalizado{{ 's' if quantidade != 1 }}</span>
+      </div>
+    </div>
+  </div>
+
+  {% if pedidos %}
+  <div class="cartao" style="padding:0;overflow:hidden">
+    <table class="tabela">
+      <thead>
+        <tr>
+          <th>Pedido</th>
+          <th>Cliente</th>
+          <th>Evento</th>
+          <th>Devolucao</th>
+          <th style="text-align:right">Valor</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in pedidos %}
+        <tr>
+          <td><a href="{{ url_for('ver_pedido', id_=p.id) }}">#{{ p.id }}</a></td>
+          <td>{{ p.cliente_nome or '—' }}</td>
+          <td>{{ p.data_evento or '—' }}</td>
+          <td>{{ p.data_devolucao or '—' }}</td>
+          <td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums">{{ "R$ {:,.2f}".format(p.total).replace(",", "X").replace(".", ",").replace("X", ".") }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:var(--roxo-ultra)">
+          <td colspan="4">Total</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ "R$ {:,.2f}".format(total).replace(",", "X").replace(".", ",").replace("X", ".") }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <div class="cartao" style="padding:20px;text-align:center">
+    <p style="color:var(--suave)">Nenhum pedido finalizado em {{ meses[mes - 1] }} de {{ ano }}.</p>
+  </div>
+  {% endif %}
+
+  <div style="margin-top:16px">
+    <a href="{{ url_for('painel', ano=ano, mes=mes) }}" class="botao vazado">&larr; Voltar ao dashboard</a>
+  </div>
+</main>
+{% endblock %}
