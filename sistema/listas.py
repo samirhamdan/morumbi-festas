@@ -97,3 +97,5 @@ ORDENS_HISTORICO = (
 )
 
 BUSCA_HISTORICO = ("cliente_nome", "descricao", "origem", "canal")
+
+BUSCA_UNIFICADOS = ("cliente_nome", "observacoes", "origem")

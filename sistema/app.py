@@ -1009,42 +1009,55 @@ def criar_app() -> Flask:
         busca = request.args.get("q", "")
         st_com = request.args.get("status_comercial", "")
         st_op = request.args.get("status_operacional", "")
+        origem = request.args.get("origem", "")
         dt_ini = request.args.get("data_inicio", "")
         dt_fim = request.args.get("data_fim", "")
-        hist_origem = request.args.get("hist_origem", "")
-        hist_status = request.args.get("hist_status", "")
 
-        peds = dados.listar_pedidos(
-            status_comercial=st_com or None,
-            status_operacional=st_op or None,
-            data_inicio=dt_ini or None,
-            data_fim=dt_fim or None,
-        )
-        hist = dados.listar_eventos_historico(
-            origem=hist_origem or None,
-            status=hist_status or None,
-            data_inicio=dt_ini or None,
-            data_fim=dt_fim or None,
-        )
+        registros = dados.listar_pedidos_unificados()
+
+        if st_com:
+            registros = [r for r in registros if r["status_comercial"] == st_com]
+        if st_op:
+            registros = [r for r in registros if r["status_operacional"] == st_op]
+        if origem:
+            registros = [r for r in registros if r["origem"] == origem]
+        if dt_ini:
+            registros = [r for r in registros if (r.get("data_evento") or "") >= dt_ini]
+        if dt_fim:
+            registros = [r for r in registros if (r.get("data_evento") or "") <= dt_fim]
         if busca:
-            peds = listas.filtrar(peds, busca, listas.BUSCA_PEDIDOS)
-            hist = listas.filtrar(hist, busca, listas.BUSCA_HISTORICO)
+            registros = listas.filtrar(registros, busca, listas.BUSCA_UNIFICADOS)
 
         ordem = request.args.get("ordem", "")
         invertido = request.args.get("dir") == "desc"
-        peds = listas.ordenar(peds, ordem, listas.ORDENS_PEDIDOS, invertido)
-        hist = listas.ordenar(hist, ordem, listas.ORDENS_HISTORICO, invertido)
+        registros = listas.ordenar(registros, ordem, listas.ORDENS_PEDIDOS, invertido)
 
-        return render_template("pedidos.html", pedidos=peds,
-                               historicos=hist, busca=busca,
+        por_pagina = int(request.args.get("por_pagina", "25"))
+        pagina = max(1, int(request.args.get("pagina", "1")))
+        total = len(registros)
+        total_paginas = max(1, (total + por_pagina - 1) // por_pagina)
+        pagina = min(pagina, total_paginas)
+        fatia = registros[(pagina - 1) * por_pagina : pagina * por_pagina]
+
+        indicadores = dados.indicadores_pedidos()
+        origens = dados.origens_pedidos_unificados()
+        st_com_opcoes = list(dados.STATUS_PEDIDO_COMERCIAL) + ["finalizado"]
+        st_op_opcoes = list(dados.STATUS_PEDIDO_OPERACIONAL) + ["finalizado"]
+
+        return render_template("pedidos.html",
+                               registros=fatia, busca=busca,
                                status_comercial=st_com,
                                status_operacional=st_op,
+                               origem_filtro=origem,
                                data_inicio=dt_ini, data_fim=dt_fim,
-                               hist_origem=hist_origem,
-                               hist_status=hist_status,
                                ordem=ordem, invertido=invertido,
-                               STATUS_COMERCIAL=dados.STATUS_PEDIDO_COMERCIAL,
-                               STATUS_OPERACIONAL=dados.STATUS_PEDIDO_OPERACIONAL)
+                               indicadores=indicadores,
+                               origens=origens,
+                               STATUS_COMERCIAL=st_com_opcoes,
+                               STATUS_OPERACIONAL=st_op_opcoes,
+                               pagina=pagina, por_pagina=por_pagina,
+                               total=total, total_paginas=total_paginas,
+                               DATA_CORTE=dados.DATA_CORTE_FINALIZADOS)
 
     @app.route("/pedido/<int:id_>")
     @auth.exige_perfil("admin", "comercial", "operacional", "gestor")

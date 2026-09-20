@@ -2106,6 +2106,118 @@ a.cat-card:hover {
 }
 .tabela-hist { font-size: 14px; }
 
+/* === Pedidos — cards indicadores === */
+
+.ped-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+@media (max-width: 800px) {
+  .ped-cards { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 500px) {
+  .ped-cards { grid-template-columns: 1fr; }
+}
+.ped-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--superficie);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: var(--sombra-cartao);
+}
+.ped-card-icone {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.ped-card--roxo .ped-card-icone    { background: rgba(107,76,154,.1); color: var(--roxo); }
+.ped-card--ciano .ped-card-icone   { background: rgba(0,212,224,.1); color: var(--ciano); }
+.ped-card--dourado .ped-card-icone { background: rgba(255,217,61,.15); color: #D4A017; }
+.ped-card--cinza .ped-card-icone   { background: rgba(0,0,0,.06); color: var(--suave); }
+.ped-card-info { flex: 1; }
+.ped-card-valor {
+  display: block;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--texto);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.ped-card-rotulo {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--suave);
+  margin-top: 2px;
+}
+.ped-card-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--suave);
+}
+
+/* === Pedidos — banner informativo === */
+
+.ped-info-banner {
+  background: rgba(107,76,154,.06);
+  border: 1px solid rgba(107,76,154,.15);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--suave);
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+
+/* === Pedidos — linha finalizada === */
+
+.tr-finalizado { opacity: .7; }
+.num-hist { color: var(--suave); }
+
+/* === Pedidos — paginacao === */
+
+.ped-paginacao {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.ped-pag-info {
+  color: var(--suave);
+  margin-right: auto;
+}
+.ped-pag-controles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ped-pag-num {
+  font-weight: 600;
+  color: var(--texto);
+  font-variant-numeric: tabular-nums;
+}
+.ped-pag-por {
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--borda);
+  background: var(--superficie);
+  color: var(--texto);
+}
+
 @media (max-width: 600px) {
   .peneira-filtros { flex-direction: column; align-items: stretch; }
   .peneira-filtros select,

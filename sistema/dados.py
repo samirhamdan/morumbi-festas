@@ -21,6 +21,8 @@ STATUS_PEDIDO_OPERACIONAL = (
     "recolhido", "conferido", "cancelado",
 )
 
+DATA_CORTE_FINALIZADOS = "2026-09-18"
+
 CAMINHO_BD = os.environ.get("FESTAS_DADOS", "morumbi_festas.db")
 
 
@@ -2058,7 +2060,7 @@ def atualizar_classificacao_cliente(cliente_id: int):
         r2 = conn.execute(
             "SELECT COUNT(*) FROM pedidos"
             " WHERE cliente_id = ?"
-            " AND status_comercial IN ('entregue', 'devolvido')",
+            " AND status_comercial IN ('entregue', 'devolvido', 'finalizado')",
             (cliente_id,)).fetchone()
         total = r1[0] + r2[0]
 
@@ -2069,7 +2071,7 @@ def atualizar_classificacao_cliente(cliente_id: int):
             "  UNION ALL"
             "  SELECT data_evento FROM pedidos"
             "  WHERE cliente_id = ?"
-            "  AND status_comercial IN ('entregue', 'devolvido')"
+            "  AND status_comercial IN ('entregue', 'devolvido', 'finalizado')"
             ")", (cliente_id, cliente_id)).fetchone()
         ultima = r3[0]
 
@@ -2088,7 +2090,7 @@ def atualizar_todas_classificacoes():
             "  UNION"
             "  SELECT cliente_id FROM pedidos"
             "  WHERE cliente_id IS NOT NULL"
-            "  AND status_comercial IN ('entregue', 'devolvido')"
+            "  AND status_comercial IN ('entregue', 'devolvido', 'finalizado')"
             ")").fetchall()
     for row in clientes:
         atualizar_classificacao_cliente(row[0])
@@ -2122,3 +2124,214 @@ def disponibilidade_calendario(produto_id: int, ano: int, mes: int) -> list:
             resultado.append({"dia": dia, "total": total,
                               "disponivel": max(total - reservado, 0)})
     return resultado
+
+
+# ---------------------------------------------------------------------------
+# Fila unificada de pedidos + historico
+# ---------------------------------------------------------------------------
+
+def listar_pedidos_unificados() -> list:
+    resultado = []
+    with conectar() as conn:
+        peds = conn.execute(
+            "SELECT p.id, p.cliente_id, c.nome AS cliente_nome,"
+            " p.data_evento, p.data_retirada, p.data_devolucao,"
+            " p.status_comercial, p.status_operacional,"
+            " p.observacoes, p.criado_em,"
+            " COALESCE(SUM(i.quantidade * i.preco_unitario), 0) AS total,"
+            " COUNT(i.id) AS itens_count"
+            " FROM pedidos p"
+            " LEFT JOIN clientes c ON c.id = p.cliente_id"
+            " LEFT JOIN itens_pedido i ON i.pedido_id = p.id"
+            " GROUP BY p.id"
+        ).fetchall()
+        for p in peds:
+            p = dict(p)
+            dt = p.get("data_evento") or ""
+            antigo = dt != "" and dt < DATA_CORTE_FINALIZADOS
+            sc = p["status_comercial"]
+            so = p["status_operacional"]
+            if antigo and sc not in ("cancelado", "finalizado"):
+                sc = "finalizado"
+            if antigo and so not in ("cancelado", "finalizado"):
+                so = "finalizado"
+            resultado.append({
+                "tipo": "pedido",
+                "id": p["id"],
+                "numero": p["id"],
+                "cliente_nome": p["cliente_nome"],
+                "cliente_id": p["cliente_id"],
+                "data_evento": p["data_evento"],
+                "itens_count": p["itens_count"],
+                "total": p["total"],
+                "origem": "Morumbi Festas",
+                "status_comercial": sc,
+                "status_operacional": so,
+                "data_retirada": p["data_retirada"],
+                "data_devolucao": p["data_devolucao"],
+                "criado_em": p["criado_em"],
+                "observacoes": p.get("observacoes") or "",
+            })
+
+        hists = conn.execute(
+            "SELECT h.id, h.cliente_id, c.nome AS cliente_nome,"
+            " h.data_evento, h.descricao, h.valor, h.status_origem,"
+            " h.origem, h.origem_id, h.canal, h.criado_em"
+            " FROM eventos_historico h"
+            " LEFT JOIN clientes c ON c.id = h.cliente_id"
+        ).fetchall()
+        for h in hists:
+            h = dict(h)
+            dt = h.get("data_evento") or ""
+            antigo = dt != "" and dt < DATA_CORTE_FINALIZADOS
+            sc = "finalizado" if antigo else (h.get("status_origem") or "—")
+            so = "finalizado" if antigo else "—"
+            resultado.append({
+                "tipo": "historico",
+                "id": h["id"],
+                "numero": h.get("origem_id") or h["id"],
+                "cliente_nome": h["cliente_nome"],
+                "cliente_id": h["cliente_id"],
+                "data_evento": h["data_evento"],
+                "itens_count": 1,
+                "total": h.get("valor") or 0,
+                "origem": h.get("origem") or "Historico importado",
+                "status_comercial": sc,
+                "status_operacional": so,
+                "data_retirada": None,
+                "data_devolucao": None,
+                "criado_em": h["criado_em"],
+                "observacoes": h.get("descricao") or "",
+            })
+
+    resultado.sort(
+        key=lambda r: r.get("data_evento") or r.get("criado_em") or "",
+        reverse=True,
+    )
+    return resultado
+
+
+def origens_pedidos_unificados() -> list:
+    with conectar() as conn:
+        origens = ["Morumbi Festas"]
+        rows = conn.execute(
+            "SELECT DISTINCT origem FROM eventos_historico"
+            " WHERE origem IS NOT NULL ORDER BY origem"
+        ).fetchall()
+        for r in rows:
+            if r[0] and r[0] not in origens:
+                origens.append(r[0])
+        return origens
+
+
+def indicadores_pedidos() -> dict:
+    from datetime import timedelta
+    hoje = date.today()
+    daqui_30 = (hoje + timedelta(days=30)).isoformat()
+    ano, mes = hoje.year, hoje.month
+    primeiro_dia = f"{ano:04d}-{mes:02d}-01"
+    if mes == 12:
+        proximo_mes = f"{ano + 1:04d}-01-01"
+    else:
+        proximo_mes = f"{ano:04d}-{mes + 1:02d}-01"
+
+    with conectar() as conn:
+        abertos = conn.execute(
+            "SELECT COUNT(*) FROM pedidos"
+            " WHERE status_comercial IN ('confirmado', 'entregue')"
+        ).fetchone()[0]
+
+        proximos = conn.execute(
+            "SELECT COUNT(*) FROM pedidos"
+            " WHERE data_evento >= ? AND data_evento <= ?"
+            " AND status_comercial IN ('confirmado', 'entregue')",
+            (hoje.isoformat(), daqui_30),
+        ).fetchone()[0]
+
+        fin = conn.execute(
+            "SELECT COALESCE(SUM(sub.total), 0), COUNT(*) FROM ("
+            "  SELECT COALESCE(SUM(ip.quantidade * ip.preco_unitario), 0) AS total"
+            "  FROM pedidos p"
+            "  JOIN itens_pedido ip ON ip.pedido_id = p.id"
+            "  WHERE p.status_comercial IN ('devolvido', 'finalizado')"
+            "  AND COALESCE(p.data_devolucao, p.data_evento) >= ?"
+            "  AND COALESCE(p.data_devolucao, p.data_evento) < ?"
+            "  GROUP BY p.id"
+            ") sub",
+            (primeiro_dia, proximo_mes),
+        ).fetchone()
+
+        historico = conn.execute(
+            "SELECT COUNT(*) FROM eventos_historico"
+        ).fetchone()[0]
+
+    return {
+        "abertos": abertos,
+        "proximos": proximos,
+        "faturamento_total": fin[0],
+        "faturamento_qtd": fin[1],
+        "historico": historico,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Migracao: padronizar registros anteriores a DATA_CORTE_FINALIZADOS
+# ---------------------------------------------------------------------------
+
+def preview_migracao_finalizados() -> dict:
+    with conectar() as conn:
+        ped_afetados = conn.execute(
+            "SELECT COUNT(*) FROM pedidos"
+            " WHERE data_evento < ? AND data_evento != ''"
+            " AND status_comercial NOT IN ('cancelado', 'finalizado')",
+            (DATA_CORTE_FINALIZADOS,),
+        ).fetchone()[0]
+
+        hist_total = conn.execute(
+            "SELECT COUNT(*) FROM eventos_historico"
+            " WHERE data_evento < ? AND data_evento != ''",
+            (DATA_CORTE_FINALIZADOS,),
+        ).fetchone()[0]
+        hist_3d = conn.execute(
+            "SELECT COUNT(*) FROM eventos_historico"
+            " WHERE data_evento < ? AND data_evento != ''"
+            " AND origem = 'Morumbi 3D'",
+            (DATA_CORTE_FINALIZADOS,),
+        ).fetchone()[0]
+        hist_outros = conn.execute(
+            "SELECT COUNT(*) FROM eventos_historico"
+            " WHERE data_evento < ? AND data_evento != ''"
+            " AND (origem != 'Morumbi 3D' OR origem IS NULL)",
+            (DATA_CORTE_FINALIZADOS,),
+        ).fetchone()[0]
+
+    return {
+        "pedidos_afetados": ped_afetados,
+        "historico_total": hist_total,
+        "historico_3d_preservados": hist_3d,
+        "historico_origem_morumbi_festas": hist_outros,
+        "data_corte": DATA_CORTE_FINALIZADOS,
+    }
+
+
+def aplicar_migracao_finalizados() -> dict:
+    preview = preview_migracao_finalizados()
+    agora_ = formato.agora()
+    with conectar() as conn:
+        conn.execute(
+            "UPDATE pedidos SET status_comercial = 'finalizado',"
+            " status_operacional = 'finalizado', atualizado_em = ?"
+            " WHERE data_evento < ? AND data_evento != ''"
+            " AND status_comercial NOT IN ('cancelado', 'finalizado')",
+            (agora_, DATA_CORTE_FINALIZADOS),
+        )
+        conn.execute(
+            "UPDATE eventos_historico SET origem = 'Morumbi Festas'"
+            " WHERE data_evento < ? AND data_evento != ''"
+            " AND (origem != 'Morumbi 3D' OR origem IS NULL)",
+            (DATA_CORTE_FINALIZADOS,),
+        )
+    registrar_acao(None, "migracao_finalizados",
+                   f"Padronizou registros anteriores a {DATA_CORTE_FINALIZADOS}",
+                   preview)
+    return preview

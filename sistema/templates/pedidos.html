@@ -13,16 +13,52 @@
 
   {% include "_erro.html" %}
 
+  {# === INDICADORES === #}
+  <div class="ped-cards">
+    <div class="ped-card ped-card--roxo">
+      <span class="ped-card-icone">&#9745;</span>
+      <div class="ped-card-info">
+        <span class="ped-card-valor">{{ indicadores.abertos }}</span>
+        <span class="ped-card-rotulo">Abertos</span>
+      </div>
+    </div>
+    <div class="ped-card ped-card--ciano">
+      <span class="ped-card-icone">&#128197;</span>
+      <div class="ped-card-info">
+        <span class="ped-card-valor">{{ indicadores.proximos }}</span>
+        <span class="ped-card-rotulo">Proximos eventos</span>
+        <span class="ped-card-sub">nos proximos 30 dias</span>
+      </div>
+    </div>
+    <div class="ped-card ped-card--dourado">
+      <span class="ped-card-icone">&#9733;</span>
+      <div class="ped-card-info">
+        <span class="ped-card-valor">{{ indicadores.faturamento_total|dinheiro }}</span>
+        <span class="ped-card-rotulo">Finalizados no mes</span>
+        <span class="ped-card-sub">{{ indicadores.faturamento_qtd }} pedido{{ 's' if indicadores.faturamento_qtd != 1 }}</span>
+      </div>
+    </div>
+    <div class="ped-card ped-card--cinza">
+      <span class="ped-card-icone">&#128218;</span>
+      <div class="ped-card-info">
+        <span class="ped-card-valor">{{ indicadores.historico }}</span>
+        <span class="ped-card-rotulo">Historico</span>
+        <span class="ped-card-sub">eventos importados</span>
+      </div>
+    </div>
+  </div>
+
+  {# === FILTROS === #}
   <form class="peneira peneira-multi" method="get">
     <div class="peneira-linha">
       <label class="busca">
         <span class="sr">Buscar</span>
-        <input type="search" name="q" value="{{ busca }}" placeholder="Cliente, observacoes..."
+        <input type="search" name="q" value="{{ busca }}" placeholder="Cliente, observacoes, origem..."
                autocomplete="off" enterkeyhint="search">
       </label>
       <button class="botao vazado" type="submit">Buscar</button>
-      {% if busca or status_comercial or status_operacional or data_inicio or data_fim or hist_origem or hist_status %}
-      <a href="{{ url_for('lista_pedidos') }}" class="botao mini vazado">Limpar</a>
+      {% if busca or status_comercial or status_operacional or origem_filtro or data_inicio or data_fim %}
+      <a href="{{ url_for('lista_pedidos') }}" class="botao mini vazado">Limpar filtros</a>
       {% endif %}
     </div>
     <div class="peneira-linha peneira-filtros">
@@ -38,6 +74,12 @@
         <option value="{{ s }}" {{ 'selected' if status_operacional == s }}>{{ s|capitalize }}</option>
         {% endfor %}
       </select>
+      <select name="origem" onchange="this.form.submit()">
+        <option value="">Todas as origens</option>
+        {% for o in origens %}
+        <option value="{{ o }}" {{ 'selected' if origem_filtro == o }}>{{ o }}</option>
+        {% endfor %}
+      </select>
       <label class="peneira-data">
         <span class="sr">De</span>
         <input type="date" name="data_inicio" value="{{ data_inicio }}" onchange="this.form.submit()" title="Data inicio">
@@ -49,53 +91,93 @@
     </div>
   </form>
 
-  {% if pedidos %}
-  <h3 class="secao" style="margin-top:16px;font-size:15px">
-    Morumbi Festas
-    <span class="secao-contagem">({{ pedidos|length }})</span>
-  </h3>
+  {# === BANNER INFORMATIVO === #}
+  <div class="ped-info-banner">
+    &#9432; Registros anteriores a {{ DATA_CORTE }} sao exibidos como historico finalizado; nao geram tarefas nem bloqueiam estoque.
+  </div>
+
+  {# === TABELA UNIFICADA === #}
+  {% if registros %}
   <div class="cartao cartao-tabela"><div class="rolagem">
     <table class="tabela">
       <thead><tr>
         <th>#</th>
         <th>Cliente</th>
+        <th>Evento</th>
         <th>Itens</th>
         <th class="num">Total</th>
+        <th>Origem</th>
         <th>Comercial</th>
         <th>Operacional</th>
-        <th>Evento</th>
-        <th>Retirada</th>
-        <th>Devolucao</th>
+        <th>Retirada / Devolucao</th>
+        <th></th>
       </tr></thead>
       <tbody>
-        {% for p in pedidos %}
-        <tr class="{{ 'tr-cancelado' if p.status_comercial == 'cancelado' }}">
-          <td data-rotulo="#"><a href="{{ url_for('ver_pedido', id_=p.id) }}" class="link-pedido">#{{ p.id }}</a></td>
-          <td data-rotulo="Cliente" class="chave">
-            {% if p.cliente_id %}
-            <a href="{{ url_for('editar_cliente', id_=p.cliente_id) }}">{{ p.cliente_nome or '—' }}</a>
-            {% else %}{{ p.cliente_nome or '—' }}{% endif %}
+        {% for r in registros %}
+        <tr class="{{ 'tr-cancelado' if r.status_comercial == 'cancelado' }} {{ 'tr-finalizado' if r.status_comercial == 'finalizado' }}">
+          <td data-rotulo="#">
+            {% if r.tipo == 'pedido' %}
+            <a href="{{ url_for('ver_pedido', id_=r.id) }}" class="link-pedido">#{{ r.numero }}</a>
+            {% else %}
+            <span class="link-pedido num-hist">#{{ r.numero }}</span>
+            {% endif %}
           </td>
-          <td data-rotulo="Itens">{{ p.itens|length }}</td>
-          <td data-rotulo="Total" class="decide num">{{ p.total|dinheiro }}</td>
+          <td data-rotulo="Cliente" class="chave">
+            {% if r.cliente_id %}
+            <a href="{{ url_for('editar_cliente', id_=r.cliente_id) }}">{{ r.cliente_nome or '—' }}</a>
+            {% else %}{{ r.cliente_nome or '—' }}{% endif %}
+          </td>
+          <td data-rotulo="Evento">{{ r.data_evento|data if r.data_evento else '—' }}</td>
+          <td data-rotulo="Itens">{{ r.itens_count }}</td>
+          <td data-rotulo="Total" class="decide num">{{ r.total|dinheiro if r.total else '—' }}</td>
+          <td data-rotulo="Origem">
+            <span class="etiqueta {{ 'roxo' if r.origem == 'Morumbi Festas' else 'cinza' }}">{{ r.origem }}</span>
+          </td>
           <td data-rotulo="Comercial" class="estado">
-            <span class="etiqueta {{ 'verde' if p.status_comercial == 'confirmado' else 'azul' if p.status_comercial == 'entregue' else 'roxo' if p.status_comercial == 'devolvido' else 'vermelho' if p.status_comercial == 'cancelado' }}">{{ p.status_comercial }}</span>
+            <span class="etiqueta {{ 'verde' if r.status_comercial == 'confirmado' else 'azul' if r.status_comercial == 'entregue' else 'roxo' if r.status_comercial == 'devolvido' else 'vermelho' if r.status_comercial == 'cancelado' else 'cinza' if r.status_comercial == 'finalizado' else '' }}">{{ r.status_comercial }}</span>
           </td>
           <td data-rotulo="Operacional">
-            <span class="etiqueta cinza">{{ p.status_operacional }}</span>
+            <span class="etiqueta cinza">{{ r.status_operacional }}</span>
           </td>
-          <td data-rotulo="Evento">{{ p.data_evento|data if p.data_evento else '—' }}</td>
-          <td data-rotulo="Retirada">{{ p.data_retirada|data if p.data_retirada else '—' }}</td>
-          <td data-rotulo="Devolucao">{{ p.data_devolucao|data if p.data_devolucao else '—' }}</td>
+          <td data-rotulo="Retirada / Devolucao">
+            {% if r.data_retirada or r.data_devolucao %}
+            {{ r.data_retirada|data if r.data_retirada else '—' }} / {{ r.data_devolucao|data if r.data_devolucao else '—' }}
+            {% else %}—{% endif %}
+          </td>
+          <td class="acao">
+            {% if r.tipo == 'pedido' %}
+            <a href="{{ url_for('ver_pedido', id_=r.id) }}">ver</a>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div></div>
-  {% elif not historicos %}
+
+  {# === PAGINACAO === #}
+  <div class="ped-paginacao">
+    <span class="ped-pag-info">{{ total }} registro{{ 's' if total != 1 }}</span>
+    <div class="ped-pag-controles">
+      {% if pagina > 1 %}
+      <a href="{{ url_for('lista_pedidos', q=busca, status_comercial=status_comercial, status_operacional=status_operacional, origem=origem_filtro, data_inicio=data_inicio, data_fim=data_fim, pagina=pagina-1, por_pagina=por_pagina) }}" class="botao mini vazado">&laquo; Anterior</a>
+      {% endif %}
+      <span class="ped-pag-num">Pagina {{ pagina }} de {{ total_paginas }}</span>
+      {% if pagina < total_paginas %}
+      <a href="{{ url_for('lista_pedidos', q=busca, status_comercial=status_comercial, status_operacional=status_operacional, origem=origem_filtro, data_inicio=data_inicio, data_fim=data_fim, pagina=pagina+1, por_pagina=por_pagina) }}" class="botao mini vazado">Proximo &raquo;</a>
+      {% endif %}
+    </div>
+    <select class="ped-pag-por" onchange="location.href='{{ url_for('lista_pedidos', q=busca, status_comercial=status_comercial, status_operacional=status_operacional, origem=origem_filtro, data_inicio=data_inicio, data_fim=data_fim) }}&por_pagina=' + this.value">
+      {% for n in [10, 25, 50, 100] %}
+      <option value="{{ n }}" {{ 'selected' if por_pagina == n }}>{{ n }} por pagina</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  {% else %}
   <div class="cartao cartao-vazio">
-    {% if busca or status_comercial or status_operacional or data_inicio %}
-    <b>Nenhum pedido encontrado com os filtros selecionados.</b>
+    {% if busca or status_comercial or status_operacional or origem_filtro or data_inicio %}
+    <b>Nenhum registro encontrado com os filtros selecionados.</b>
     <a href="{{ url_for('lista_pedidos') }}" class="botao vazado" style="margin-top:8px">Limpar filtros</a>
     {% else %}
     <b>Nenhum pedido registrado.</b>
@@ -103,62 +185,6 @@
     <a href="{{ url_for('editar_pedido') }}" class="botao primario" style="margin-top:8px">Novo pedido</a>
     {% endif %}
   </div>
-  {% endif %}
-
-  {% if historicos %}
-  <h3 class="secao" style="margin-top:24px;font-size:15px">
-    Historico de eventos
-    <span class="secao-contagem">({{ historicos|length }})</span>
-  </h3>
-  <form class="peneira peneira-filtros peneira-hist" method="get" style="margin-bottom:12px">
-    {% if busca %}<input type="hidden" name="q" value="{{ busca }}">{% endif %}
-    {% if status_comercial %}<input type="hidden" name="status_comercial" value="{{ status_comercial }}">{% endif %}
-    {% if status_operacional %}<input type="hidden" name="status_operacional" value="{{ status_operacional }}">{% endif %}
-    {% if data_inicio %}<input type="hidden" name="data_inicio" value="{{ data_inicio }}">{% endif %}
-    {% if data_fim %}<input type="hidden" name="data_fim" value="{{ data_fim }}">{% endif %}
-    <select name="hist_origem" onchange="this.form.submit()">
-      <option value="">Todas as origens</option>
-      {% for o in historicos|map(attribute='origem')|unique|sort %}
-      <option value="{{ o }}" {{ 'selected' if hist_origem == o }}>{{ o }}</option>
-      {% endfor %}
-    </select>
-    <select name="hist_status" onchange="this.form.submit()">
-      <option value="">Todos os status</option>
-      {% for s in historicos|map(attribute='status_origem')|unique|sort %}
-      <option value="{{ s }}" {{ 'selected' if hist_status == s }}>{{ s }}</option>
-      {% endfor %}
-    </select>
-  </form>
-  <div class="cartao cartao-tabela"><div class="rolagem">
-    <table class="tabela">
-      <thead><tr>
-        <th>Origem</th>
-        <th>Cliente</th>
-        <th>Evento</th>
-        <th>Descricao</th>
-        <th>Canal</th>
-        <th class="num">Valor</th>
-        <th>Status</th>
-      </tr></thead>
-      <tbody>
-        {% for h in historicos %}
-        <tr>
-          <td data-rotulo="Origem"><span class="etiqueta cinza">{{ h.origem }}</span></td>
-          <td data-rotulo="Cliente" class="chave">
-            {% if h.cliente_id %}
-            <a href="{{ url_for('editar_cliente', id_=h.cliente_id) }}">{{ h.cliente_nome or '—' }}</a>
-            {% else %}{{ h.cliente_nome or '—' }}{% endif %}
-          </td>
-          <td data-rotulo="Evento">{{ h.data_evento or '—' }}</td>
-          <td data-rotulo="Descricao">{{ h.descricao or '—' }}</td>
-          <td data-rotulo="Canal">{{ h.canal or '—' }}</td>
-          <td data-rotulo="Valor" class="decide num">{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
-          <td data-rotulo="Status"><span class="etiqueta {{ 'verde' if h.status_origem == 'entregue' else '' }}">{{ h.status_origem }}</span></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div></div>
   {% endif %}
 </main>
 {% endblock %}
