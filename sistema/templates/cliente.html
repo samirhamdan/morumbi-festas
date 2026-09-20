@@ -5,12 +5,24 @@
 
 {% include "_topo.html" %}
 
-<main id="conteudo" class="pagina">
+<main id="conteudo" class="pagina pagina-cliente">
   <div class="cabecalho-lista">
     <h2 class="secao">{{ 'Editar cliente' if atual.get('id') else 'Novo cliente' }}</h2>
   </div>
 
   {% include "_erro.html" %}
+
+  {% if atual.get('id') and (atual.get('total_festas') or historico or pedidos_cliente) %}
+  <div class="cli-resumo-topo cartao">
+    <div class="cli-resumo-classif">
+      <span class="cli-resumo-badge etiqueta {% if atual.get('classificacao') == 'Cliente VIP historico' %}verde{% elif atual.get('classificacao') == 'Cliente frequente' %}azul{% elif atual.get('classificacao') == 'Cliente recorrente' %}roxo{% elif atual.get('classificacao') == 'Cliente de 1 festa' %}cinza{% endif %}">{{ atual.get('classificacao', 'Sem historico') }}</span>
+      <span class="cli-resumo-festas">{{ atual.get('total_festas', 0) }} festa{{ 's' if atual.get('total_festas', 0) != 1 }}</span>
+      {% if atual.get('ultima_festa') %}
+      <span class="cli-resumo-ultima">Ultima festa: {{ atual.get('ultima_festa') }}</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 
   <form method="post" class="formulario" data-avisar>
     <div class="cartao" style="padding:20px">
@@ -135,43 +147,40 @@
     </div>
   </form>
 
-  {% if atual.get('id') and (atual.get('total_festas') or historico or pedidos_cliente) %}
-  <div class="cartao" style="padding:20px;margin-top:20px">
-    <h3 class="form-secao">Historico de festas</h3>
-
-    <div class="cli-hist-resumo">
-      <span class="cli-hist-badge">{{ atual.get('total_festas', 0) }} festa{{ 's' if atual.get('total_festas', 0) != 1 }}</span>
-      <span class="etiqueta {% if atual.get('classificacao') == 'Cliente VIP historico' %}verde{% elif atual.get('classificacao') == 'Cliente frequente' %}azul{% elif atual.get('classificacao') == 'Cliente recorrente' %}roxo{% else %}{% endif %}">{{ atual.get('classificacao', 'Sem historico') }}</span>
-      {% if atual.get('ultima_festa') %}
-      <span class="cli-hist-ultima">Ultima: {{ atual.get('ultima_festa') }}</span>
-      {% endif %}
-    </div>
-
-    {% if pedidos_cliente %}
-    <h4 style="margin:16px 0 8px;font-size:14px;color:var(--suave)">Morumbi Festas</h4>
-    <table class="tabela" style="font-size:14px">
+  {% if atual.get('id') and pedidos_cliente %}
+  <div class="cartao cli-hist-secao">
+    <h3 class="form-secao">Pedidos — Morumbi Festas</h3>
+    <div class="rolagem">
+    <table class="tabela tabela-hist">
       <thead>
-        <tr><th>Pedido</th><th>Evento</th><th>Retirada</th><th>Devolucao</th><th>Status</th></tr>
+        <tr><th>Pedido</th><th>Evento</th><th>Retirada</th><th>Devolucao</th><th>Total</th><th>Status</th></tr>
       </thead>
       <tbody>
         {% for p in pedidos_cliente %}
-        <tr>
+        <tr class="{{ 'tr-cancelado' if p.status_comercial == 'cancelado' }}">
           <td><a href="{{ url_for('ver_pedido', id_=p.id) }}">#{{ p.id }}</a></td>
           <td>{{ p.data_evento or '—' }}</td>
           <td>{{ p.data_retirada or '—' }}</td>
           <td>{{ p.data_devolucao or '—' }}</td>
-          <td><span class="etiqueta {{ 'verde' if p.status_comercial == 'entregue' else 'azul' if p.status_comercial == 'devolvido' else 'vermelho' if p.status_comercial == 'cancelado' else '' }}">{{ p.status_comercial }}</span></td>
+          <td class="num">{{ p.valor_total|dinheiro if p.valor_total else '—' }}</td>
+          <td>
+            <span class="etiqueta {{ 'verde' if p.status_comercial == 'confirmado' else 'azul' if p.status_comercial == 'entregue' else 'roxo' if p.status_comercial == 'devolvido' else 'vermelho' if p.status_comercial == 'cancelado' else '' }}">{{ p.status_comercial }}</span>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    {% endif %}
+    </div>
+  </div>
+  {% endif %}
 
-    {% if historico %}
-    <h4 style="margin:16px 0 8px;font-size:14px;color:var(--suave)">Historico importado</h4>
-    <table class="tabela" style="font-size:14px">
+  {% if atual.get('id') and historico %}
+  <div class="cartao cli-hist-secao">
+    <h3 class="form-secao">Historico importado</h3>
+    <div class="rolagem">
+    <table class="tabela tabela-hist">
       <thead>
-        <tr><th>Data</th><th>Origem</th><th>Descricao</th><th>Canal</th><th>Valor</th><th>Status</th></tr>
+        <tr><th>Data</th><th>Origem</th><th>Descricao</th><th>Canal</th><th class="num">Valor</th><th>Status</th></tr>
       </thead>
       <tbody>
         {% for h in historico %}
@@ -180,13 +189,13 @@
           <td><span class="etiqueta cinza">{{ h.origem or '—' }}</span></td>
           <td>{{ h.descricao or '—' }}</td>
           <td>{{ h.canal or '—' }}</td>
-          <td>{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
+          <td class="num">{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
           <td><span class="etiqueta {{ 'verde' if h.status_origem == 'entregue' else '' }}">{{ h.status_origem }}</span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    {% endif %}
+    </div>
   </div>
   {% endif %}
 

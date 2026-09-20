@@ -1626,13 +1626,28 @@ def total_orcamento(id_: int) -> float:
 # Pedidos
 # ---------------------------------------------------------------------------
 
-def listar_pedidos(status_comercial: str | None = None) -> list:
+def listar_pedidos(status_comercial: str | None = None,
+                   status_operacional: str | None = None,
+                   data_inicio: str | None = None,
+                   data_fim: str | None = None) -> list:
     sql = ("SELECT p.*, c.nome AS cliente_nome FROM pedidos p"
            " LEFT JOIN clientes c ON c.id = p.cliente_id")
+    conds: list[str] = []
     params: list = []
     if status_comercial:
-        sql += " WHERE p.status_comercial = ?"
+        conds.append("p.status_comercial = ?")
         params.append(status_comercial)
+    if status_operacional:
+        conds.append("p.status_operacional = ?")
+        params.append(status_operacional)
+    if data_inicio:
+        conds.append("COALESCE(p.data_evento, p.data_retirada, p.criado_em) >= ?")
+        params.append(data_inicio)
+    if data_fim:
+        conds.append("COALESCE(p.data_evento, p.data_retirada, p.criado_em) <= ?")
+        params.append(data_fim)
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
     sql += " ORDER BY p.criado_em DESC"
     with conectar() as conn:
         peds = [dict(r) for r in conn.execute(sql, params).fetchall()]
@@ -1943,16 +1958,35 @@ def eventos_agenda(data_inicio: str, data_fim: str,
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
-def listar_eventos_historico() -> list:
+def listar_eventos_historico(origem: str | None = None,
+                             status: str | None = None,
+                             data_inicio: str | None = None,
+                             data_fim: str | None = None) -> list:
+    sql = ("SELECT h.id, h.cliente_id, h.data_evento, h.descricao,"
+           " h.observacoes, h.canal, h.valor, h.status_origem,"
+           " h.origem, h.origem_id, h.criado_em,"
+           " c.nome AS cliente_nome"
+           " FROM eventos_historico h"
+           " LEFT JOIN clientes c ON c.id = h.cliente_id")
+    conds: list[str] = []
+    params: list = []
+    if origem:
+        conds.append("h.origem = ?")
+        params.append(origem)
+    if status:
+        conds.append("h.status_origem = ?")
+        params.append(status)
+    if data_inicio:
+        conds.append("h.data_evento >= ?")
+        params.append(data_inicio)
+    if data_fim:
+        conds.append("h.data_evento <= ?")
+        params.append(data_fim)
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY h.data_evento DESC"
     with conectar() as conn:
-        rows = conn.execute(
-            "SELECT h.id, h.cliente_id, h.data_evento, h.descricao,"
-            " h.observacoes, h.canal, h.valor, h.status_origem,"
-            " h.origem, h.origem_id, h.criado_em,"
-            " c.nome AS cliente_nome"
-            " FROM eventos_historico h"
-            " LEFT JOIN clientes c ON c.id = h.cliente_id"
-            " ORDER BY h.data_evento DESC").fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 

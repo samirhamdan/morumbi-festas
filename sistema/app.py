@@ -252,6 +252,10 @@ def criar_app() -> Flask:
         if tag:
             lista = [c for c in lista if tag in c.get("tags", [])]
 
+        classif = request.args.get("classificacao", "")
+        if classif:
+            lista = [c for c in lista if c.get("classificacao") == classif]
+
         busca = request.args.get("q", "")
         lista = listas.filtrar(lista, busca, listas.BUSCA_CLIENTES)
 
@@ -260,6 +264,7 @@ def criar_app() -> Flask:
         lista = listas.ordenar(lista, ordem, listas.ORDENS_CLIENTES, invertido)
 
         todas_tags = _todas_tags_clientes()
+        classificacoes = [rotulo for _, rotulo in dados.CLASSIFICACOES_FESTA]
 
         return render_template("clientes.html", clientes=lista,
                                ver=ver, busca=busca, ordem=ordem,
@@ -268,6 +273,8 @@ def criar_app() -> Flask:
                                origens=dados.ORIGENS_CLIENTE,
                                origem_filtro=origem,
                                tag_filtro=tag,
+                               classif_filtro=classif,
+                               classificacoes=classificacoes,
                                todas_tags=todas_tags)
 
     def _todas_tags_clientes() -> list:
@@ -1000,14 +1007,44 @@ def criar_app() -> Flask:
     @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
     def lista_pedidos():
         busca = request.args.get("q", "")
-        peds = dados.listar_pedidos()
-        hist = dados.listar_eventos_historico()
+        st_com = request.args.get("status_comercial", "")
+        st_op = request.args.get("status_operacional", "")
+        dt_ini = request.args.get("data_inicio", "")
+        dt_fim = request.args.get("data_fim", "")
+        hist_origem = request.args.get("hist_origem", "")
+        hist_status = request.args.get("hist_status", "")
+
+        peds = dados.listar_pedidos(
+            status_comercial=st_com or None,
+            status_operacional=st_op or None,
+            data_inicio=dt_ini or None,
+            data_fim=dt_fim or None,
+        )
+        hist = dados.listar_eventos_historico(
+            origem=hist_origem or None,
+            status=hist_status or None,
+            data_inicio=dt_ini or None,
+            data_fim=dt_fim or None,
+        )
         if busca:
-            from sistema.listas import filtrar, BUSCA_PEDIDOS
-            peds = filtrar(peds, busca, BUSCA_PEDIDOS)
-            hist = filtrar(hist, busca, ("cliente_nome", "descricao"))
+            peds = listas.filtrar(peds, busca, listas.BUSCA_PEDIDOS)
+            hist = listas.filtrar(hist, busca, listas.BUSCA_HISTORICO)
+
+        ordem = request.args.get("ordem", "")
+        invertido = request.args.get("dir") == "desc"
+        peds = listas.ordenar(peds, ordem, listas.ORDENS_PEDIDOS, invertido)
+        hist = listas.ordenar(hist, ordem, listas.ORDENS_HISTORICO, invertido)
+
         return render_template("pedidos.html", pedidos=peds,
-                               historicos=hist, busca=busca)
+                               historicos=hist, busca=busca,
+                               status_comercial=st_com,
+                               status_operacional=st_op,
+                               data_inicio=dt_ini, data_fim=dt_fim,
+                               hist_origem=hist_origem,
+                               hist_status=hist_status,
+                               ordem=ordem, invertido=invertido,
+                               STATUS_COMERCIAL=dados.STATUS_PEDIDO_COMERCIAL,
+                               STATUS_OPERACIONAL=dados.STATUS_PEDIDO_OPERACIONAL)
 
     @app.route("/pedido/<int:id_>")
     @auth.exige_perfil("admin", "comercial", "operacional", "gestor")

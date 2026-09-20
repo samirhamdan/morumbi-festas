@@ -40,6 +40,8 @@ ORDENS_CLIENTES = (
     ("nome", "Nome", lambda c: (c.get("nome") or "").lower()),
     ("cidade", "Cidade", lambda c: (c.get("cidade") or "").lower()),
     ("criado_em", "Data cadastro", lambda c: c.get("criado_em") or ""),
+    ("total_festas", "Festas", lambda c: c.get("total_festas") or 0),
+    ("classificacao", "Classificacao", lambda c: (c.get("classificacao") or "").lower()),
 )
 
 BUSCA_CLIENTES = ("nome", "whatsapp", "email", "cpf_cnpj", "cidade", "bairro", "instagram")
@@ -80,6 +82,18 @@ ORDENS_PEDIDOS = (
     ("cliente_nome", "Cliente", lambda p: (p.get("cliente_nome") or "").lower()),
     ("total", "Total", lambda p: p.get("total") or 0),
     ("criado_em", "Data", lambda p: p.get("criado_em") or ""),
+    ("data_evento", "Evento", lambda p: p.get("data_evento") or ""),
+    ("status_comercial", "Comercial", lambda p: (p.get("status_comercial") or "").lower()),
+    ("status_operacional", "Operacional", lambda p: (p.get("status_operacional") or "").lower()),
 )
 
 BUSCA_PEDIDOS = ("cliente_nome", "observacoes")
+
+ORDENS_HISTORICO = (
+    ("cliente_nome", "Cliente", lambda h: (h.get("cliente_nome") or "").lower()),
+    ("data_evento", "Data", lambda h: h.get("data_evento") or ""),
+    ("valor", "Valor", lambda h: h.get("valor") or 0),
+    ("origem", "Origem", lambda h: (h.get("origem") or "").lower()),
+)
+
+BUSCA_HISTORICO = ("cliente_nome", "descricao", "origem", "canal")

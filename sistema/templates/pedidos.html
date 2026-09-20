@@ -13,42 +13,80 @@
 
   {% include "_erro.html" %}
 
-  <form class="peneira" method="get">
-    <label class="busca">
-      <span class="sr">Buscar</span>
-      <input type="search" name="q" value="{{ busca }}" placeholder="Cliente..."
-             autocomplete="off" enterkeyhint="search">
-    </label>
-    <button class="botao vazado" type="submit">Buscar</button>
+  <form class="peneira peneira-multi" method="get">
+    <div class="peneira-linha">
+      <label class="busca">
+        <span class="sr">Buscar</span>
+        <input type="search" name="q" value="{{ busca }}" placeholder="Cliente, observacoes..."
+               autocomplete="off" enterkeyhint="search">
+      </label>
+      <button class="botao vazado" type="submit">Buscar</button>
+      {% if busca or status_comercial or status_operacional or data_inicio or data_fim or hist_origem or hist_status %}
+      <a href="{{ url_for('lista_pedidos') }}" class="botao mini vazado">Limpar</a>
+      {% endif %}
+    </div>
+    <div class="peneira-linha peneira-filtros">
+      <select name="status_comercial" onchange="this.form.submit()">
+        <option value="">Status comercial</option>
+        {% for s in STATUS_COMERCIAL %}
+        <option value="{{ s }}" {{ 'selected' if status_comercial == s }}>{{ s|capitalize }}</option>
+        {% endfor %}
+      </select>
+      <select name="status_operacional" onchange="this.form.submit()">
+        <option value="">Status operacional</option>
+        {% for s in STATUS_OPERACIONAL %}
+        <option value="{{ s }}" {{ 'selected' if status_operacional == s }}>{{ s|capitalize }}</option>
+        {% endfor %}
+      </select>
+      <label class="peneira-data">
+        <span class="sr">De</span>
+        <input type="date" name="data_inicio" value="{{ data_inicio }}" onchange="this.form.submit()" title="Data inicio">
+      </label>
+      <label class="peneira-data">
+        <span class="sr">Ate</span>
+        <input type="date" name="data_fim" value="{{ data_fim }}" onchange="this.form.submit()" title="Data fim">
+      </label>
+    </div>
   </form>
 
   {% if pedidos %}
-  <h3 class="secao" style="margin-top:16px;font-size:15px">Morumbi Festas</h3>
+  <h3 class="secao" style="margin-top:16px;font-size:15px">
+    Morumbi Festas
+    <span class="secao-contagem">({{ pedidos|length }})</span>
+  </h3>
   <div class="cartao cartao-tabela"><div class="rolagem">
     <table class="tabela">
       <thead><tr>
         <th>#</th>
         <th>Cliente</th>
         <th>Itens</th>
-        <th>Total</th>
+        <th class="num">Total</th>
         <th>Comercial</th>
         <th>Operacional</th>
+        <th>Evento</th>
         <th>Retirada</th>
         <th>Devolucao</th>
-        <th>Criado</th>
       </tr></thead>
       <tbody>
         {% for p in pedidos %}
-        <tr>
-          <td data-rotulo="#">{{ p.id }}</td>
-          <td data-rotulo="Cliente" class="chave"><a href="{{ url_for('ver_pedido', id_=p.id) }}">{{ p.cliente_nome or '—' }}</a></td>
+        <tr class="{{ 'tr-cancelado' if p.status_comercial == 'cancelado' }}">
+          <td data-rotulo="#"><a href="{{ url_for('ver_pedido', id_=p.id) }}" class="link-pedido">#{{ p.id }}</a></td>
+          <td data-rotulo="Cliente" class="chave">
+            {% if p.cliente_id %}
+            <a href="{{ url_for('editar_cliente', id_=p.cliente_id) }}">{{ p.cliente_nome or '—' }}</a>
+            {% else %}{{ p.cliente_nome or '—' }}{% endif %}
+          </td>
           <td data-rotulo="Itens">{{ p.itens|length }}</td>
-          <td data-rotulo="Total" class="decide">{{ p.total|dinheiro }}</td>
-          <td data-rotulo="Comercial" class="estado"><span class="etiqueta roxo">{{ p.status_comercial }}</span></td>
-          <td data-rotulo="Operacional"><span class="etiqueta cinza">{{ p.status_operacional }}</span></td>
+          <td data-rotulo="Total" class="decide num">{{ p.total|dinheiro }}</td>
+          <td data-rotulo="Comercial" class="estado">
+            <span class="etiqueta {{ 'verde' if p.status_comercial == 'confirmado' else 'azul' if p.status_comercial == 'entregue' else 'roxo' if p.status_comercial == 'devolvido' else 'vermelho' if p.status_comercial == 'cancelado' }}">{{ p.status_comercial }}</span>
+          </td>
+          <td data-rotulo="Operacional">
+            <span class="etiqueta cinza">{{ p.status_operacional }}</span>
+          </td>
+          <td data-rotulo="Evento">{{ p.data_evento|data if p.data_evento else '—' }}</td>
           <td data-rotulo="Retirada">{{ p.data_retirada|data if p.data_retirada else '—' }}</td>
           <td data-rotulo="Devolucao">{{ p.data_devolucao|data if p.data_devolucao else '—' }}</td>
-          <td data-rotulo="Criado">{{ p.criado_em|datahora }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -56,8 +94,9 @@
   </div></div>
   {% elif not historicos %}
   <div class="cartao cartao-vazio">
-    {% if busca %}
-    <b>Nenhum resultado para "{{ busca }}".</b>
+    {% if busca or status_comercial or status_operacional or data_inicio %}
+    <b>Nenhum pedido encontrado com os filtros selecionados.</b>
+    <a href="{{ url_for('lista_pedidos') }}" class="botao vazado" style="margin-top:8px">Limpar filtros</a>
     {% else %}
     <b>Nenhum pedido registrado.</b>
     <span>Crie um pedido diretamente ou a partir de um orcamento.</span>
@@ -67,7 +106,29 @@
   {% endif %}
 
   {% if historicos %}
-  <h3 class="secao" style="margin-top:24px;font-size:15px">Historico de eventos</h3>
+  <h3 class="secao" style="margin-top:24px;font-size:15px">
+    Historico de eventos
+    <span class="secao-contagem">({{ historicos|length }})</span>
+  </h3>
+  <form class="peneira peneira-filtros peneira-hist" method="get" style="margin-bottom:12px">
+    {% if busca %}<input type="hidden" name="q" value="{{ busca }}">{% endif %}
+    {% if status_comercial %}<input type="hidden" name="status_comercial" value="{{ status_comercial }}">{% endif %}
+    {% if status_operacional %}<input type="hidden" name="status_operacional" value="{{ status_operacional }}">{% endif %}
+    {% if data_inicio %}<input type="hidden" name="data_inicio" value="{{ data_inicio }}">{% endif %}
+    {% if data_fim %}<input type="hidden" name="data_fim" value="{{ data_fim }}">{% endif %}
+    <select name="hist_origem" onchange="this.form.submit()">
+      <option value="">Todas as origens</option>
+      {% for o in historicos|map(attribute='origem')|unique|sort %}
+      <option value="{{ o }}" {{ 'selected' if hist_origem == o }}>{{ o }}</option>
+      {% endfor %}
+    </select>
+    <select name="hist_status" onchange="this.form.submit()">
+      <option value="">Todos os status</option>
+      {% for s in historicos|map(attribute='status_origem')|unique|sort %}
+      <option value="{{ s }}" {{ 'selected' if hist_status == s }}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </form>
   <div class="cartao cartao-tabela"><div class="rolagem">
     <table class="tabela">
       <thead><tr>
@@ -76,7 +137,7 @@
         <th>Evento</th>
         <th>Descricao</th>
         <th>Canal</th>
-        <th>Valor</th>
+        <th class="num">Valor</th>
         <th>Status</th>
       </tr></thead>
       <tbody>
@@ -91,7 +152,7 @@
           <td data-rotulo="Evento">{{ h.data_evento or '—' }}</td>
           <td data-rotulo="Descricao">{{ h.descricao or '—' }}</td>
           <td data-rotulo="Canal">{{ h.canal or '—' }}</td>
-          <td data-rotulo="Valor" class="decide">{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
+          <td data-rotulo="Valor" class="decide num">{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
           <td data-rotulo="Status"><span class="etiqueta {{ 'verde' if h.status_origem == 'entregue' else '' }}">{{ h.status_origem }}</span></td>
         </tr>
         {% endfor %}

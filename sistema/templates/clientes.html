@@ -18,28 +18,41 @@
 
   {% include "_erro.html" %}
 
-  <form class="peneira" method="get">
+  <form class="peneira peneira-multi" method="get">
     {% if ver != 'ativos' %}<input type="hidden" name="ver" value="{{ ver }}">{% endif %}
-    <label class="busca">
-      <span class="sr">Buscar</span>
-      <input type="search" name="q" value="{{ busca }}" placeholder="Nome, WhatsApp, e-mail ou CPF"
-             autocomplete="off" enterkeyhint="search">
-    </label>
-    <select name="origem" onchange="this.form.submit()">
-      <option value="">Todas as origens</option>
-      {% for o in origens %}
-        <option value="{{ o }}" {{ 'selected' if origem_filtro == o }}>{{ o }}</option>
-      {% endfor %}
-    </select>
-    {% if todas_tags %}
-    <select name="tag" onchange="this.form.submit()">
-      <option value="">Todas as tags</option>
-      {% for t in todas_tags %}
-        <option value="{{ t }}" {{ 'selected' if tag_filtro == t }}>{{ t }}</option>
-      {% endfor %}
-    </select>
-    {% endif %}
-    <button class="botao vazado" type="submit">Buscar</button>
+    <div class="peneira-linha">
+      <label class="busca">
+        <span class="sr">Buscar</span>
+        <input type="search" name="q" value="{{ busca }}" placeholder="Nome, WhatsApp, e-mail ou CPF"
+               autocomplete="off" enterkeyhint="search">
+      </label>
+      <button class="botao vazado" type="submit">Buscar</button>
+      {% if busca or origem_filtro or tag_filtro or classif_filtro %}
+      <a href="{{ url_for('lista_clientes', ver=ver) }}" class="botao mini vazado">Limpar</a>
+      {% endif %}
+    </div>
+    <div class="peneira-linha peneira-filtros">
+      <select name="origem" onchange="this.form.submit()">
+        <option value="">Todas as origens</option>
+        {% for o in origens %}
+          <option value="{{ o }}" {{ 'selected' if origem_filtro == o }}>{{ o }}</option>
+        {% endfor %}
+      </select>
+      {% if todas_tags %}
+      <select name="tag" onchange="this.form.submit()">
+        <option value="">Todas as tags</option>
+        {% for t in todas_tags %}
+          <option value="{{ t }}" {{ 'selected' if tag_filtro == t }}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+      <select name="classificacao" onchange="this.form.submit()">
+        <option value="">Todas classificacoes</option>
+        {% for c in classificacoes %}
+          <option value="{{ c }}" {{ 'selected' if classif_filtro == c }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
   </form>
 
   {% if clientes %}
@@ -51,6 +64,7 @@
         <th>Cidade</th>
         <th>Origem</th>
         <th>Classificacao</th>
+        <th class="num">Festas</th>
         <th>Tags</th>
         <th></th>
       </tr></thead>
@@ -71,9 +85,14 @@
             {% if c.origem %}<span class="etiqueta azul">{{ c.origem }}</span>{% else %}—{% endif %}
           </td>
           <td data-rotulo="Classificacao">
-            {% if c.total_festas %}
-            <span class="etiqueta {% if c.classificacao == 'Cliente VIP historico' %}verde{% elif c.classificacao == 'Cliente frequente' %}azul{% elif c.classificacao == 'Cliente recorrente' %}roxo{% endif %}">{{ c.classificacao }} ({{ c.total_festas }})</span>
-            {% else %}—{% endif %}
+            {% if c.classificacao and c.classificacao != 'Sem historico' %}
+            <span class="etiqueta {% if c.classificacao == 'Cliente VIP historico' %}verde{% elif c.classificacao == 'Cliente frequente' %}azul{% elif c.classificacao == 'Cliente recorrente' %}roxo{% elif c.classificacao == 'Cliente de 1 festa' %}cinza{% endif %}">{{ c.classificacao }}</span>
+            {% else %}
+            <span class="cli-sem-hist">—</span>
+            {% endif %}
+          </td>
+          <td data-rotulo="Festas" class="num">
+            {% if c.total_festas %}{{ c.total_festas }}{% else %}—{% endif %}
           </td>
           <td data-rotulo="Tags">
             {% for tag in c.tags %}<span class="etiqueta laranja">{{ tag }}</span> {% endfor %}
@@ -85,7 +104,7 @@
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="7" class="num">
+          <td colspan="8" class="num">
             {{ clientes|length }} cliente(s)
             · <a href="{{ url_for('exportar_clientes', ver=ver, origem=origem_filtro) }}">Exportar CSV</a>
           </td>

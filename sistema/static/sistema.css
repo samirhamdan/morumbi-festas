@@ -2028,3 +2028,86 @@ a.cat-card:hover {
 
 /* === Aviso de formulario nao salvo === */
 .formulario[data-avisar] { position: relative; }
+
+/* === Filtros multi-linha === */
+
+.peneira-multi { flex-direction: column; align-items: stretch; }
+.peneira-linha { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.peneira-filtros { margin-top: 4px; }
+.peneira-filtros select,
+.peneira-filtros input[type="date"] {
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  background: var(--superficie);
+  color: var(--texto);
+}
+.peneira-filtros select:focus,
+.peneira-filtros input[type="date"]:focus {
+  outline: none;
+  border-color: var(--roxo);
+  box-shadow: 0 0 0 3px rgba(107,76,154,.2);
+}
+.peneira-data { display: inline-flex; }
+.peneira-data input[type="date"] { width: 150px; }
+
+.secao-contagem {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--suave);
+}
+
+/* === Linha cancelada === */
+
+.tr-cancelado { opacity: .55; }
+.tr-cancelado td { text-decoration: line-through; }
+.tr-cancelado td .etiqueta { text-decoration: none; }
+.tr-cancelado td a { text-decoration: none; }
+
+.link-pedido {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* === Cliente — pagina mais larga === */
+
+.pagina-cliente { max-width: 900px; }
+
+.cli-resumo-topo {
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cli-resumo-classif {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cli-resumo-badge { font-size: 14px; }
+.cli-resumo-festas {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--texto);
+}
+.cli-resumo-ultima {
+  font-size: 13px;
+  color: var(--suave);
+}
+.cli-sem-hist { color: var(--suave); }
+
+.cli-hist-secao {
+  padding: 20px;
+  margin-top: 16px;
+}
+.tabela-hist { font-size: 14px; }
+
+@media (max-width: 600px) {
+  .peneira-filtros { flex-direction: column; align-items: stretch; }
+  .peneira-filtros select,
+  .peneira-data input[type="date"] { width: 100%; }
+}
