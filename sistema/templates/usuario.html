@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} usuario — Morumbi Festas{% endblock %}
+{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} usuário — Morumbi Festas{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -7,7 +7,7 @@
 
 <main id="conteudo" class="pagina">
   <div class="cabecalho-lista">
-    <h2 class="secao">{{ 'Editar usuario' if atual.get('id') else 'Novo usuario' }}</h2>
+    <h2 class="secao">{{ 'Editar usuário' if atual.get('id') else 'Novo usuário' }}</h2>
   </div>
 
   {% include "_erro.html" %}

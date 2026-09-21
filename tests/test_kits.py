@@ -27,7 +27,7 @@ class TesteCriarKit:
             "nome": "",
             "preco": "100.00",
         }, follow_redirects=True)
-        assert "obrigatorio" in r.text.lower()
+        assert "obrigatório" in r.text.lower()
 
     def test_preco_independente_dos_produtos(self, app, admin):
         p = _criar_produto(admin, "Cadeira", "30.00")

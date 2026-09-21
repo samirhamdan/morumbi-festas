@@ -107,7 +107,7 @@ class TesteDetalheProduto:
     def test_detalhe_tem_link_voltar(self, app, admin, client):
         p = _produto(admin, "Toalha voltar", publicado=True)
         r = client.get(f"/catalogo/produto/{p['id']}")
-        assert "catalogo" in r.text.lower()
+        assert "catálogo" in r.text.lower()
 
     def test_produto_inexistente_404(self, app, client):
         r = client.get("/catalogo/produto/9999")
@@ -212,7 +212,7 @@ class TesteCatalogoInterno:
         _produto(admin, "Cadeira privada", publicado=False)
         r = admin.get("/catalogo-interno")
         assert "publicado" in r.text
-        assert "nao publicado" in r.text
+        assert "não publicado" in r.text
 
     def test_interno_mostra_todos_produtos(self, app, admin):
         _produto(admin, "Pub", publicado=True)
@@ -223,7 +223,7 @@ class TesteCatalogoInterno:
 
     def test_interno_link_para_catalogo_publico(self, app, admin):
         r = admin.get("/catalogo-interno")
-        assert "catalogo publico" in r.text.lower() or "/catalogo" in r.text
+        assert "catálogo público" in r.text.lower() or "/catalogo" in r.text
 
 
 # ---- Checkbox publicado no formulario ----

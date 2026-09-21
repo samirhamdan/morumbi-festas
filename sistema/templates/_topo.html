@@ -34,7 +34,7 @@
 
 <nav id="nav" class="lateral">
   {% for grupo, itens in menu %}
-    {% set perfil_ok = grupo != 'Administracao' or perfil == 'admin' %}
+    {% set perfil_ok = grupo != 'Administração' or perfil == 'admin' %}
     {% if perfil_ok %}
     <details class="grupo" {{ 'open' if grupo == grupo_ativo }}>
       <summary>{{ grupo }}</summary>

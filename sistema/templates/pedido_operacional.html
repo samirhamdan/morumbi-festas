@@ -77,9 +77,9 @@
           {% endif %}
           {% if pedido.data_devolucao %}
           <div class="op-det-data">
-            <span class="op-det-data-icone" title="Devolucao">&#8595;</span>
+            <span class="op-det-data-icone" title="Devolução">&#8595;</span>
             <div>
-              <span class="op-det-data-rotulo">Devolucao</span>
+              <span class="op-det-data-rotulo">Devolução</span>
               <span class="op-det-data-valor">{{ pedido.data_devolucao|data }}</span>
             </div>
           </div>
@@ -88,7 +88,7 @@
 
         {% if pedido.observacoes %}
         <div class="op-det-obs">
-          <span class="op-det-data-rotulo">Observacoes</span>
+          <span class="op-det-data-rotulo">Observações</span>
           <p>{{ pedido.observacoes }}</p>
         </div>
         {% endif %}
@@ -97,21 +97,21 @@
       {# --- Acao: avancar ou concluido --- #}
       {% if proximo %}
       <div class="cartao op-det-acao">
-        <h3 class="op-det-acao-titulo">Proxima etapa</h3>
+        <h3 class="op-det-acao-titulo">Próxima etapa</h3>
         <form method="POST" action="{{ url_for('avancar_pedido', id_=pedido.id) }}">
           <label class="op-obs-label">
-            Observacao (opcional)
+            Observação (opcional)
             <textarea name="observacao" rows="2" placeholder="Danos, faltas, problemas..."></textarea>
           </label>
           <button class="botao primario op-det-btn-avancar" type="submit">
-            Avancar para {{ proximo }}
+            Avançar para {{ proximo }}
           </button>
         </form>
       </div>
       {% elif pedido.status_operacional == 'conferido' %}
       <div class="cartao op-concluido-card">
         <span class="op-concluido-icone">&#10003;</span>
-        <span class="op-concluido-texto">Pedido concluido</span>
+        <span class="op-concluido-texto">Pedido concluído</span>
         <span class="op-concluido-sub">Todos os itens foram conferidos.</span>
       </div>
       {% endif %}

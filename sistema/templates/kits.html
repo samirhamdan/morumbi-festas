@@ -24,7 +24,7 @@
     {% if ver != 'ativos' %}<input type="hidden" name="ver" value="{{ ver }}">{% endif %}
     <label class="busca">
       <span class="sr">Buscar</span>
-      <input type="search" name="q" value="{{ busca }}" placeholder="Nome ou descricao"
+      <input type="search" name="q" value="{{ busca }}" placeholder="Nome ou descrição"
              autocomplete="off" enterkeyhint="search">
     </label>
     <button class="botao vazado" type="submit">Buscar</button>
@@ -36,7 +36,7 @@
       <thead><tr>
         <th>Nome</th>
         <th>Itens</th>
-        <th>Preco do kit</th>
+        <th>Preço do kit</th>
         <th>Soma produtos</th>
         <th>Status</th>
         <th></th>
@@ -48,7 +48,7 @@
             <a href="{{ url_for('editar_kit', id_=k.id) }}">{{ k.nome }}</a>
           </td>
           <td data-rotulo="Itens" class="num">{{ k.itens|length }}</td>
-          <td data-rotulo="Preco do kit" class="num">{{ k.preco|dinheiro }}</td>
+          <td data-rotulo="Preço do kit" class="num">{{ k.preco|dinheiro }}</td>
           <td data-rotulo="Soma produtos" class="num">
             {{ k.soma_produtos|dinheiro }}
             {% if k.preco > 0 and k.soma_produtos > k.preco %}
@@ -76,7 +76,7 @@
   {% elif busca %}
   <div class="cartao cartao-vazio">
     <b>Nenhum resultado para "{{ busca }}".</b>
-    <span>Tente buscar por nome ou descricao.</span>
+    <span>Tente buscar por nome ou descrição.</span>
   </div>
   {% else %}
   <div class="cartao cartao-vazio">

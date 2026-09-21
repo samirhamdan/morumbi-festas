@@ -52,11 +52,11 @@
 
       <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin:8px 0 12px" id="campo-publicado">
         <input type="checkbox" name="publicado" value="1" {{ 'checked' if atual.get('publicado') }}>
-        Publicar no catalogo
+        Publicar no catálogo
       </label>
 
       <label class="campo" id="campo-descricao">
-        <span class="campo-rotulo">Descricao</span>
+        <span class="campo-rotulo">Descrição</span>
         <textarea name="descricao" rows="3">{{ atual.get('descricao', '') }}</textarea>
       </label>
 
@@ -64,14 +64,14 @@
 
       <div class="campo-triplo">
         <label class="campo" id="campo-preco_locacao">
-          <span class="campo-rotulo">Preco de locacao (R$)</span>
+          <span class="campo-rotulo">Preço de locação (R$)</span>
           <input type="number" name="preco_locacao" step="0.01" min="0"
                  value="{{ '%.2f'|format(atual.get('preco_locacao', 0)) }}"
                  inputmode="decimal">
         </label>
 
         <label class="campo" id="campo-valor_referencia">
-          <span class="campo-rotulo">Valor de referencia (R$)</span>
+          <span class="campo-rotulo">Valor de referência (R$)</span>
           <input type="number" name="valor_referencia" step="0.01" min="0"
                  value="{{ '%.2f'|format(atual.get('valor_referencia', 0)) }}"
                  inputmode="decimal">
@@ -85,10 +85,10 @@
         </label>
       </div>
 
-      <h3 class="form-secao">Localizacao e observacoes</h3>
+      <h3 class="form-secao">Localização e observações</h3>
 
       <label class="campo" id="campo-localizacao">
-        <span class="campo-rotulo">Localizacao fisica</span>
+        <span class="campo-rotulo">Localização física</span>
         <input type="text" name="localizacao" value="{{ atual.get('localizacao', '') }}"
                placeholder="Estante A3, prateleira 2">
       </label>
@@ -101,7 +101,7 @@
       </label>
 
       <label class="campo" id="campo-observacoes">
-        <span class="campo-rotulo">Observacoes</span>
+        <span class="campo-rotulo">Observações</span>
         <textarea name="observacoes" rows="3">{{ atual.get('observacoes', '') }}</textarea>
       </label>
     </div>

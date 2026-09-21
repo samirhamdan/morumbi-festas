@@ -20,7 +20,7 @@ class TesteCriarCliente:
             "nome": "",
             "whatsapp": "67999991234",
         }, follow_redirects=True)
-        assert "obrigatorio" in r.text
+        assert "obrigatório" in r.text
 
     def test_todos_os_campos(self, app, admin):
         r = admin.post("/cliente", data={
@@ -60,7 +60,7 @@ class TesteDuplicidade:
             "nome": "Outro",
             "cpf_cnpj": "11111111111",
         }, follow_redirects=True)
-        assert "ja cadastrado" in r.text.lower()
+        assert "já cadastrado" in r.text.lower()
 
     def test_whatsapp_duplicado_recusado(self, app, admin):
         self._criar(nome="Pedro", whatsapp="67999990001")
@@ -68,7 +68,7 @@ class TesteDuplicidade:
             "nome": "Outro",
             "whatsapp": "67999990001",
         }, follow_redirects=True)
-        assert "ja cadastrado" in r.text.lower()
+        assert "já cadastrado" in r.text.lower()
 
     def test_email_duplicado_recusado(self, app, admin):
         self._criar(nome="Carlos", email="carlos@teste.com")
@@ -76,7 +76,7 @@ class TesteDuplicidade:
             "nome": "Outro",
             "email": "carlos@teste.com",
         }, follow_redirects=True)
-        assert "ja cadastrado" in r.text.lower()
+        assert "já cadastrado" in r.text.lower()
 
     def test_mesmo_cpf_na_edicao_permite(self, app, admin):
         uid = self._criar(nome="Lucia", cpf_cnpj="22222222222")
@@ -95,7 +95,7 @@ class TesteDuplicidade:
             "nome": "B",
             "cpf_cnpj": "33333333333",
         }, follow_redirects=True)
-        assert "ja cadastrado" in r.text.lower()
+        assert "já cadastrado" in r.text.lower()
 
 
 class TesteListaClientes:

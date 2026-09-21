@@ -314,18 +314,25 @@ def inicializar():
         if "classificacao" not in cols_cliente:
             conn.execute(
                 "ALTER TABLE clientes ADD COLUMN"
-                " classificacao TEXT NOT NULL DEFAULT 'Sem historico'")
+                " classificacao TEXT NOT NULL DEFAULT 'Sem histórico'")
         if "ultima_festa" not in cols_cliente:
             conn.execute(
                 "ALTER TABLE clientes ADD COLUMN ultima_festa TEXT")
 
+        conn.execute(
+            "UPDATE clientes SET classificacao = 'Sem histórico'"
+            " WHERE classificacao = 'Sem historico'")
+        conn.execute(
+            "UPDATE clientes SET classificacao = 'Cliente VIP histórico'"
+            " WHERE classificacao = 'Cliente VIP historico'")
+
 
 CLASSIFICACOES_FESTA = (
-    (0, "Sem historico"),
+    (0, "Sem histórico"),
     (1, "Cliente de 1 festa"),
     (2, "Cliente recorrente"),
     (5, "Cliente frequente"),
-    (10, "Cliente VIP historico"),
+    (10, "Cliente VIP histórico"),
 )
 
 
@@ -333,7 +340,7 @@ def classificar_festas(total: int) -> str:
     for minimo, rotulo in reversed(CLASSIFICACOES_FESTA):
         if total >= minimo:
             return rotulo
-    return "Sem historico"
+    return "Sem histórico"
 
 
 # ---------------------------------------------------------------------------
@@ -406,18 +413,18 @@ def salvar_usuario(dados: dict, senha_hash: str | None = None,
     ativo = int(dados.get("ativo", 1))
 
     if not nome:
-        raise ErroDeCampo("nome", "Nome e obrigatorio.")
+        raise ErroDeCampo("nome", "Nome é obrigatório.")
     if not login:
-        raise ErroDeCampo("login", "Login e obrigatorio.")
+        raise ErroDeCampo("login", "Login é obrigatório.")
     if perfil not in PERFIS:
-        raise ErroDeCampo("perfil", "Perfil invalido.")
+        raise ErroDeCampo("perfil", "Perfil inválido.")
 
     with conectar() as conn:
         existente = conn.execute(
             "SELECT id FROM usuarios WHERE login = ? AND id != ?",
             (login, id_ or 0)).fetchone()
         if existente:
-            raise ErroDeCampo("login", "Ja existe um usuario com esse login.")
+            raise ErroDeCampo("login", "Já existe um usuário com esse login.")
 
         agora = formato.agora()
         if id_:
@@ -430,7 +437,7 @@ def salvar_usuario(dados: dict, senha_hash: str | None = None,
             return id_
         else:
             if not senha_hash:
-                raise ErroDeCampo("senha", "Senha e obrigatoria para novo usuario.")
+                raise ErroDeCampo("senha", "Senha é obrigatória para novo usuário.")
             r = conn.execute(
                 "INSERT INTO usuarios (nome, login, senha_hash, perfil, ativo, criado_em, atualizado_em)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -573,7 +580,7 @@ def verificar_duplicidade(campo: str, valor: str, id_excluir: int | None = None)
 def salvar_cliente(dados_: dict, id_: int | None = None, tags: list | None = None) -> int:
     nome = dados_.get("nome", "").strip()
     if not nome:
-        raise ErroDeCampo("nome", "Nome e obrigatorio.")
+        raise ErroDeCampo("nome", "Nome é obrigatório.")
 
     cpf = dados_.get("cpf_cnpj", "")
     whatsapp = dados_.get("whatsapp", "")
@@ -583,17 +590,17 @@ def salvar_cliente(dados_: dict, id_: int | None = None, tags: list | None = Non
         dup = verificar_duplicidade("cpf_cnpj", cpf, id_)
         if dup:
             raise ErroDeCampo("cpf_cnpj",
-                              f"CPF/CNPJ ja cadastrado para {dup['nome']}.")
+                              f"CPF/CNPJ já cadastrado para {dup['nome']}.")
     if whatsapp:
         dup = verificar_duplicidade("whatsapp", whatsapp, id_)
         if dup:
             raise ErroDeCampo("whatsapp",
-                              f"WhatsApp ja cadastrado para {dup['nome']}.")
+                              f"WhatsApp já cadastrado para {dup['nome']}.")
     if email:
         dup = verificar_duplicidade("email", email, id_)
         if dup:
             raise ErroDeCampo("email",
-                              f"E-mail ja cadastrado para {dup['nome']}.")
+                              f"E-mail já cadastrado para {dup['nome']}.")
 
     agora_ = formato.agora()
     with conectar() as conn:
@@ -697,7 +704,7 @@ def salvar_categoria(nome: str, pai_id: int | None = None,
                      id_: int | None = None) -> int:
     nome = nome.strip()
     if not nome:
-        raise ErroDeCampo("nome", "Nome da categoria e obrigatorio.")
+        raise ErroDeCampo("nome", "Nome da categoria é obrigatório.")
     with conectar() as conn:
         if id_:
             conn.execute("UPDATE categorias SET nome=?, pai_id=? WHERE id=?",
@@ -840,11 +847,11 @@ def salvar_produto(dados_: dict, id_: int | None = None,
                    tags: list | None = None) -> int:
     nome = dados_.get("nome", "").strip()
     if not nome:
-        raise ErroDeCampo("nome", "Nome do produto e obrigatorio.")
+        raise ErroDeCampo("nome", "Nome do produto é obrigatório.")
 
     status = dados_.get("status", "disponivel")
     if status not in STATUS_PRODUTO:
-        raise ErroDeCampo("status", "Status invalido.")
+        raise ErroDeCampo("status", "Status inválido.")
 
     agora_ = formato.agora()
     with conectar() as conn:
@@ -1046,11 +1053,11 @@ def campos_kit(form) -> dict:
 def salvar_kit(dados_: dict, id_: int | None = None) -> int:
     nome = dados_.get("nome", "").strip()
     if not nome:
-        raise ErroDeCampo("nome", "Nome do kit e obrigatorio.")
+        raise ErroDeCampo("nome", "Nome do kit é obrigatório.")
 
     status = dados_.get("status", "ativo")
     if status not in STATUS_KIT:
-        raise ErroDeCampo("status", "Status invalido.")
+        raise ErroDeCampo("status", "Status inválido.")
 
     agora_ = formato.agora()
     with conectar() as conn:
@@ -1073,7 +1080,7 @@ def salvar_kit(dados_: dict, id_: int | None = None) -> int:
 
 def adicionar_item_kit(kit_id: int, produto_id: int, quantidade: int = 1) -> int:
     if quantidade < 1:
-        raise ErroDeCampo("quantidade", "Quantidade minima e 1.")
+        raise ErroDeCampo("quantidade", "Quantidade mínima é 1.")
     with conectar() as conn:
         existente = conn.execute(
             "SELECT id FROM itens_kit WHERE kit_id = ? AND produto_id = ?",
@@ -1365,13 +1372,13 @@ def listar_origens() -> list:
 def salvar_origem(nome: str, id_: int | None = None) -> int:
     nome = nome.strip()
     if not nome:
-        raise ErroDeCampo("nome", "Nome da origem e obrigatorio.")
+        raise ErroDeCampo("nome", "Nome da origem é obrigatório.")
     with conectar() as conn:
         dup = conn.execute(
             "SELECT id FROM origens_lead WHERE nome = ? AND id != ?",
             (nome, id_ or 0)).fetchone()
         if dup:
-            raise ErroDeCampo("nome", "Ja existe uma origem com este nome.")
+            raise ErroDeCampo("nome", "Já existe uma origem com este nome.")
         if id_:
             conn.execute("UPDATE origens_lead SET nome=? WHERE id=?",
                          (nome, id_))
@@ -1386,7 +1393,7 @@ def excluir_origem(id_: int):
             "SELECT COUNT(*) FROM leads WHERE origem_id = ?",
             (id_,)).fetchone()[0]
         if em_uso:
-            raise ValueError("Origem em uso por leads, nao pode ser excluida.")
+            raise ValueError("Origem em uso por leads, não pode ser excluída.")
         conn.execute("DELETE FROM origens_lead WHERE id = ?", (id_,))
 
 
@@ -1470,12 +1477,12 @@ def campos_lead(form) -> dict:
 
 def salvar_lead(dados_: dict, id_: int | None = None) -> int:
     if not dados_.get("cliente_id"):
-        raise ErroDeCampo("cliente_id", "Cliente e obrigatorio.")
+        raise ErroDeCampo("cliente_id", "Cliente é obrigatório.")
 
     status = dados_.get("status", "novo")
     todos = list(ETAPAS_LEAD) + list(ETAPAS_ALT_LEAD)
     if status not in todos:
-        raise ErroDeCampo("status", "Status invalido.")
+        raise ErroDeCampo("status", "Status inválido.")
 
     agora_ = formato.agora()
     with conectar() as conn:
@@ -1507,7 +1514,7 @@ def salvar_lead(dados_: dict, id_: int | None = None) -> int:
 def mover_lead(id_: int, novo_status: str):
     todos = list(ETAPAS_LEAD) + list(ETAPAS_ALT_LEAD)
     if novo_status not in todos:
-        raise ValueError("Status invalido.")
+        raise ValueError("Status inválido.")
     agora_ = formato.agora()
     with conectar() as conn:
         conn.execute(
@@ -1574,15 +1581,15 @@ def buscar_orcamento(id_: int) -> dict | None:
 def salvar_orcamento(dados_: dict, itens: list,
                      id_: int | None = None) -> int:
     if not dados_.get("cliente_id"):
-        raise ErroDeCampo("cliente_id", "Cliente e obrigatorio.")
+        raise ErroDeCampo("cliente_id", "Cliente é obrigatório.")
 
     status = dados_.get("status", "rascunho")
     if status not in STATUS_ORCAMENTO:
-        raise ErroDeCampo("status", "Status invalido.")
+        raise ErroDeCampo("status", "Status inválido.")
 
     desconto = float(dados_.get("desconto") or 0)
     if desconto < 0:
-        raise ErroDeCampo("desconto", "Desconto nao pode ser negativo.")
+        raise ErroDeCampo("desconto", "Desconto não pode ser negativo.")
 
     agora_ = formato.agora()
     with conectar() as conn:
@@ -1682,9 +1689,9 @@ def buscar_pedido_festas(id_: int) -> dict | None:
 def converter_orcamento_em_pedido(orcamento_id: int) -> int:
     orc = buscar_orcamento(orcamento_id)
     if not orc:
-        raise ValueError("Orcamento nao encontrado.")
+        raise ValueError("Orçamento não encontrado.")
     if orc["status"] == "recusado":
-        raise ValueError("Orcamento recusado nao pode ser convertido.")
+        raise ValueError("Orçamento recusado não pode ser convertido.")
 
     agora_ = formato.agora()
     with conectar() as conn:
@@ -1772,22 +1779,22 @@ def _verificar_disponibilidade_itens(conn, itens: list, data_retirada: str,
 def salvar_pedido_festas(dados_: dict, itens: list,
                          id_: int | None = None) -> int:
     if not dados_.get("cliente_id"):
-        raise ErroDeCampo("cliente_id", "Cliente e obrigatorio.")
+        raise ErroDeCampo("cliente_id", "Cliente é obrigatório.")
 
     sc = dados_.get("status_comercial", "confirmado")
     if sc not in STATUS_PEDIDO_COMERCIAL:
-        raise ErroDeCampo("status_comercial", "Status comercial invalido.")
+        raise ErroDeCampo("status_comercial", "Status comercial inválido.")
 
     so = dados_.get("status_operacional", "preparacao")
     if so not in STATUS_PEDIDO_OPERACIONAL:
-        raise ErroDeCampo("status_operacional", "Status operacional invalido.")
+        raise ErroDeCampo("status_operacional", "Status operacional inválido.")
 
     agora_ = formato.agora()
     data_ret = dados_.get("data_retirada")
     data_dev = dados_.get("data_devolucao")
     if data_ret and data_dev and data_ret > data_dev:
         raise ErroDeCampo("data_devolucao",
-                          "Data de devolucao deve ser posterior a retirada.")
+                          "Data de devolução deve ser posterior à retirada.")
 
     with conectar() as conn:
         if data_ret and data_dev and sc != "cancelado":
@@ -1876,12 +1883,12 @@ def avancar_status_operacional(pedido_id: int, observacao: str = "") -> str:
             "SELECT status_comercial, status_operacional FROM pedidos WHERE id=?",
             (pedido_id,)).fetchone()
         if not ped:
-            raise ValueError("Pedido nao encontrado.")
+            raise ValueError("Pedido não encontrado.")
         if ped["status_comercial"] == "cancelado":
-            raise ValueError("Pedido cancelado nao pode avancar.")
+            raise ValueError("Pedido cancelado não pode avançar.")
         atual = ped["status_operacional"]
         if atual not in FLUXO_OPERACIONAL:
-            raise ValueError(f"Status '{atual}' nao pode avancar.")
+            raise ValueError(f"Status '{atual}' não pode avançar.")
         proximo = FLUXO_OPERACIONAL[atual]
         conn.execute(
             "UPDATE pedidos SET status_operacional=?, atualizado_em=? WHERE id=?",
@@ -2195,7 +2202,7 @@ def listar_pedidos_unificados() -> list:
                 "data_evento": h["data_evento"],
                 "itens_count": 1,
                 "total": h.get("valor") or 0,
-                "origem": h.get("origem") or "Historico importado",
+                "origem": h.get("origem") or "Histórico importado",
                 "status_comercial": sc,
                 "status_operacional": so,
                 "data_retirada": None,

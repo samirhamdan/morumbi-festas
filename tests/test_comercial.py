@@ -42,13 +42,13 @@ class TesteOrigens:
     def test_origem_nome_obrigatorio(self, app, admin):
         r = admin.post("/origem", data={"nome": ""},
                        follow_redirects=True)
-        assert "obrigatorio" in r.text.lower()
+        assert "obrigatório" in r.text.lower()
 
     def test_origem_duplicada_recusada(self, app, admin):
         dados.salvar_origem("Teste Dup")
         r = admin.post("/origem", data={"nome": "Teste Dup"},
                        follow_redirects=True)
-        assert "Ja existe" in r.text
+        assert "Já existe" in r.text
 
     def test_excluir_origem_livre(self, app, admin):
         oid = dados.salvar_origem("Para Excluir")
@@ -95,7 +95,7 @@ class TesteCriarLead:
             "interesse": "Teste",
             "status": "novo",
         }, follow_redirects=True)
-        assert "obrigatorio" in r.text.lower()
+        assert "obrigatório" in r.text.lower()
 
     def test_lead_status_padrao_novo(self, app, admin):
         c = _cliente(admin, "Cli Status")
@@ -244,7 +244,7 @@ class TesteCriarOrcamento:
             "desconto": "0",
             "status": "rascunho",
         }, follow_redirects=True)
-        assert "obrigatorio" in r.text.lower()
+        assert "obrigatório" in r.text.lower()
 
     def test_orcamento_com_desconto(self, app, admin):
         c = _cliente(admin, "Cli Desc")
@@ -336,7 +336,7 @@ class TesteListaOrcamentos:
     def test_lista_carrega(self, app, admin):
         r = admin.get("/orcamentos")
         assert r.status_code == 200
-        assert "Orcamentos" in r.text
+        assert "Orçamentos" in r.text
 
     def test_lista_filtra_por_status(self, app, admin):
         c = _cliente(admin, "Cli Status Orc")
@@ -349,7 +349,7 @@ class TesteListaOrcamentos:
 
     def test_lista_vazia(self, app, admin):
         r = admin.get("/orcamentos")
-        assert "Nenhum orcamento" in r.text
+        assert "Nenhum orçamento" in r.text
 
     def test_orcamentos_exige_perfil(self, app, client):
         r = client.get("/orcamentos")

@@ -9,8 +9,8 @@
   <div class="cabecalho-lista">
     <h2 class="secao">Produtos</h2>
     <span class="abas">
-      <a href="{{ url_for('lista_produtos') }}" class="{{ 'aqui' if ver == 'disponiveis' }}">Disponiveis</a>
-      <a href="{{ url_for('lista_produtos', ver='manutencao') }}" class="{{ 'aqui' if ver == 'manutencao' }}">Manutencao</a>
+      <a href="{{ url_for('lista_produtos') }}" class="{{ 'aqui' if ver == 'disponiveis' }}">Disponíveis</a>
+      <a href="{{ url_for('lista_produtos', ver='manutencao') }}" class="{{ 'aqui' if ver == 'manutencao' }}">Manutenção</a>
       <a href="{{ url_for('lista_produtos', ver='inativos') }}" class="{{ 'aqui' if ver == 'inativos' }}">Inativos</a>
       <a href="{{ url_for('lista_produtos', ver='todos') }}" class="{{ 'aqui' if ver == 'todos' }}">Todos</a>
     </span>
@@ -25,7 +25,7 @@
     {% if ver != 'disponiveis' %}<input type="hidden" name="ver" value="{{ ver }}">{% endif %}
     <label class="busca">
       <span class="sr">Buscar</span>
-      <input type="search" name="q" value="{{ busca }}" placeholder="Nome, SKU, descricao ou localizacao"
+      <input type="search" name="q" value="{{ busca }}" placeholder="Nome, SKU, descrição ou localização"
              autocomplete="off" enterkeyhint="search">
     </label>
     <select name="categoria" onchange="this.form.submit()">
@@ -52,7 +52,7 @@
         <th>SKU</th>
         <th>Nome</th>
         <th>Categoria</th>
-        <th>Preco</th>
+        <th>Preço</th>
         <th>Qtd</th>
         <th>Status</th>
         <th></th>
@@ -65,11 +65,11 @@
             <a href="{{ url_for('editar_produto', id_=p.id) }}">{{ p.nome }}</a>
           </td>
           <td data-rotulo="Categoria">{{ p.categoria_nome or '—' }}</td>
-          <td data-rotulo="Preco" class="num">{{ p.preco_locacao|dinheiro }}</td>
+          <td data-rotulo="Preço" class="num">{{ p.preco_locacao|dinheiro }}</td>
           <td data-rotulo="Qtd" class="num">{{ p.quantidade_total }}</td>
           <td data-rotulo="Status" class="estado">
-            {% if p.status == 'disponivel' %}<span class="etiqueta verde">disponivel</span>
-            {% elif p.status == 'manutencao' %}<span class="etiqueta ambar">manutencao</span>
+            {% if p.status == 'disponivel' %}<span class="etiqueta verde">disponível</span>
+            {% elif p.status == 'manutencao' %}<span class="etiqueta ambar">manutenção</span>
             {% else %}<span class="etiqueta cinza">inativo</span>
             {% endif %}
           </td>
@@ -89,11 +89,11 @@
   {% elif busca %}
   <div class="cartao cartao-vazio">
     <b>Nenhum resultado para "{{ busca }}".</b>
-    <span>Tente buscar por nome, SKU ou descricao.</span>
+    <span>Tente buscar por nome, SKU ou descrição.</span>
   </div>
   {% else %}
   <div class="cartao cartao-vazio">
-    <b>Nenhum produto {{ ver if ver != 'disponiveis' else 'disponivel' }}.</b>
+    <b>Nenhum produto {{ ver if ver != 'disponiveis' else 'disponível' }}.</b>
     {% if perfil == 'admin' and ver == 'disponiveis' %}
     <span><a href="{{ url_for('editar_produto') }}">Cadastrar o primeiro produto</a></span>
     {% endif %}

@@ -134,13 +134,13 @@ class TesteMigracaoEventosHistorico:
             r = conn.execute(
                 "SELECT classificacao, total_festas FROM clientes"
                 " WHERE nome='Teste'").fetchone()
-            assert r["classificacao"] == "Sem historico"
+            assert r["classificacao"] == "Sem histórico"
             assert r["total_festas"] == 0
 
 
 class TesteClassificacaoFestas:
     def test_zero_sem_historico(self):
-        assert dados.classificar_festas(0) == "Sem historico"
+        assert dados.classificar_festas(0) == "Sem histórico"
 
     def test_uma_festa(self):
         assert dados.classificar_festas(1) == "Cliente de 1 festa"
@@ -154,8 +154,8 @@ class TesteClassificacaoFestas:
         assert dados.classificar_festas(9) == "Cliente frequente"
 
     def test_vip(self):
-        assert dados.classificar_festas(10) == "Cliente VIP historico"
-        assert dados.classificar_festas(50) == "Cliente VIP historico"
+        assert dados.classificar_festas(10) == "Cliente VIP histórico"
+        assert dados.classificar_festas(50) == "Cliente VIP histórico"
 
 
 class TesteSalvarEventoHistorico:
@@ -435,7 +435,7 @@ class TesteAgendaComHistorico:
         })
         r = admin.get("/agenda?visao=mensal&ano=2024&mes=6")
         assert r.status_code == 200
-        assert "Historico" in r.text
+        assert "Histórico" in r.text
 
     def test_agenda_diaria_com_historico(self, app, admin):
         _vincular_clientes()
@@ -450,7 +450,7 @@ class TesteAgendaComHistorico:
         })
         r = admin.get("/agenda?visao=diaria&ano=2024&mes=6&dia=15")
         assert r.status_code == 200
-        assert "Historico importado" in r.text
+        assert "Histórico importado" in r.text
         assert "Maria Silva" in r.text
 
     def test_agenda_semanal_com_historico(self, app, admin):

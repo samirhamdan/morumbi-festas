@@ -127,7 +127,7 @@ class TesteRotaAgenda:
         r = admin.get("/agenda?visao=diaria&ano=2026&mes=10&dia=15")
         assert r.status_code == 200
         assert "Retiradas" in r.text
-        assert "Devolucoes" in r.text
+        assert "Devoluções" in r.text
         assert "Eventos" in r.text
 
     def test_agenda_diaria_com_pedido(self, app, admin):
@@ -156,7 +156,7 @@ class TesteRotaAgenda:
 
     def test_agenda_menu_operacao(self, app, admin):
         r = admin.get("/agenda")
-        assert "Operacao" in r.text
+        assert "Operação" in r.text
 
 
 # --- _eventos_do_dia ---

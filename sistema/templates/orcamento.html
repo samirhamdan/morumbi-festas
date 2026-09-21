@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}{{ 'Editar Orcamento' if atual.get('id') else 'Novo Orcamento' }} — Morumbi Festas{% endblock %}
+{% block titulo %}{{ 'Editar Orçamento' if atual.get('id') else 'Novo Orçamento' }} — Morumbi Festas{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -7,10 +7,10 @@
 
 <main id="conteudo" class="pagina">
   <div class="cabecalho-lista">
-    <h2 class="secao">{{ 'Orcamento #%d'|format(atual.id) if atual.get('id') else 'Novo Orcamento' }}</h2>
+    <h2 class="secao">{{ 'Orçamento #%d'|format(atual.id) if atual.get('id') else 'Novo Orçamento' }}</h2>
     {% if atual.get('id') and atual.get('status') != 'recusado' %}
     <form method="post" action="{{ url_for('converter_orcamento', id_=atual.id) }}"
-          onsubmit="return confirm('Converter este orcamento em pedido?')" style="display:inline">
+          onsubmit="return confirm('Converter este orçamento em pedido?')" style="display:inline">
       <button type="submit" class="botao">Converter em pedido</button>
     </form>
     {% endif %}
@@ -53,7 +53,7 @@
         </label>
 
         <label class="campo" id="campo-observacoes">
-          <span>Observacoes</span>
+          <span>Observações</span>
           <textarea name="observacoes" rows="3">{{ atual.get('observacoes', '') }}</textarea>
         </label>
       </div>
@@ -87,7 +87,7 @@
       </div>
     </div>
 
-    <h3 class="form-secao">Itens do orcamento</h3>
+    <h3 class="form-secao">Itens do orçamento</h3>
 
     <div id="itens-container">
       {% set itens = atual.get('itens', []) %}
@@ -96,15 +96,15 @@
         <select name="item_tipo_{{ loop.index0 }}">
           <option value="produto" {{ 'selected' if item.tipo == 'produto' }}>Produto</option>
           <option value="kit" {{ 'selected' if item.tipo == 'kit' }}>Kit</option>
-          <option value="servico" {{ 'selected' if item.tipo == 'servico' }}>Servico</option>
+          <option value="servico" {{ 'selected' if item.tipo == 'servico' }}>Serviço</option>
         </select>
         <input type="hidden" name="item_item_id_{{ loop.index0 }}" value="{{ item.item_id or '' }}">
         <input type="text" name="item_descricao_{{ loop.index0 }}" value="{{ item.descricao }}"
-               placeholder="Descricao" required style="flex:2">
+               placeholder="Descrição" required style="flex:2">
         <input type="number" name="item_quantidade_{{ loop.index0 }}" value="{{ item.quantidade }}"
                min="1" step="1" style="width:70px" inputmode="numeric" placeholder="Qtd">
         <input type="number" name="item_preco_{{ loop.index0 }}" value="{{ '%.2f'|format(item.preco_unitario) }}"
-               min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preco">
+               min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preço">
         <button type="button" class="botao mini perigoso" onclick="this.parentElement.remove()">✕</button>
       </div>
       {% endfor %}
@@ -113,7 +113,7 @@
     <div style="margin:12px 0">
       <button type="button" class="botao vazado" id="btn-adicionar-item">Adicionar item</button>
       <span style="margin-left:8px;color:var(--suave);font-size:13px">
-        Adicione produtos, kits ou servicos ao orcamento
+        Adicione produtos, kits ou serviços ao orçamento
       </span>
     </div>
 
@@ -150,12 +150,12 @@
       '<select name="item_tipo_'+i+'">' +
         '<option value="produto">Produto</option>' +
         '<option value="kit">Kit</option>' +
-        '<option value="servico">Servico</option>' +
+        '<option value="servico">Serviço</option>' +
       '</select>' +
       '<input type="hidden" name="item_item_id_'+i+'" value="">' +
-      '<input type="text" name="item_descricao_'+i+'" placeholder="Descricao" required style="flex:2">' +
+      '<input type="text" name="item_descricao_'+i+'" placeholder="Descrição" required style="flex:2">' +
       '<input type="number" name="item_quantidade_'+i+'" value="1" min="1" step="1" style="width:70px" inputmode="numeric" placeholder="Qtd">' +
-      '<input type="number" name="item_preco_'+i+'" value="0.00" min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preco">' +
+      '<input type="number" name="item_preco_'+i+'" value="0.00" min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preço">' +
       '<button type="button" class="botao mini perigoso" onclick="this.parentElement.remove()">✕</button>';
     container.appendChild(div);
 

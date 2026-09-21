@@ -37,21 +37,21 @@ class TesteUsuarios:
             "nome": "Outro Joao", "login": "joao",
             "senha": "abc", "perfil": "comercial"
         }, follow_redirects=True)
-        assert "Ja existe" in r.text
+        assert "Já existe" in r.text
 
     def test_nome_obrigatorio(self, app, admin):
         r = admin.post("/usuario", data={
             "nome": "", "login": "vazio",
             "senha": "abc", "perfil": "comercial"
         }, follow_redirects=True)
-        assert "obrigatorio" in r.text
+        assert "obrigatório" in r.text
 
     def test_login_obrigatorio(self, app, admin):
         r = admin.post("/usuario", data={
             "nome": "Teste", "login": "",
             "senha": "abc", "perfil": "comercial"
         }, follow_redirects=True)
-        assert "obrigatorio" in r.text
+        assert "obrigatório" in r.text
 
     def test_editar_usuario(self, app, admin):
         from werkzeug.security import generate_password_hash

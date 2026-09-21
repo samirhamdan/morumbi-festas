@@ -9,7 +9,7 @@
     <span title="Retirada">&#x2191; {{ p.data_retirada|data }}</span>
     {% endif %}
     {% if p.data_devolucao %}
-    <span title="Devolucao">&#x2193; {{ p.data_devolucao|data }}</span>
+    <span title="Devolução">&#x2193; {{ p.data_devolucao|data }}</span>
     {% endif %}
   </div>
   <span class="op-card-itens">{{ p.itens|length }} {{ 'item' if p.itens|length == 1 else 'itens' }}</span>

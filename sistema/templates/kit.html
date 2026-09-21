@@ -12,7 +12,7 @@
       {% if disponibilidade > 0 %}
         <span class="etiqueta verde">{{ disponibilidade }} disponivel(is)</span>
       {% else %}
-        <span class="etiqueta cinza">indisponivel</span>
+        <span class="etiqueta cinza">indisponível</span>
       {% endif %}
     {% endif %}
   </div>
@@ -30,13 +30,13 @@
       </label>
 
       <label class="campo" id="campo-descricao">
-        <span class="campo-rotulo">Descricao</span>
+        <span class="campo-rotulo">Descrição</span>
         <textarea name="descricao" rows="3">{{ atual.get('descricao', '') }}</textarea>
       </label>
 
       <div class="campo-duplo">
         <label class="campo" id="campo-preco">
-          <span class="campo-rotulo">Preco do kit (R$)</span>
+          <span class="campo-rotulo">Preço do kit (R$)</span>
           <input type="number" name="preco" step="0.01" min="0"
                  value="{{ '%.2f'|format(atual.get('preco', 0)) }}"
                  inputmode="decimal">
@@ -57,13 +57,13 @@
 
       <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin:8px 0 12px" id="campo-publicado">
         <input type="checkbox" name="publicado" value="1" {{ 'checked' if atual.get('publicado') }}>
-        Publicar no catalogo
+        Publicar no catálogo
       </label>
 
       {% if atual.get('soma_produtos') and atual.get('preco') and atual.soma_produtos > atual.preco %}
       <p style="font-size:14px;color:var(--verde);margin:8px 0 0">
         Economia de {{ (atual.soma_produtos - atual.preco)|dinheiro }}
-        ({{ ((atual.soma_produtos - atual.preco) / atual.soma_produtos * 100)|round|int }}% em relacao a soma dos produtos: {{ atual.soma_produtos|dinheiro }})
+        ({{ ((atual.soma_produtos - atual.preco) / atual.soma_produtos * 100)|round|int }}% em relação à soma dos produtos: {{ atual.soma_produtos|dinheiro }})
       </p>
       {% endif %}
     </div>
@@ -76,7 +76,7 @@
 
   {% if atual.get('id') %}
   <div class="cartao" style="padding:20px;margin-top:20px">
-    <h3 class="form-secao" style="border-top:none;margin-top:0;padding-top:0">Composicao do kit</h3>
+    <h3 class="form-secao" style="border-top:none;margin-top:0;padding-top:0">Composição do kit</h3>
 
     {% if atual.get('itens') %}
     <div class="cartao cartao-tabela" style="margin-bottom:16px"><div class="rolagem">
@@ -85,7 +85,7 @@
           <th>Produto</th>
           <th>SKU</th>
           <th>Qtd no kit</th>
-          <th>Preco unit.</th>
+          <th>Preço unit.</th>
           <th>Subtotal</th>
           <th></th>
         </tr></thead>
@@ -95,7 +95,7 @@
             <td data-rotulo="Produto" class="chave">{{ item.produto_nome }}</td>
             <td data-rotulo="SKU" class="mono">{{ item.codigo_sku }}</td>
             <td data-rotulo="Qtd no kit" class="num">{{ item.quantidade }}</td>
-            <td data-rotulo="Preco unit." class="num">{{ item.preco_locacao|dinheiro }}</td>
+            <td data-rotulo="Preço unit." class="num">{{ item.preco_locacao|dinheiro }}</td>
             <td data-rotulo="Subtotal" class="num">{{ (item.preco_locacao * item.quantidade)|dinheiro }}</td>
             <td class="num acao">
               <form method="post" action="{{ url_for('remover_item_kit', id_=atual.id, item_id=item.id) }}" style="display:inline">

@@ -8,7 +8,7 @@
 <main id="conteudo" class="pagina">
   <div class="cabecalho-lista">
     <h2 class="secao">Vitrine</h2>
-    <a class="botao vazado" href="{{ url_for('catalogo') }}" target="_blank">Ver catalogo publico</a>
+    <a class="botao vazado" href="{{ url_for('catalogo') }}" target="_blank">Ver catálogo público</a>
   </div>
 
   <form class="peneira" method="get">
@@ -45,7 +45,7 @@
         {% if k.get('publicado') %}
         <span class="etiqueta verde" style="margin-top:4px;display:inline-block">publicado</span>
         {% else %}
-        <span class="etiqueta cinza" style="margin-top:4px;display:inline-block">nao publicado</span>
+        <span class="etiqueta cinza" style="margin-top:4px;display:inline-block">não publicado</span>
         {% endif %}
       </div>
     </div>
@@ -72,7 +72,7 @@
         {% if p.get('publicado') %}
         <span class="etiqueta verde" style="margin-top:4px;display:inline-block">publicado</span>
         {% else %}
-        <span class="etiqueta cinza" style="margin-top:4px;display:inline-block">nao publicado</span>
+        <span class="etiqueta cinza" style="margin-top:4px;display:inline-block">não publicado</span>
         {% endif %}
       </div>
     </div>

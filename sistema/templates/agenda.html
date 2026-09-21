@@ -17,7 +17,7 @@
       <a class="botao mini {{ 'primario' if visao == 'semanal' else 'vazado' }}"
          href="{{ url_for('agenda', visao='semanal', tipo=tipo, status=status) }}">Semanal</a>
       <a class="botao mini {{ 'primario' if visao == 'diaria' else 'vazado' }}"
-         href="{{ url_for('agenda', visao='diaria', tipo=tipo, status=status) }}">Diaria</a>
+         href="{{ url_for('agenda', visao='diaria', tipo=tipo, status=status) }}">Diária</a>
     </div>
 
     <form class="agenda-filtros" method="GET" action="{{ url_for('agenda') }}">
@@ -40,7 +40,7 @@
           <option value="">Todos</option>
           <option value="evento" {{ 'selected' if tipo == 'evento' }}>Evento</option>
           <option value="retirada" {{ 'selected' if tipo == 'retirada' }}>Retirada</option>
-          <option value="devolucao" {{ 'selected' if tipo == 'devolucao' }}>Devolucao</option>
+          <option value="devolucao" {{ 'selected' if tipo == 'devolucao' }}>Devolução</option>
         </select>
       </label>
       <label class="agenda-filtro-label">
@@ -95,8 +95,8 @@
     <div class="cal-legenda">
       <span class="leg-evento">Evento</span>
       <span class="leg-retirada">Retirada</span>
-      <span class="leg-devolucao">Devolucao</span>
-      <span class="leg-historico">Historico</span>
+      <span class="leg-devolucao">Devolução</span>
+      <span class="leg-historico">Histórico</span>
     </div>
   </div>
 
@@ -180,16 +180,16 @@
     {% endmacro %}
 
     {{ lista_pedidos_agenda("Retiradas", retiradas, "ag-cor-retirada") }}
-    {{ lista_pedidos_agenda("Devolucoes", devolucoes, "ag-cor-devolucao") }}
+    {{ lista_pedidos_agenda("Devoluções", devolucoes, "ag-cor-devolucao") }}
     {{ lista_pedidos_agenda("Eventos", eventos_dia, "ag-cor-evento") }}
-    {{ lista_pedidos_agenda("Em preparacao", preparacoes, "ag-cor-preparacao") }}
+    {{ lista_pedidos_agenda("Em preparação", preparacoes, "ag-cor-preparacao") }}
 
     {% if historicos is defined and historicos %}
     <div class="ag-secao">
-      <h3 class="ag-secao-titulo ag-cor-historico">Historico importado <span class="ag-secao-qtd">({{ historicos|length }})</span></h3>
+      <h3 class="ag-secao-titulo ag-cor-historico">Histórico importado <span class="ag-secao-qtd">({{ historicos|length }})</span></h3>
       <table class="tabela ag-tabela">
         <thead>
-          <tr><th>Origem</th><th>Cliente</th><th>Descricao</th><th>Valor</th></tr>
+          <tr><th>Origem</th><th>Cliente</th><th>Descrição</th><th>Valor</th></tr>
         </thead>
         <tbody>
           {% for h in historicos %}

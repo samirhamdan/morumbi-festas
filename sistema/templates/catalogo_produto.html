@@ -2,7 +2,7 @@
 {% block titulo %}{{ produto.nome }} — Morumbi Festas{% endblock %}
 {% block meta %}
 <meta property="og:title" content="{{ produto.nome }} — Morumbi Festas">
-<meta property="og:description" content="{{ produto.descricao[:160] if produto.descricao else 'Locacao de decoracao para eventos' }}">
+<meta property="og:description" content="{{ produto.descricao[:160] if produto.descricao else 'Locação de decoração para eventos' }}">
 <meta property="og:type" content="product">
 {% if produto.foto_capa %}
 <meta property="og:image" content="{{ url_for('static', filename=produto.foto_capa.arquivo, _external=True) }}">
@@ -11,7 +11,7 @@
 {% block conteudo %}
 
 <nav class="cat-voltar">
-  <a href="{{ url_for('catalogo') }}">← Voltar ao catalogo</a>
+  <a href="{{ url_for('catalogo') }}">← Voltar ao catálogo</a>
 </nav>
 
 <div class="cat-detalhe">
@@ -48,9 +48,9 @@
     {% endif %}
 
     {% if org and org.get('whatsapp') %}
-    <a href="{{ org.whatsapp|whatsapp_link }}?text=Ola! Gostaria de saber sobre o produto: {{ produto.nome }}"
+    <a href="{{ org.whatsapp|whatsapp_link }}?text=Olá! Gostaria de saber sobre o produto: {{ produto.nome }}"
        class="botao primario cat-btn-orcamento" target="_blank" rel="noopener">
-      Solicitar orcamento
+      Solicitar orçamento
     </a>
     {% endif %}
   </div>

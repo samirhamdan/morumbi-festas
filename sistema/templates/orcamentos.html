@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}Orcamentos — Morumbi Festas{% endblock %}
+{% block titulo %}Orçamentos — Morumbi Festas{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -7,14 +7,14 @@
 
 <main id="conteudo" class="pagina">
   <div class="cabecalho-lista">
-    <h2 class="secao">Orcamentos</h2>
+    <h2 class="secao">Orçamentos</h2>
     <span class="abas">
       <a href="{{ url_for('lista_orcamentos') }}" class="{{ 'aqui' if not status_filtro }}">Todos</a>
       {% for s in status_opcoes %}
       <a href="{{ url_for('lista_orcamentos', status=s) }}" class="{{ 'aqui' if status_filtro == s }}">{{ s|capitalize }}</a>
       {% endfor %}
     </span>
-    <a class="botao" href="{{ url_for('editar_orcamento') }}">Novo orcamento</a>
+    <a class="botao" href="{{ url_for('editar_orcamento') }}">Novo orçamento</a>
   </div>
 
   {% include "_erro.html" %}
@@ -61,8 +61,8 @@
     {% if busca %}
     <b>Nenhum resultado para "{{ busca }}".</b>
     {% else %}
-    <b>Nenhum orcamento cadastrado.</b>
-    <span><a href="{{ url_for('editar_orcamento') }}">Criar primeiro orcamento</a></span>
+    <b>Nenhum orçamento cadastrado.</b>
+    <span><a href="{{ url_for('editar_orcamento') }}">Criar primeiro orçamento</a></span>
     {% endif %}
   </div>
   {% endif %}

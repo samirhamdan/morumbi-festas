@@ -34,13 +34,13 @@
         <table class="tabela">
           <thead><tr>
             <th>Nome</th>
-            <th>Acoes</th>
+            <th>Ações</th>
           </tr></thead>
           <tbody>
             {% for o in origens %}
             <tr>
               <td data-rotulo="Nome">{{ o.nome }}</td>
-              <td data-rotulo="Acoes">
+              <td data-rotulo="Ações">
                 <form method="post" action="{{ url_for('excluir_origem_rota', id_=o.id) }}"
                       style="display:inline"
                       onsubmit="return confirm('Excluir origem {{ o.nome }}?')">
@@ -55,7 +55,7 @@
       {% else %}
       <div class="cartao cartao-vazio">
         <b>Nenhuma origem cadastrada.</b>
-        <span>As origens padrao serao criadas ao reiniciar o sistema.</span>
+        <span>As origens padrão serão criadas ao reiniciar o sistema.</span>
       </div>
       {% endif %}
     </div>

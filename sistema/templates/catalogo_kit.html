@@ -2,7 +2,7 @@
 {% block titulo %}{{ kit.nome }} — Morumbi Festas{% endblock %}
 {% block meta %}
 <meta property="og:title" content="{{ kit.nome }} — Morumbi Festas">
-<meta property="og:description" content="{{ kit.descricao[:160] if kit.descricao else 'Kit de locacao para eventos' }}">
+<meta property="og:description" content="{{ kit.descricao[:160] if kit.descricao else 'Kit de locação para eventos' }}">
 <meta property="og:type" content="product">
 {% if kit.foto_capa %}
 <meta property="og:image" content="{{ url_for('static', filename=kit.foto_capa.arquivo, _external=True) }}">
@@ -11,7 +11,7 @@
 {% block conteudo %}
 
 <nav class="cat-voltar">
-  <a href="{{ url_for('catalogo') }}">← Voltar ao catalogo</a>
+  <a href="{{ url_for('catalogo') }}">← Voltar ao catálogo</a>
 </nav>
 
 <div class="cat-detalhe">
@@ -36,7 +36,7 @@
     {% if kit.soma_produtos > kit.preco and kit.preco > 0 %}
     <p class="cat-card-economia" style="font-size:15px">
       {{ ((kit.soma_produtos - kit.preco) / kit.soma_produtos * 100)|round|int }}% de economia
-      em relacao aos produtos avulsos ({{ kit.soma_produtos|dinheiro }})
+      em relação aos produtos avulsos ({{ kit.soma_produtos|dinheiro }})
     </p>
     {% endif %}
 
@@ -52,9 +52,9 @@
     </ul>
 
     {% if org and org.get('whatsapp') %}
-    <a href="{{ org.whatsapp|whatsapp_link }}?text=Ola! Gostaria de saber sobre o kit: {{ kit.nome }}"
+    <a href="{{ org.whatsapp|whatsapp_link }}?text=Olá! Gostaria de saber sobre o kit: {{ kit.nome }}"
        class="botao primario cat-btn-orcamento" target="_blank" rel="noopener">
-      Solicitar orcamento
+      Solicitar orçamento
     </a>
     {% endif %}
   </div>

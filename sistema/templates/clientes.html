@@ -47,7 +47,7 @@
       </select>
       {% endif %}
       <select name="classificacao" onchange="this.form.submit()">
-        <option value="">Todas classificacoes</option>
+        <option value="">Todas classificações</option>
         {% for c in classificacoes %}
           <option value="{{ c }}" {{ 'selected' if classif_filtro == c }}>{{ c }}</option>
         {% endfor %}
@@ -63,7 +63,7 @@
         <th>WhatsApp</th>
         <th>Cidade</th>
         <th>Origem</th>
-        <th>Classificacao</th>
+        <th>Classificação</th>
         <th class="num">Festas</th>
         <th>Tags</th>
         <th></th>
@@ -84,9 +84,9 @@
           <td data-rotulo="Origem" class="estado">
             {% if c.origem %}<span class="etiqueta azul">{{ c.origem }}</span>{% else %}—{% endif %}
           </td>
-          <td data-rotulo="Classificacao">
-            {% if c.classificacao and c.classificacao != 'Sem historico' %}
-            <span class="etiqueta {% if c.classificacao == 'Cliente VIP historico' %}verde{% elif c.classificacao == 'Cliente frequente' %}azul{% elif c.classificacao == 'Cliente recorrente' %}roxo{% elif c.classificacao == 'Cliente de 1 festa' %}cinza{% endif %}">{{ c.classificacao }}</span>
+          <td data-rotulo="Classificação">
+            {% if c.classificacao and c.classificacao != 'Sem histórico' %}
+            <span class="etiqueta {% if c.classificacao == 'Cliente VIP histórico' %}verde{% elif c.classificacao == 'Cliente frequente' %}azul{% elif c.classificacao == 'Cliente recorrente' %}roxo{% elif c.classificacao == 'Cliente de 1 festa' %}cinza{% endif %}">{{ c.classificacao }}</span>
             {% else %}
             <span class="cli-sem-hist">—</span>
             {% endif %}

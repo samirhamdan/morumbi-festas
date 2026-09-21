@@ -19,7 +19,7 @@ class TesteCriarProduto:
             "nome": "",
             "quantidade_total": "5",
         }, follow_redirects=True)
-        assert "obrigatorio" in r.text
+        assert "obrigatório" in r.text
 
     def test_sku_gerado_automaticamente(self, app, admin):
         admin.post("/produto", data={
@@ -81,7 +81,7 @@ class TesteCategorias:
         r = admin.post("/categoria", data={
             "nome": "",
         }, follow_redirects=True)
-        assert "obrigatorio" in r.text.lower()
+        assert "obrigatório" in r.text.lower()
 
     def test_excluir_categoria_vazia(self, app, admin):
         cat_id = dados.salvar_categoria("Para excluir")

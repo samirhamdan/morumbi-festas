@@ -8,7 +8,7 @@
 <main id="conteudo" class="pagina">
   <div class="cabecalho-lista">
     <h2 class="secao">Pedidos</h2>
-    <p class="secao-sub">Pedidos atuais e historico em uma unica fila</p>
+    <p class="secao-sub">Pedidos atuais e histórico em uma única fila</p>
     <a class="botao primario" href="{{ url_for('editar_pedido') }}">+ Novo pedido</a>
   </div>
 
@@ -21,7 +21,7 @@
       <div class="ped-card-info">
         <span class="ped-card-valor">{{ indicadores.abertos }}</span>
         <span class="ped-card-rotulo">Abertos</span>
-        <span class="ped-card-sub">Orcamentos e pedidos em andamento</span>
+        <span class="ped-card-sub">Orçamentos e pedidos em andamento</span>
       </div>
       <span class="ped-card-seta">›</span>
     </a>
@@ -29,8 +29,8 @@
       <span class="ped-card-icone">📅</span>
       <div class="ped-card-info">
         <span class="ped-card-valor">{{ indicadores.proximos }}</span>
-        <span class="ped-card-rotulo">Proximos eventos</span>
-        <span class="ped-card-sub">Nos proximos 30 dias</span>
+        <span class="ped-card-rotulo">Próximos eventos</span>
+        <span class="ped-card-sub">Nos próximos 30 dias</span>
       </div>
       <span class="ped-card-seta">›</span>
     </a>
@@ -38,8 +38,8 @@
       <span class="ped-card-icone">💰</span>
       <div class="ped-card-info">
         <span class="ped-card-valor">{{ indicadores.faturamento_total|dinheiro }}</span>
-        <span class="ped-card-rotulo">Finalizados no mes</span>
-        <span class="ped-card-sub">{{ indicadores.faturamento_qtd }} pedidos concluidos</span>
+        <span class="ped-card-rotulo">Finalizados no mês</span>
+        <span class="ped-card-sub">{{ indicadores.faturamento_qtd }} pedidos concluídos</span>
       </div>
       <span class="ped-card-seta">›</span>
     </a>
@@ -47,7 +47,7 @@
       <span class="ped-card-icone">📚</span>
       <div class="ped-card-info">
         <span class="ped-card-valor">{{ indicadores.historico }}</span>
-        <span class="ped-card-rotulo">Historico</span>
+        <span class="ped-card-rotulo">Histórico</span>
         <span class="ped-card-sub">Eventos passados (consulta)</span>
       </div>
       <span class="ped-card-seta">›</span>
@@ -82,9 +82,9 @@
           </select>
         </label>
         <label class="ped-filtro-grupo">
-          <span class="ped-filtro-label">Periodo</span>
+          <span class="ped-filtro-label">Período</span>
           <span class="ped-filtro-datas">
-            <input type="date" name="data_inicio" value="{{ data_inicio }}" onchange="this.form.submit()" title="Data inicio">
+            <input type="date" name="data_inicio" value="{{ data_inicio }}" onchange="this.form.submit()" title="Data início">
             <input type="date" name="data_fim" value="{{ data_fim }}" onchange="this.form.submit()" title="Data fim">
           </span>
         </label>
@@ -114,7 +114,7 @@
 
   {# === BANNER INFORMATIVO === #}
   <div class="ped-info-banner">
-    ℹ Registros anteriores a {{ DATA_CORTE }} sao exibidos como historico finalizado; nao geram tarefas nem bloqueiam estoque.
+    ℹ Registros anteriores a {{ DATA_CORTE }} são exibidos como histórico finalizado; não geram tarefas nem bloqueiam estoque.
   </div>
 
   {# === TABELA UNIFICADA === #}
@@ -130,7 +130,7 @@
         <th>Origem</th>
         <th>Comercial</th>
         <th>Operacional</th>
-        <th>Retirada / Devolucao</th>
+        <th>Retirada / Devolução</th>
         <th></th>
       </tr></thead>
       <tbody>
@@ -160,7 +160,7 @@
           <td data-rotulo="Operacional">
             <span class="etiqueta cinza">{{ r.status_operacional }}</span>
           </td>
-          <td data-rotulo="Retirada / devolucao">
+          <td data-rotulo="Retirada / devolução">
             {% if r.data_retirada or r.data_devolucao %}
             {{ r.data_retirada|data if r.data_retirada else '—' }} &ndash; {{ r.data_devolucao|data if r.data_devolucao else '—' }}
             {% else %}&mdash;{% endif %}
@@ -204,7 +204,7 @@
     <a href="{{ url_for('lista_pedidos') }}" class="botao vazado" style="margin-top:8px">Limpar filtros</a>
     {% else %}
     <b>Nenhum pedido registrado.</b>
-    <span>Crie um pedido diretamente ou a partir de um orcamento.</span>
+    <span>Crie um pedido diretamente ou a partir de um orçamento.</span>
     <a href="{{ url_for('editar_pedido') }}" class="botao primario" style="margin-top:8px">Novo pedido</a>
     {% endif %}
   </div>

@@ -155,7 +155,7 @@ class TesteRotasOperacao:
         ped = _pedido(admin, cli["id"])
         r = admin.get(f"/operacao/pedido/{ped['id']}")
         assert r.status_code == 200
-        assert "Avancar para separado" in r.text
+        assert "Avançar para separado" in r.text
 
     def test_ver_pedido_inexistente_404(self, app, admin):
         r = admin.get("/operacao/pedido/9999")
@@ -184,8 +184,8 @@ class TesteRotasOperacao:
         for _ in range(5):
             dados.avancar_status_operacional(ped["id"])
         r = admin.get(f"/operacao/pedido/{ped['id']}")
-        assert "Pedido concluido" in r.text
-        assert "Avancar" not in r.text
+        assert "Pedido concluído" in r.text
+        assert "Avançar" not in r.text
 
     def test_menu_operacao_tem_pedidos(self, app, admin):
         r = admin.get("/operacao")

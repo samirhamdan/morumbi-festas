@@ -21,21 +21,21 @@ MENU = (
     ("Comercial", (
         ("lista_clientes", "Clientes"),
         ("lista_leads", "Leads"),
-        ("lista_orcamentos", "Orcamentos"),
+        ("lista_orcamentos", "Orçamentos"),
     )),
-    ("Operacao", (
+    ("Operação", (
         ("agenda", "Agenda"),
         ("lista_pedidos", "Pedidos"),
         ("painel_operacional", "Esteira de pedidos"),
     )),
-    ("Catalogo", (
+    ("Catálogo", (
         ("catalogo_interno", "Vitrine"),
         ("lista_produtos", "Produtos"),
         ("lista_kits", "Kits"),
         ("lista_categorias", "Categorias"),
     )),
-    ("Administracao", (
-        ("lista_usuarios", "Usuarios"),
+    ("Administração", (
+        ("lista_usuarios", "Usuários"),
         ("lista_origens", "Origens de lead"),
     )),
 )
@@ -223,7 +223,7 @@ def criar_app() -> Flask:
                     session.get("usuario_id"), f"usuario_{acao}",
                     f"{acao.capitalize()} usuario {campos['nome']}",
                     {"usuario_id": novo_id})
-                flash(f"Usuario {'atualizado' if id_ else 'criado'}.", "ok")
+                flash(f"Usuário {'atualizado' if id_ else 'criado'}.", "ok")
                 return redirect(url_for("lista_usuarios"))
             except dados.ErroDeCampo as e:
                 return render_template("usuario.html", atual=campos,
@@ -396,7 +396,7 @@ def criar_app() -> Flask:
             dados.registrar_acao(
                 session.get("usuario_id"), "categoria_excluiu",
                 f"Excluiu categoria {id_}", {"categoria_id": id_})
-            flash("Categoria excluida.", "ok")
+            flash("Categoria excluída.", "ok")
         except dados.ErroDeCampo as e:
             flash(str(e), "erro")
         return redirect(url_for("lista_categorias"))
@@ -509,7 +509,7 @@ def criar_app() -> Flask:
         nome_seguro = secure_filename(arquivo.filename)
         _, ext = os.path.splitext(nome_seguro)
         if ext.lower() not in UPLOAD_EXTENSOES:
-            flash("Formato invalido. Use JPG, PNG ou WebP.", "erro")
+            flash("Formato inválido. Use JPG, PNG ou WebP.", "erro")
             return redirect(url_for("editar_produto", id_=id_))
 
         pasta = _pasta_fotos(id_)
@@ -548,7 +548,7 @@ def criar_app() -> Flask:
                 session.get("usuario_id"), "produto_foto_excluiu",
                 f"Excluiu foto do produto {id_}",
                 {"produto_id": id_})
-            flash("Foto excluida.", "ok")
+            flash("Foto excluída.", "ok")
         return redirect(url_for("editar_produto", id_=id_))
 
     @app.route("/produto/<int:id_>/foto/<int:foto_id>/principal", methods=["POST"])
@@ -633,7 +633,7 @@ def criar_app() -> Flask:
             produto_id = int(produto_id)
             quantidade = int(quantidade)
         except (TypeError, ValueError):
-            flash("Produto e quantidade invalidos.", "erro")
+            flash("Produto e quantidade inválidos.", "erro")
             return redirect(url_for("editar_kit", id_=id_))
 
         try:
@@ -680,7 +680,7 @@ def criar_app() -> Flask:
         nome_seguro = secure_filename(arquivo.filename)
         _, ext = os.path.splitext(nome_seguro)
         if ext.lower() not in UPLOAD_EXTENSOES:
-            flash("Formato invalido. Use JPG, PNG ou WebP.", "erro")
+            flash("Formato inválido. Use JPG, PNG ou WebP.", "erro")
             return redirect(url_for("editar_kit", id_=id_))
 
         pasta = _pasta_fotos_kit(id_)
@@ -719,7 +719,7 @@ def criar_app() -> Flask:
                 session.get("usuario_id"), "kit_foto_excluiu",
                 f"Excluiu foto do kit {id_}",
                 {"kit_id": id_})
-            flash("Foto excluida.", "ok")
+            flash("Foto excluída.", "ok")
         return redirect(url_for("editar_kit", id_=id_))
 
     @app.route("/kit/<int:id_>/foto/<int:foto_id>/principal", methods=["POST"])
@@ -835,7 +835,7 @@ def criar_app() -> Flask:
     def excluir_origem_rota(id_):
         try:
             dados.excluir_origem(id_)
-            flash("Origem excluida.", "ok")
+            flash("Origem excluída.", "ok")
         except ValueError as e:
             flash(str(e), "erro")
         return redirect(url_for("lista_origens"))
@@ -974,8 +974,8 @@ def criar_app() -> Flask:
                 novo_id = dados.salvar_orcamento(d, itens, id_)
                 dados.registrar_acao(
                     session.get("usuario_id"), "orcamento",
-                    f"{'Editou' if id_ else 'Criou'} orcamento #{novo_id}")
-                flash("Orcamento salvo.", "ok")
+                    f"{'Editou' if id_ else 'Criou'} orçamento #{novo_id}")
+                flash("Orçamento salvo.", "ok")
                 return redirect(url_for("editar_orcamento", id_=novo_id))
             except (dados.ErroDeCampo, ValueError) as e:
                 flash(str(e), "erro")
@@ -996,8 +996,8 @@ def criar_app() -> Flask:
             pedido_id = dados.converter_orcamento_em_pedido(id_)
             dados.registrar_acao(
                 session.get("usuario_id"), "pedido",
-                f"Converteu orcamento #{id_} em pedido #{pedido_id}")
-            flash(f"Pedido #{pedido_id} criado a partir do orcamento.", "ok")
+                f"Converteu orçamento #{id_} em pedido #{pedido_id}")
+            flash(f"Pedido #{pedido_id} criado a partir do orçamento.", "ok")
             return redirect(url_for("ver_pedido", id_=pedido_id))
         except ValueError as e:
             flash(str(e), "erro")
@@ -1189,8 +1189,8 @@ def criar_app() -> Flask:
             novo = dados.avancar_status_operacional(id_, obs)
             dados.registrar_acao(
                 session.get("usuario_id"), "operacao",
-                f"Pedido #{id_} avancou para {novo}")
-            flash(f"Pedido avancou para {novo}.", "ok")
+                f"Pedido #{id_} avançou para {novo}")
+            flash(f"Pedido avançou para {novo}.", "ok")
         except ValueError as e:
             flash(str(e), "erro")
         return redirect(url_for("ver_pedido_operacional", id_=id_))
@@ -1361,7 +1361,7 @@ def criar_app() -> Flask:
         data_inicio = request.args.get("data_inicio", "")
         data_fim = request.args.get("data_fim", "")
         if not produto_id:
-            return jsonify({"erro": "produto_id obrigatorio"}), 400
+            return jsonify({"erro": "produto_id obrigatório"}), 400
         disp = dados.disponibilidade(produto_id, data_inicio or None,
                                      data_fim or None)
         return jsonify({"disponivel": disp})

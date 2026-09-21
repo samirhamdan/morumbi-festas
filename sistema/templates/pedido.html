@@ -10,7 +10,7 @@
     <h2 class="secao">{{ 'Pedido #%d'|format(atual.id) if atual.get('id') else 'Novo Pedido' }}</h2>
     {% if atual.get('id') and atual.get('status_comercial') != 'cancelado' %}
     <form method="post" action="{{ url_for('cancelar_pedido_rota', id_=atual.id) }}"
-          onsubmit="return confirm('Cancelar este pedido? Esta acao nao pode ser desfeita.')" style="display:inline">
+          onsubmit="return confirm('Cancelar este pedido? Esta ação não pode ser desfeita.')" style="display:inline">
       <button type="submit" class="botao perigoso">Cancelar pedido</button>
     </form>
     {% endif %}
@@ -44,7 +44,7 @@
         </label>
 
         <label class="campo" id="campo-data_devolucao">
-          <span>Data de devolucao</span>
+          <span>Data de devolução</span>
           <input type="date" name="data_devolucao" value="{{ atual.get('data_devolucao', '') }}">
         </label>
       </div>
@@ -71,7 +71,7 @@
         </label>
 
         <label class="campo" id="campo-observacoes">
-          <span>Observacoes</span>
+          <span>Observações</span>
           <textarea name="observacoes" rows="3">{{ atual.get('observacoes', '') }}</textarea>
         </label>
 
@@ -95,15 +95,15 @@
         <select name="item_tipo_{{ loop.index0 }}">
           <option value="produto" {{ 'selected' if item.tipo == 'produto' }}>Produto</option>
           <option value="kit" {{ 'selected' if item.tipo == 'kit' }}>Kit</option>
-          <option value="servico" {{ 'selected' if item.tipo == 'servico' }}>Servico</option>
+          <option value="servico" {{ 'selected' if item.tipo == 'servico' }}>Serviço</option>
         </select>
         <input type="hidden" name="item_item_id_{{ loop.index0 }}" value="{{ item.item_id or '' }}">
         <input type="text" name="item_descricao_{{ loop.index0 }}" value="{{ item.descricao }}"
-               placeholder="Descricao" required style="flex:2">
+               placeholder="Descrição" required style="flex:2">
         <input type="number" name="item_quantidade_{{ loop.index0 }}" value="{{ item.quantidade }}"
                min="1" step="1" style="width:70px" inputmode="numeric" placeholder="Qtd">
         <input type="number" name="item_preco_{{ loop.index0 }}" value="{{ '%.2f'|format(item.preco_unitario) }}"
-               min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preco">
+               min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preço">
         <button type="button" class="botao mini perigoso" onclick="this.parentElement.remove()">✕</button>
       </div>
       {% endfor %}
@@ -144,12 +144,12 @@
       '<select name="item_tipo_'+i+'">' +
         '<option value="produto">Produto</option>' +
         '<option value="kit">Kit</option>' +
-        '<option value="servico">Servico</option>' +
+        '<option value="servico">Serviço</option>' +
       '</select>' +
       '<input type="hidden" name="item_item_id_'+i+'" value="">' +
-      '<input type="text" name="item_descricao_'+i+'" placeholder="Descricao" required style="flex:2">' +
+      '<input type="text" name="item_descricao_'+i+'" placeholder="Descrição" required style="flex:2">' +
       '<input type="number" name="item_quantidade_'+i+'" value="1" min="1" step="1" style="width:70px" inputmode="numeric" placeholder="Qtd">' +
-      '<input type="number" name="item_preco_'+i+'" value="0.00" min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preco">' +
+      '<input type="number" name="item_preco_'+i+'" value="0.00" min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preço">' +
       '<button type="button" class="botao mini perigoso" onclick="this.parentElement.remove()">✕</button>';
     container.appendChild(div);
   });

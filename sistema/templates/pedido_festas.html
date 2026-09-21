@@ -36,7 +36,7 @@
           <dd>{{ pedido.data_retirada|data }}</dd>
           {% endif %}
           {% if pedido.data_devolucao %}
-          <dt>Data de devolucao</dt>
+          <dt>Data de devolução</dt>
           <dd>{{ pedido.data_devolucao|data }}</dd>
           {% endif %}
           <dt>Criado em</dt>
@@ -55,7 +55,7 @@
         {% if pedido.itens %}
         <table class="tabela" style="margin-top:0">
           <thead><tr>
-            <th>Descricao</th>
+            <th>Descrição</th>
             <th>Tipo</th>
             <th>Qtd</th>
             <th>Preco un.</th>
@@ -64,7 +64,7 @@
           <tbody>
             {% for item in pedido.itens %}
             <tr>
-              <td data-rotulo="Descricao">{{ item.descricao }}</td>
+              <td data-rotulo="Descrição">{{ item.descricao }}</td>
               <td data-rotulo="Tipo">{{ item.tipo }}</td>
               <td data-rotulo="Qtd">{{ item.quantidade }}</td>
               <td data-rotulo="Preco un.">{{ item.preco_unitario|dinheiro }}</td>

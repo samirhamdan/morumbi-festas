@@ -58,7 +58,7 @@ class TesteCriarPedido:
         r = _pedido_via_form(admin, "", itens=[
             {"descricao": "Cadeira", "quantidade": 1},
         ])
-        assert "obrigatorio" in r.text.lower() or r.status_code == 200
+        assert "obrigatório" in r.text.lower() or r.status_code == 200
 
     def test_criar_pedido_com_datas_reserva(self, app, admin):
         cli = _cliente(admin)
@@ -75,7 +75,7 @@ class TesteCriarPedido:
         cli = _cliente(admin)
         r = _pedido_via_form(admin, cli["id"],
                              data_ret="2026-10-05", data_dev="2026-10-03")
-        assert "posterior" in r.text.lower() or "devolucao" in r.text.lower()
+        assert "posterior" in r.text.lower() or "devolução" in r.text.lower()
 
 
 # ---- Editar pedido ----
@@ -289,7 +289,7 @@ class TestePainelComercial:
     def test_painel_mostra_orcamentos(self, app, admin):
         _cliente(admin, "Painel Orc")
         r = admin.get("/")
-        assert "Orcamentos abertos" in r.text
+        assert "Orçamentos abertos" in r.text
 
     def test_painel_mostra_pedidos(self, app, admin):
         _cliente(admin, "Painel Ped")
@@ -350,4 +350,4 @@ class TesteRotasPedido:
         ], data_ret="2026-11-01", data_dev="2026-11-03")
         r = admin.get("/pedidos")
         assert "Retirada" in r.text
-        assert "Devolucao" in r.text
+        assert "Devolução" in r.text
