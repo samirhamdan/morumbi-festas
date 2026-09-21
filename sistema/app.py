@@ -84,6 +84,9 @@ def criar_app() -> Flask:
     dados.inicializar()
     auth.seed_admin()
 
+    _css_path = os.path.join(app.static_folder, "sistema.css")
+    _css_ver = int(os.path.getmtime(_css_path)) if os.path.exists(_css_path) else 0
+
     @app.context_processor
     def contexto_global():
         u = auth.usuario_atual()
@@ -94,6 +97,7 @@ def criar_app() -> Flask:
             "com_senha": auth.com_senha(),
             "menu": MENU,
             "grupo_ativo": _grupo_de(request.endpoint or ""),
+            "css_ver": _css_ver,
         }
 
     # ------------------------------------------------------------------
