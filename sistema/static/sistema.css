@@ -273,9 +273,32 @@ body.bancada { background: var(--fundo); }
 .topo-usuario {
   margin-left: auto;
   font-size: var(--texto-sm);
-  color: rgba(255,255,255,.7);
+  color: rgba(255,255,255,.85);
+  display: flex;
+  align-items: center;
+  gap: var(--esp-3);
+  font-weight: var(--peso-medio);
 }
-.topo-usuario a { color: rgba(255,255,255,.9); margin-left: var(--esp-3); }
+.topo-usuario a {
+  color: rgba(255,255,255,.6);
+  margin-left: var(--esp-1);
+  font-size: var(--texto-xs);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.topo-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--raio-total);
+  background: rgba(255,255,255,.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: var(--peso-negrito);
+  color: #fff;
+  letter-spacing: .5px;
+}
 
 /* --- Gaveta --- */
 
@@ -334,13 +357,22 @@ body.bancada { background: var(--fundo); }
 }
 
 .lateral li a {
-  display: block;
-  padding: 10px var(--esp-5) 10px var(--esp-7);
+  display: flex;
+  align-items: center;
+  gap: var(--esp-2);
+  padding: 10px var(--esp-5) 10px var(--esp-5);
   font-size: var(--texto-md);
   color: var(--texto);
   text-decoration: none;
   border-left: 3px solid transparent;
   transition: all var(--trans-rapida);
+}
+.nav-icone {
+  font-size: 16px;
+  width: 22px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: .7;
 }
 .lateral li a:hover {
   background: var(--fundo);
@@ -377,6 +409,12 @@ body.bancada { background: var(--fundo); }
   color: var(--texto);
   margin: 0;
   letter-spacing: -0.3px;
+}
+.secao-sub {
+  font-size: var(--texto-md);
+  color: var(--suave);
+  margin: 0;
+  flex-basis: 100%;
 }
 
 .abas { display: flex; gap: var(--esp-1); }
@@ -839,6 +877,102 @@ a.dash-card:hover { box-shadow: var(--sombra-elevada); transform: translateY(-2p
 }
 .dash-card-sub, .ped-card-sub {
   display: block; font-size: var(--texto-xs); color: var(--suave); margin-top: 2px;
+}
+.dash-card-seta, .ped-card-seta {
+  font-size: var(--texto-2xl); color: var(--borda); font-weight: var(--peso-normal);
+  margin-left: auto; flex-shrink: 0; transition: color var(--trans-rapida);
+}
+a.dash-card:hover .dash-card-seta,
+a.ped-card:hover .ped-card-seta { color: var(--roxo); }
+
+/* Saudacao dashboard */
+.dash-saudacao {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: var(--esp-6); gap: var(--esp-4);
+}
+.dash-saudacao-titulo {
+  font-size: var(--texto-2xl); font-weight: var(--peso-negrito);
+  color: var(--texto); margin: 0; letter-spacing: -0.3px;
+}
+.dash-saudacao-sub {
+  font-size: var(--texto-md); color: var(--suave); margin: var(--esp-1) 0 0;
+}
+.dash-saudacao-data {
+  font-size: var(--texto-sm); color: var(--suave); white-space: nowrap;
+  font-weight: var(--peso-medio);
+}
+
+/* Proximos eventos cab */
+.dash-proximos-cab {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--esp-3);
+}
+.dash-proximos-cab .dash-proximos-titulo { margin: 0; }
+.dash-proximos-cab .dash-proximos-ver-mais { margin: 0; }
+
+/* Pedidos filtros horizontais */
+.ped-filtros {
+  padding: var(--esp-4) var(--esp-5);
+  margin-bottom: var(--esp-5);
+}
+.ped-filtros-linha {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-4);
+}
+.ped-filtros-busca {
+  flex: 1; min-width: 220px;
+}
+.ped-filtros-busca input {
+  width: 100%; padding: 10px 16px; font-size: var(--texto-md); font-family: inherit;
+  border: 1.5px solid var(--borda); border-radius: var(--raio-xl);
+  background: var(--fundo); color: var(--texto); min-height: var(--toque-min);
+  transition: border-color var(--trans-rapida), box-shadow var(--trans-rapida);
+}
+.ped-filtros-busca input:focus {
+  outline: none; border-color: var(--roxo);
+  box-shadow: 0 0 0 3px rgba(107,76,154,.12);
+}
+.ped-filtros-selects {
+  display: flex; flex-wrap: wrap; gap: var(--esp-3); align-items: flex-end;
+}
+.ped-filtro-grupo { display: flex; flex-direction: column; gap: 4px; }
+.ped-filtro-label {
+  font-size: 11px; font-weight: var(--peso-semi); color: var(--suave);
+  text-transform: uppercase; letter-spacing: .3px;
+}
+.ped-filtro-grupo select {
+  padding: 8px 12px; font-size: var(--texto-sm); font-family: inherit;
+  border: 1.5px solid var(--borda); border-radius: var(--raio-lg);
+  background: var(--fundo); color: var(--texto); min-width: 120px;
+  transition: border-color var(--trans-rapida);
+}
+.ped-filtro-grupo select:focus {
+  outline: none; border-color: var(--roxo);
+  box-shadow: 0 0 0 3px rgba(107,76,154,.12);
+}
+.ped-filtro-datas {
+  display: flex; gap: var(--esp-2);
+}
+.ped-filtro-datas input[type="date"] {
+  padding: 8px 10px; font-size: var(--texto-sm); font-family: inherit;
+  border: 1.5px solid var(--borda); border-radius: var(--raio-lg);
+  background: var(--fundo); color: var(--texto); width: 140px;
+}
+.ped-filtro-datas input:focus {
+  outline: none; border-color: var(--roxo);
+}
+@media (max-width: 768px) {
+  .ped-filtros-selects { flex-direction: column; width: 100%; }
+  .ped-filtro-grupo select, .ped-filtro-datas input { width: 100%; }
+}
+
+/* Pedidos tabela cab */
+.ped-tabela-cab {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--esp-3);
+}
+.ped-tabela-titulo {
+  font-size: var(--texto-lg); font-weight: var(--peso-negrito);
+  color: var(--texto); margin: 0;
 }
 
 /* Acoes rapidas */

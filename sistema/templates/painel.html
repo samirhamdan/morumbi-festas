@@ -29,59 +29,58 @@
 
 {% else %}
 
+  {# === SAUDACAO === #}
+  <div class="dash-saudacao">
+    <div>
+      <h2 class="dash-saudacao-titulo">Ola, {{ usuario_nome }}!</h2>
+      <p class="dash-saudacao-sub">Aqui esta o resumo da sua operacao hoje.</p>
+    </div>
+    <span class="dash-saudacao-data">{{ hoje.strftime('%d/%m/%Y') }}</span>
+  </div>
+
   {# === CARDS INDICADORES === #}
   <div class="dash-cards">
     <a href="{{ url_for('lista_leads') }}" class="dash-card dash-card--laranja">
-      <span class="dash-card-icone">&#9733;</span>
+      <span class="dash-card-icone">⭐</span>
       <div class="dash-card-info">
         <span class="dash-card-valor">{{ total_leads }}</span>
         <span class="dash-card-rotulo">Leads em andamento</span>
       </div>
+      <span class="dash-card-seta">›</span>
     </a>
     <a href="{{ url_for('lista_orcamentos') }}" class="dash-card dash-card--roxo">
-      <span class="dash-card-icone">&#9998;</span>
+      <span class="dash-card-icone">📋</span>
       <div class="dash-card-info">
         <span class="dash-card-valor">{{ total_orcamentos }}</span>
         <span class="dash-card-rotulo">Orcamentos abertos</span>
       </div>
+      <span class="dash-card-seta">›</span>
     </a>
     <a href="{{ url_for('lista_pedidos') }}" class="dash-card dash-card--verde">
-      <span class="dash-card-icone">&#9745;</span>
+      <span class="dash-card-icone">📦</span>
       <div class="dash-card-info">
         <span class="dash-card-valor">{{ total_pedidos }}</span>
         <span class="dash-card-rotulo">Pedidos ativos</span>
       </div>
+      <span class="dash-card-seta">›</span>
     </a>
     <a href="{{ url_for('painel_operacional') }}" class="dash-card dash-card--ciano">
-      <span class="dash-card-icone">&#9881;</span>
+      <span class="dash-card-icone">⚙</span>
       <div class="dash-card-info">
         <span class="dash-card-valor">{{ pendencias_op }}</span>
         <span class="dash-card-rotulo">Pendencias operacionais</span>
       </div>
+      <span class="dash-card-seta">›</span>
     </a>
     <a href="{{ url_for('faturamento', ano=ano, mes=mes) }}" class="dash-card dash-card--dourado">
-      <span class="dash-card-icone">&#9733;</span>
+      <span class="dash-card-icone">💰</span>
       <div class="dash-card-info">
         <span class="dash-card-valor">{{ "R$ {:,.2f}".format(faturamento.total).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
         <span class="dash-card-rotulo">Faturamento {{ meses[mes - 1] }}</span>
         <span class="dash-card-sub">{{ faturamento.quantidade }} pedido{{ 's' if faturamento.quantidade != 1 }} finalizado{{ 's' if faturamento.quantidade != 1 }}</span>
       </div>
+      <span class="dash-card-seta">›</span>
     </a>
-  </div>
-
-  {# === ACOES RAPIDAS === #}
-  <div class="dash-acoes">
-    <span class="dash-acoes-titulo">+ Novo</span>
-    <div class="dash-acoes-btns">
-      <a href="{{ url_for('editar_lead') }}" class="botao mini vazado">Lead</a>
-      <a href="{{ url_for('editar_orcamento') }}" class="botao mini vazado">Orcamento</a>
-      <a href="{{ url_for('editar_pedido') }}" class="botao mini vazado">Pedido</a>
-      <a href="{{ url_for('editar_cliente') }}" class="botao mini vazado">Cliente</a>
-      {% if perfil in ('admin', 'comercial', 'gestor') %}
-      <a href="{{ url_for('editar_produto') }}" class="botao mini vazado">Produto</a>
-      <a href="{{ url_for('editar_kit') }}" class="botao mini vazado">Kit</a>
-      {% endif %}
-    </div>
   </div>
 
   {# === LAYOUT PRINCIPAL: PENDENCIAS + AGENDA === #}
@@ -92,9 +91,30 @@
 
       {% set tem_pendencias = retiradas_hoje or devolucoes_hoje or devolucoes_atrasadas or orcamentos_sem_retorno %}
 
+      {# --- PROXIMOS EVENTOS (movido para cima) --- #}
+      {% if proximos_eventos %}
+      <div class="dash-proximos cartao">
+        <div class="dash-proximos-cab">
+          <h4 class="dash-proximos-titulo">📅 Proximos eventos</h4>
+          <a href="{{ url_for('agenda') }}" class="dash-proximos-ver-mais">Ver agenda completa &rarr;</a>
+        </div>
+        <ul class="dash-proximos-lista">
+          {% for ev in proximos_eventos[:6] %}
+          <li>
+            <a href="{{ url_for('ver_pedido', id_=ev.id) }}">
+              <span class="dash-proximos-data">{{ (ev.data_evento or ev.data_retirada or ev.data_devolucao or '')[-5:] }}</span>
+              <span class="dash-proximos-cliente">{{ ev.cliente_nome or '—' }}</span>
+              <span class="etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_operacional }}</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
       {% if devolucoes_atrasadas %}
       <div class="dash-alerta dash-alerta--vermelho">
-        <h4 class="dash-alerta-titulo">Devolucoes atrasadas ({{ devolucoes_atrasadas|length }})</h4>
+        <h4 class="dash-alerta-titulo">⚠ Devolucoes atrasadas ({{ devolucoes_atrasadas|length }})</h4>
         <ul class="dash-alerta-lista">
           {% for d in devolucoes_atrasadas %}
           <li>
@@ -110,7 +130,7 @@
 
       {% if retiradas_hoje %}
       <div class="dash-alerta dash-alerta--laranja">
-        <h4 class="dash-alerta-titulo">Retiradas hoje ({{ retiradas_hoje|length }})</h4>
+        <h4 class="dash-alerta-titulo">🚚 Retiradas hoje ({{ retiradas_hoje|length }})</h4>
         <ul class="dash-alerta-lista">
           {% for r in retiradas_hoje %}
           <li>
@@ -126,7 +146,7 @@
 
       {% if devolucoes_hoje %}
       <div class="dash-alerta dash-alerta--ciano">
-        <h4 class="dash-alerta-titulo">Devolucoes hoje ({{ devolucoes_hoje|length }})</h4>
+        <h4 class="dash-alerta-titulo">📦 Devolucoes hoje ({{ devolucoes_hoje|length }})</h4>
         <ul class="dash-alerta-lista">
           {% for d in devolucoes_hoje %}
           <li>
@@ -142,7 +162,7 @@
 
       {% if orcamentos_sem_retorno %}
       <div class="dash-alerta dash-alerta--roxo">
-        <h4 class="dash-alerta-titulo">Orcamentos aguardando retorno ({{ orcamentos_sem_retorno|length }})</h4>
+        <h4 class="dash-alerta-titulo">💬 Orcamentos aguardando retorno ({{ orcamentos_sem_retorno|length }})</h4>
         <ul class="dash-alerta-lista">
           {% for o in orcamentos_sem_retorno %}
           <li>
@@ -158,28 +178,8 @@
 
       {% if not tem_pendencias %}
       <div class="dash-alerta dash-alerta--ok">
-        <h4 class="dash-alerta-titulo">Tudo em dia</h4>
+        <h4 class="dash-alerta-titulo">✅ Tudo em dia</h4>
         <p class="dash-alerta-msg">Nenhuma pendencia para hoje.</p>
-      </div>
-      {% endif %}
-
-      {% if proximos_eventos %}
-      <div class="dash-proximos cartao">
-        <h4 class="dash-proximos-titulo">Proximos 7 dias</h4>
-        <ul class="dash-proximos-lista">
-          {% for ev in proximos_eventos[:8] %}
-          <li>
-            <a href="{{ url_for('ver_pedido', id_=ev.id) }}">
-              <span class="dash-proximos-data">{{ (ev.data_evento or ev.data_retirada or ev.data_devolucao or '')[-5:] }}</span>
-              <span class="dash-proximos-cliente">{{ ev.cliente_nome or '—' }}</span>
-              <span class="etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_operacional }}</span>
-            </a>
-          </li>
-          {% endfor %}
-        </ul>
-        {% if proximos_eventos|length > 8 %}
-        <a href="{{ url_for('agenda') }}" class="dash-proximos-ver-mais">Ver todos na agenda &rarr;</a>
-        {% endif %}
       </div>
       {% endif %}
 
@@ -233,6 +233,21 @@
       </div>
     </div>
 
+  </div>
+
+  {# === ACOES RAPIDAS === #}
+  <div class="dash-acoes">
+    <span class="dash-acoes-titulo">⚡ Acoes rapidas</span>
+    <div class="dash-acoes-btns">
+      <a href="{{ url_for('editar_lead') }}" class="botao mini vazado">⭐ Lead</a>
+      <a href="{{ url_for('editar_orcamento') }}" class="botao mini vazado">📋 Orcamento</a>
+      <a href="{{ url_for('editar_pedido') }}" class="botao mini vazado">📦 Pedido</a>
+      <a href="{{ url_for('editar_cliente') }}" class="botao mini vazado">👥 Cliente</a>
+      {% if perfil in ('admin', 'comercial', 'gestor') %}
+      <a href="{{ url_for('editar_produto') }}" class="botao mini vazado">🎁 Produto</a>
+      <a href="{{ url_for('editar_kit') }}" class="botao mini vazado">🎠 Kit</a>
+      {% endif %}
+    </div>
   </div>
 
 {% endif %}

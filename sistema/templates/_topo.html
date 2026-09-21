@@ -10,10 +10,27 @@
   </a>
 
   <span class="topo-usuario">
+    <span class="topo-avatar">{{ (usuario_nome or 'U')[:2]|upper }}</span>
     {{ usuario_nome }}
     <a href="{{ url_for('sair') }}">Sair</a>
   </span>
 </header>
+
+{% set icones = {
+  'painel': '🏠',
+  'lista_clientes': '👥',
+  'lista_leads': '⭐',
+  'lista_orcamentos': '📋',
+  'agenda': '📅',
+  'lista_pedidos': '📦',
+  'painel_operacional': '⚙',
+  'catalogo_interno': '🛒',
+  'lista_produtos': '🎁',
+  'lista_kits': '🎠',
+  'lista_categorias': '🏷',
+  'lista_usuarios': '👤',
+  'lista_origens': '🔗',
+} %}
 
 <nav id="nav" class="lateral">
   {% for grupo, itens in menu %}
@@ -23,7 +40,7 @@
       <summary>{{ grupo }}</summary>
       <ul>
         {% for ep, rotulo in itens %}
-          <li><a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}">{{ rotulo }}</a></li>
+          <li><a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}"><span class="nav-icone">{{ icones.get(ep, '●') }}</span>{{ rotulo }}</a></li>
         {% endfor %}
       </ul>
     </details>
