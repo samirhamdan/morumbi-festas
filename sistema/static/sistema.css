@@ -133,57 +133,12 @@ body.palco {
   padding: var(--esp-7);
 }
 
-.login-m {
-  width: 140px;
+.login-logo-img {
+  width: 340px;
+  max-width: 80%;
   height: auto;
-  margin-bottom: var(--esp-4);
-  filter: drop-shadow(0 8px 32px rgba(0,0,0,.2));
-}
-
-.login-marca {
-  display: block;
-  margin-bottom: 2px;
-}
-
-.login-morumbi {
-  font-size: 38px;
-  font-weight: var(--peso-negrito);
-  color: var(--roxo);
-  letter-spacing: 5px;
-  text-transform: uppercase;
-}
-
-.login-festas-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--esp-3);
-  margin-bottom: var(--esp-2);
-}
-
-.login-festas-line {
-  width: 36px;
-  height: 2px;
-  background: var(--coral);
-  border-radius: 1px;
-}
-
-.login-festas {
-  font-size: 34px;
-  font-weight: var(--peso-negrito);
-  color: var(--coral);
-  letter-spacing: 7px;
-  text-transform: uppercase;
-}
-
-.login-slogan {
-  display: block;
-  margin-top: var(--esp-2);
-  font-size: var(--texto-xs);
-  color: rgba(61,32,102,.55);
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  font-weight: var(--peso-medio);
+  mix-blend-mode: multiply;
+  filter: drop-shadow(0 8px 32px rgba(0,0,0,.12));
 }
 
 /* --- Painel do formulario (direita) --- */
@@ -386,10 +341,7 @@ body.palco {
     padding: 40px var(--esp-6) 32px;
   }
   .login-visual-conteudo { padding: 0; }
-  .login-m { width: 100px; }
-  .login-morumbi { font-size: 28px; letter-spacing: 3px; }
-  .login-festas { font-size: 24px; letter-spacing: 5px; }
-  .login-festas-line { width: 24px; }
+  .login-logo-img { width: 240px; }
   .login-painel { flex: 1; padding: var(--esp-6) var(--esp-4) var(--esp-7); }
   .login-painel::before { display: none; }
 }
@@ -404,19 +356,14 @@ body.palco {
     position: relative;
     z-index: 2;
   }
-  .login-m-mobile {
-    width: 80px;
+  .login-logo-img-mobile {
+    width: 180px;
+    max-width: 60%;
     height: auto;
-    filter: drop-shadow(0 4px 16px rgba(0,0,0,.2));
-    margin-bottom: var(--esp-3);
+    background: rgba(255,255,255,.92);
+    border-radius: var(--raio-lg);
+    padding: var(--esp-3);
   }
-  .login-marca-mobile {
-    display: flex;
-    gap: var(--esp-2);
-    align-items: baseline;
-  }
-  .login-marca-mobile .login-morumbi { font-size: 22px; color: #fff; letter-spacing: 2px; }
-  .login-marca-mobile .login-festas { font-size: 22px; letter-spacing: 3px; }
   .login-card { padding: var(--esp-7) var(--esp-6); }
   .login-painel {
     align-items: center;

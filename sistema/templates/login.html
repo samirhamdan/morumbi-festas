@@ -6,25 +6,8 @@
 <main class="login-pagina">
   <div class="login-visual" role="presentation">
     <div class="login-visual-conteudo">
-      <svg viewBox="0 0 200 160" class="login-m" aria-hidden="true">
-        <polygon points="10,130 50,20 100,90" fill="#00BCD4"/>
-        <polygon points="50,20 75,55 100,20" fill="#4CAF50"/>
-        <polygon points="50,20 100,90 100,20" fill="#8BC34A"/>
-        <polygon points="100,20 100,90 150,20" fill="#FF9800"/>
-        <polygon points="100,90 125,55 150,20" fill="#FFC107"/>
-        <polygon points="100,90 150,20 190,130" fill="#E91E63"/>
-        <polygon points="150,20 170,75 190,130" fill="#9C27B0"/>
-        <polygon points="10,130 50,20 30,75" fill="#2196F3"/>
-      </svg>
-      <div class="login-marca">
-        <span class="login-morumbi">MORUMBI</span>
-      </div>
-      <div class="login-festas-wrap">
-        <span class="login-festas-line"></span>
-        <span class="login-festas">FESTAS</span>
-        <span class="login-festas-line"></span>
-      </div>
-      <span class="login-slogan">Seu momento, sua festa</span>
+      <img src="{{ url_for('static', filename='logo-morumbi.webp') }}"
+           alt="Morumbi Festas — Seu momento, sua festa" class="login-logo-img">
     </div>
   </div>
 
@@ -36,21 +19,9 @@
       <polygon points="20,700 80,800 0,770" fill="none" stroke="rgba(155,123,199,0.12)" stroke-width="1"/>
     </svg>
 
-    <div class="login-logo-mobile" aria-hidden="true">
-      <svg viewBox="0 0 200 160" class="login-m-mobile">
-        <polygon points="10,130 50,20 100,90" fill="#00BCD4"/>
-        <polygon points="50,20 75,55 100,20" fill="#4CAF50"/>
-        <polygon points="50,20 100,90 100,20" fill="#8BC34A"/>
-        <polygon points="100,20 100,90 150,20" fill="#FF9800"/>
-        <polygon points="100,90 125,55 150,20" fill="#FFC107"/>
-        <polygon points="100,90 150,20 190,130" fill="#E91E63"/>
-        <polygon points="150,20 170,75 190,130" fill="#9C27B0"/>
-        <polygon points="10,130 50,20 30,75" fill="#2196F3"/>
-      </svg>
-      <div class="login-marca-mobile">
-        <span class="login-morumbi">MORUMBI</span>
-        <span class="login-festas">FESTAS</span>
-      </div>
+    <div class="login-logo-mobile">
+      <img src="{{ url_for('static', filename='logo-morumbi.webp') }}"
+           alt="Morumbi Festas" class="login-logo-img-mobile">
     </div>
 
     <div class="login-card">
