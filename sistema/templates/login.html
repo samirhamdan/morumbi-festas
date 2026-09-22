@@ -4,9 +4,8 @@
 {% block conteudo %}
 
 <main class="login-pagina">
-  <div class="login-caixa">
-
-    <div class="login-logo">
+  <div class="login-visual" role="presentation">
+    <div class="login-visual-conteudo">
       <svg viewBox="0 0 200 160" class="login-m" aria-hidden="true">
         <polygon points="10,130 50,20 100,90" fill="#00BCD4"/>
         <polygon points="50,20 75,55 100,20" fill="#4CAF50"/>
@@ -18,30 +17,111 @@
         <polygon points="10,130 50,20 30,75" fill="#2196F3"/>
       </svg>
       <div class="login-marca">
-        <span class="login-morumbi">Morumbi</span>
-        <span class="login-festas">Festas</span>
+        <span class="login-morumbi">MORUMBI</span>
+      </div>
+      <div class="login-festas-wrap">
+        <span class="login-festas-line"></span>
+        <span class="login-festas">FESTAS</span>
+        <span class="login-festas-line"></span>
       </div>
       <span class="login-slogan">Seu momento, sua festa</span>
     </div>
+  </div>
 
-    <form method="post" class="login-form">
+  <div class="login-painel">
+    <svg class="login-geo" viewBox="0 0 500 800" preserveAspectRatio="none" aria-hidden="true">
+      <polygon points="380,0 500,100 460,0" fill="none" stroke="rgba(232,102,90,0.25)" stroke-width="1.5"/>
+      <polygon points="420,20 500,150 485,10" fill="none" stroke="rgba(155,123,199,0.15)" stroke-width="1"/>
+      <polygon points="0,620 100,800 0,800" fill="none" stroke="rgba(232,102,90,0.2)" stroke-width="1.5"/>
+      <polygon points="20,700 80,800 0,770" fill="none" stroke="rgba(155,123,199,0.12)" stroke-width="1"/>
+    </svg>
+
+    <div class="login-logo-mobile" aria-hidden="true">
+      <svg viewBox="0 0 200 160" class="login-m-mobile">
+        <polygon points="10,130 50,20 100,90" fill="#00BCD4"/>
+        <polygon points="50,20 75,55 100,20" fill="#4CAF50"/>
+        <polygon points="50,20 100,90 100,20" fill="#8BC34A"/>
+        <polygon points="100,20 100,90 150,20" fill="#FF9800"/>
+        <polygon points="100,90 125,55 150,20" fill="#FFC107"/>
+        <polygon points="100,90 150,20 190,130" fill="#E91E63"/>
+        <polygon points="150,20 170,75 190,130" fill="#9C27B0"/>
+        <polygon points="10,130 50,20 30,75" fill="#2196F3"/>
+      </svg>
+      <div class="login-marca-mobile">
+        <span class="login-morumbi">MORUMBI</span>
+        <span class="login-festas">FESTAS</span>
+      </div>
+    </div>
+
+    <div class="login-card">
       {% include "_erro.html" %}
 
-      <label class="campo" id="campo-login">
-        <span class="campo-rotulo">Login</span>
-        <input type="text" name="login" autocomplete="username" autofocus
-               required placeholder="seu login">
-      </label>
+      <form method="post" class="login-form" id="form-login">
+        <div class="login-campo">
+          <svg class="login-icone" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm0 7c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4zm0 2c2.93 0 6 1.47 6 2v1H6v-1c0-.53 3.07-2 6-2z"/>
+          </svg>
+          <input type="text" name="login" autocomplete="username" autofocus
+                 required placeholder="Usuário ou e-mail"
+                 aria-label="Usuário ou e-mail">
+        </div>
 
-      <label class="campo" id="campo-senha">
-        <span class="campo-rotulo">Senha</span>
-        <input type="password" name="senha" autocomplete="current-password"
-               required placeholder="sua senha">
-      </label>
+        <div class="login-campo">
+          <svg class="login-icone" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/>
+          </svg>
+          <input type="password" name="senha" autocomplete="current-password"
+                 required placeholder="Senha"
+                 id="input-senha" aria-label="Senha">
+          <button type="button" class="login-olho" aria-label="Mostrar senha" id="btn-olho">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="olho-fechado">
+              <path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
+            </svg>
+            <svg viewBox="0 0 24 24" fill="currentColor" class="olho-aberto" hidden>
+              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+            </svg>
+          </button>
+        </div>
 
-      <button type="submit" class="botao primario login-botao">Entrar</button>
-    </form>
+        <button type="submit" class="login-botao" id="btn-entrar">
+          <span class="login-botao-texto">Entrar</span>
+          <svg class="login-botao-seta" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
+          </svg>
+          <svg class="login-botao-spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true" hidden>
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5"
+                    stroke-dasharray="31.4 31.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </form>
+    </div>
   </div>
 </main>
+
+<script>
+(function(){
+  var btn = document.getElementById('btn-olho');
+  var inp = document.getElementById('input-senha');
+  if (btn && inp) {
+    btn.addEventListener('click', function() {
+      var mostrar = inp.type === 'password';
+      inp.type = mostrar ? 'text' : 'password';
+      btn.querySelector('.olho-fechado').toggleAttribute('hidden', mostrar);
+      btn.querySelector('.olho-aberto').toggleAttribute('hidden', !mostrar);
+      btn.setAttribute('aria-label', mostrar ? 'Ocultar senha' : 'Mostrar senha');
+    });
+  }
+  var form = document.getElementById('form-login');
+  var botao = document.getElementById('btn-entrar');
+  if (form && botao) {
+    form.addEventListener('submit', function() {
+      botao.disabled = true;
+      botao.querySelector('.login-botao-texto').textContent = 'Entrando…';
+      botao.querySelector('.login-botao-seta').setAttribute('hidden', '');
+      botao.querySelector('.login-botao-spinner').removeAttribute('hidden');
+    });
+  }
+})();
+</script>
 
 {% endblock %}
