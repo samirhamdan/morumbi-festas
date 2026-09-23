@@ -2929,3 +2929,11 @@ a.cat-card:hover {
   .peneira-filtros select,
   .peneira-data input[type="date"] { width: 100%; }
 }
+
+/* === Faturamento: seleção de período === */
+.fat-periodo {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+  gap: var(--esp-4); padding: var(--esp-4) var(--esp-5); margin-bottom: var(--esp-5);
+}
+.fat-personalizado { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-3); }
+.fat-personalizado .campo { margin: 0; }

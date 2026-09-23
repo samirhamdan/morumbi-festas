@@ -72,10 +72,11 @@ class TesteFaturamentoAnual:
     def test_agrega_por_mes_com_mesmo_criterio_do_mensal(self, app, admin):
         cli = _cliente(admin)
         _pedido(admin, cli["id"], status_comercial="devolvido",
-                status_operacional="conferido", data_devolucao="2026-03-10")
+                status_operacional="conferido", data_evento="2026-03-10",
+                data_devolucao="2026-04-02")
         _pedido(admin, cli["id"], status_comercial="devolvido",
-                status_operacional="conferido", data_devolucao="2026-03-20")
-        _pedido(admin, cli["id"], data_devolucao="2026-03-25")
+                status_operacional="conferido", data_evento="2026-03-20")
+        _pedido(admin, cli["id"], data_evento="2026-03-25")
         meses = dados.faturamento_anual(2026)
         assert len(meses) == 12
         marco = meses[2]

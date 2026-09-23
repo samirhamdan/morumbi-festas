@@ -261,32 +261,11 @@ def importar(caminho_csv: str) -> dict:
 
 
 def _atualizar_classificacoes(conn: sqlite3.Connection) -> dict:
-    from sistema.dados import classificar_festas
-
-    rows = conn.execute("""
-        SELECT cliente_id, COUNT(*) as total,
-               MAX(data_evento) as ultima
-        FROM (
-            SELECT cliente_id, data_evento FROM eventos_historico
-            WHERE cliente_id IS NOT NULL AND status_origem = 'entregue'
-            UNION ALL
-            SELECT cliente_id, data_evento FROM pedidos
-            WHERE status_comercial IN ('entregue', 'devolvido')
-        )
-        GROUP BY cliente_id
-    """).fetchall()
-
-    atualizados = 0
-    for r in rows:
-        total = r["total"]
-        conn.execute(
-            "UPDATE clientes SET total_festas = ?, classificacao = ?,"
-            " ultima_festa = ? WHERE id = ?",
-            (total, classificar_festas(total), r["ultima"], r["cliente_id"]))
-        atualizados += 1
+    """Usa a mesma regra de festas realizadas do sistema (sistema.dados)."""
+    from sistema.dados import atualizar_todas_classificacoes
 
     conn.commit()
-    return {"clientes_atualizados": atualizados}
+    return {"clientes_atualizados": atualizar_todas_classificacoes()}
 
 
 if __name__ == "__main__":

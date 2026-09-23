@@ -173,7 +173,7 @@ def criar_app() -> Flask:
             mensal = bloco(dados.faturamento_mensal,
                            int(hoje[:4]), int(hoje[5:7]))
             corpo["faturamento_mes"] = (
-                {k: v for k, v in mensal.items() if k != "pedidos"}
+                {k: v for k, v in mensal.items() if k != "registros"}
                 if mensal is not None else None)
             meses = bloco(dados.faturamento_anual, ano)
             corpo["faturamento_anual"] = (
@@ -1066,8 +1066,8 @@ def criar_app() -> Flask:
 
         indicadores = dados.indicadores_pedidos()
         origens = dados.origens_pedidos_unificados()
-        st_com_opcoes = list(dados.STATUS_PEDIDO_COMERCIAL) + ["finalizado"]
-        st_op_opcoes = list(dados.STATUS_PEDIDO_OPERACIONAL) + ["finalizado"]
+        st_com_opcoes = list(dados.STATUS_PEDIDO_COMERCIAL)
+        st_op_opcoes = list(dados.STATUS_PEDIDO_OPERACIONAL)
 
         return render_template("pedidos.html",
                                registros=fatia, busca=busca,
@@ -1150,19 +1150,30 @@ def criar_app() -> Flask:
     @app.route("/faturamento")
     @auth.exige_perfil("admin", "comercial", "gestor")
     def faturamento():
+        periodo, fat = _faturamento_da_requisicao()
+        return render_template("faturamento.html", fat=fat, periodo=periodo,
+                               periodos=dados.PERIODOS_FATURAMENTO)
+
+    def _faturamento_da_requisicao():
         from datetime import date
-        hoje = date.today()
-        ano = request.args.get("ano", type=int) or hoje.year
-        mes = request.args.get("mes", type=int) or hoje.month
-        if mes < 1 or mes > 12:
-            mes = hoje.month
-        fat = dados.faturamento_mensal(ano, mes)
-        return render_template("faturamento.html",
-                               pedidos=fat["pedidos"],
-                               total=fat["total"],
-                               quantidade=fat["quantidade"],
-                               ano=ano, mes=mes,
-                               meses=MESES_PT)
+        hoje = date.fromisoformat(formato.agora()[:10])
+        periodo = request.args.get("periodo", "")
+        inicio = request.args.get("inicio", "")
+        fim = request.args.get("fim", "")
+        ano = request.args.get("ano", type=int)
+        mes = request.args.get("mes", type=int)
+        if not periodo and ano and mes and 1 <= mes <= 12:
+            periodo = "personalizado"
+            inicio, fim = dados._intervalo_mes(ano, mes)
+        if periodo not in dict(dados.PERIODOS_FATURAMENTO):
+            periodo = "este_mes"
+        try:
+            inicio, fim = dados.intervalo_periodo(periodo, hoje, inicio, fim)
+        except ValueError as e:
+            flash(str(e), "erro")
+            periodo = "este_mes"
+            inicio, fim = dados.intervalo_periodo(periodo, hoje)
+        return periodo, dados.faturamento_periodo(inicio, fim)
 
     # ------------------------------------------------------------------
     # Operacao — painel e transicoes
@@ -1178,13 +1189,13 @@ def criar_app() -> Flask:
             busca=busca or None)
         por_status = {}
         for s in dados.STATUS_PEDIDO_OPERACIONAL:
-            if s == "cancelado":
+            if s in dados.FORA_DA_OPERACAO:
                 continue
             por_status[s] = [p for p in peds if p["status_operacional"] == s]
         return render_template("operacao.html",
                                pedidos=peds,
                                por_status=por_status,
-                               status_operacional=dados.STATUS_PEDIDO_OPERACIONAL,
+                               status_operacional=list(por_status),
                                fluxo=dados.FLUXO_OPERACIONAL,
                                busca=busca,
                                filtro=filtro)
@@ -1197,7 +1208,7 @@ def criar_app() -> Flask:
             abort(404)
         proximo = dados.FLUXO_OPERACIONAL.get(ped["status_operacional"])
         etapas = [s for s in dados.STATUS_PEDIDO_OPERACIONAL
-                  if s != "cancelado"]
+                  if s not in dados.FORA_DA_OPERACAO]
         return render_template("pedido_operacional.html",
                                pedido=ped, proximo=proximo,
                                etapas=etapas)
@@ -1386,6 +1397,13 @@ def criar_app() -> Flask:
         disp = dados.disponibilidade(produto_id, data_inicio or None,
                                      data_fim or None)
         return jsonify({"disponivel": disp})
+
+    @app.route("/api/faturamento")
+    @auth.exige_perfil("admin", "comercial", "gestor")
+    def api_faturamento():
+        from flask import jsonify
+        periodo, fat = _faturamento_da_requisicao()
+        return jsonify(dict(fat, periodo=periodo))
 
     @app.route("/api/painel")
     @auth.exige_login

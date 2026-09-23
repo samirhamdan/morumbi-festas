@@ -5,60 +5,101 @@
 
 {% include "_topo.html" %}
 
+{% macro data_br(d) %}{{ d[8:10] }}/{{ d[5:7] }}/{{ d[:4] }}{% endmacro %}
+
 <main id="conteudo" class="pagina">
   <div class="cabecalho-lista">
-    <h2 class="secao">Faturamento — {{ meses[mes - 1]|capitalize }} {{ ano }}</h2>
+    <h2 class="secao">Faturamento</h2>
+    <p class="secao-sub">{{ data_br(fat.inicio) }} a {{ data_br(fat.fim) }} · pedidos finalizados pela data do evento</p>
   </div>
 
-  <div class="dash-cards" style="max-width:400px;margin-bottom:20px">
+  {% include "_erro.html" %}
+
+  <form method="get" class="cartao fat-periodo">
+    <div class="abas" role="group" aria-label="Período">
+      {% for chave, rotulo in periodos if chave != 'personalizado' %}
+      <a href="{{ url_for('faturamento', periodo=chave) }}" class="{{ 'aqui' if periodo == chave }}"
+         {{ 'aria-current=page' if periodo == chave }}>{{ rotulo }}</a>
+      {% endfor %}
+    </div>
+    <div class="fat-personalizado">
+      <input type="hidden" name="periodo" value="personalizado">
+      <label class="campo"><span>De</span>
+        <input type="date" name="inicio" value="{{ fat.inicio }}" required></label>
+      <label class="campo"><span>Até</span>
+        <input type="date" name="fim" value="{{ fat.fim }}" required></label>
+      <button type="submit" class="botao mini {{ '' if periodo == 'personalizado' else 'vazado' }}">Aplicar período</button>
+    </div>
+  </form>
+
+  <div class="dash-cards" style="margin-bottom:20px">
     <div class="dash-card dash-card--dourado">
       <span class="dash-card-icone">&#9733;</span>
       <div class="dash-card-info">
-        <span class="dash-card-valor">{{ "R$ {:,.2f}".format(total).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
-        <span class="dash-card-rotulo">{{ quantidade }} pedido{{ 's' if quantidade != 1 }} finalizado{{ 's' if quantidade != 1 }}</span>
+        <span class="dash-card-valor">{{ fat.total|dinheiro }}</span>
+        <span class="dash-card-rotulo">{{ fat.quantidade }} pedido{{ 's' if fat.quantidade != 1 }} finalizado{{ 's' if fat.quantidade != 1 }}</span>
+        {% if fat.sem_valor %}
+        <span class="dash-card-sub">{{ fat.sem_valor }} sem valor informado (não somado{{ 's' if fat.sem_valor != 1 }})</span>
+        {% endif %}
       </div>
     </div>
+    {% for origem, o in fat.por_origem|dictsort %}
+    <div class="dash-card dash-card--roxo">
+      <div class="dash-card-info">
+        <span class="dash-card-valor" style="font-size:var(--texto-xl)">{{ o.total|dinheiro }}</span>
+        <span class="dash-card-rotulo">{{ origem }}</span>
+        <span class="dash-card-sub">{{ o.quantidade }} pedido{{ 's' if o.quantidade != 1 }}{% if o.sem_valor %} · {{ o.sem_valor }} sem valor{% endif %}</span>
+      </div>
+    </div>
+    {% endfor %}
   </div>
 
-  {% if pedidos %}
+  {% if fat.registros %}
   <div class="cartao" style="padding:0;overflow:hidden">
     <table class="tabela">
       <thead>
         <tr>
           <th>Pedido</th>
           <th>Cliente</th>
-          <th>Evento</th>
-          <th>Devolução</th>
+          <th>Data do evento</th>
+          <th>Origem</th>
           <th style="text-align:right">Valor</th>
         </tr>
       </thead>
       <tbody>
-        {% for p in pedidos %}
+        {% for r in fat.registros %}
         <tr>
-          <td><a href="{{ url_for('ver_pedido', id_=p.id) }}">#{{ p.id }}</a></td>
-          <td>{{ p.cliente_nome or '—' }}</td>
-          <td>{{ p.data_evento or '—' }}</td>
-          <td>{{ p.data_devolucao or '—' }}</td>
-          <td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums">{{ "R$ {:,.2f}".format(p.total).replace(",", "X").replace(".", ",").replace("X", ".") }}</td>
+          <td data-rotulo="Pedido" class="chave">
+            {% if r.tipo == 'pedido' %}
+            <a href="{{ url_for('ver_pedido', id_=r.id) }}">#{{ r.numero }}</a>
+            {% else %}#{{ r.numero }}{% endif %}
+            {% if r.historico %}<span class="etiqueta cinza">histórico</span>{% endif %}
+          </td>
+          <td data-rotulo="Cliente">{{ r.cliente_nome or '—' }}</td>
+          <td data-rotulo="Data do evento">{{ data_br(r.data) }}</td>
+          <td data-rotulo="Origem"><span class="etiqueta {{ 'roxo' if r.origem == 'Morumbi Festas' else 'cinza' }}">{{ r.origem }}</span></td>
+          <td data-rotulo="Valor" style="text-align:right;font-variant-numeric:tabular-nums">
+            {% if r.valor is none %}<span style="color:var(--suave)">não informado</span>{% else %}<strong>{{ r.valor|dinheiro }}</strong>{% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr style="font-weight:700;background:var(--roxo-ultra)">
           <td colspan="4">Total</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ "R$ {:,.2f}".format(total).replace(",", "X").replace(".", ",").replace("X", ".") }}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ fat.total|dinheiro }}</td>
         </tr>
       </tfoot>
     </table>
   </div>
   {% else %}
   <div class="cartao" style="padding:20px;text-align:center">
-    <p style="color:var(--suave)">Nenhum pedido finalizado em {{ meses[mes - 1] }} de {{ ano }}.</p>
+    <p style="color:var(--suave)">Nenhum pedido finalizado neste período.</p>
   </div>
   {% endif %}
 
   <div style="margin-top:16px">
-    <a href="{{ url_for('painel', ano=ano, mes=mes) }}" class="botao vazado">&larr; Voltar ao dashboard</a>
+    <a href="{{ url_for('painel') }}" class="botao vazado">&larr; Voltar ao dashboard</a>
   </div>
 </main>
 {% endblock %}

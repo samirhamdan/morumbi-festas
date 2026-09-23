@@ -190,7 +190,8 @@
           <td>{{ h.descricao or '—' }}</td>
           <td>{{ h.canal or '—' }}</td>
           <td class="num">{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
-          <td><span class="etiqueta {{ 'verde' if h.status_origem == 'entregue' else '' }}">{{ h.status_origem }}</span></td>
+          <td><span class="etiqueta {{ 'verde' if h.situacao == 'finalizado' else 'vermelho' if h.situacao == 'cancelado' else '' }}"
+                    title="Status na origem: {{ h.status_origem or '—' }}">{{ h.situacao }}</span></td>
         </tr>
         {% endfor %}
       </tbody>
