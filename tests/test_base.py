@@ -107,7 +107,7 @@ class TesteDashboard:
     def test_dashboard_carrega(self, logado):
         r = logado.get("/")
         assert r.status_code == 200
-        assert "Bem-vindo" in r.text
+        assert "Olá, Administrador!" in r.text
 
     def test_dashboard_mostra_aviso_sem_senha(self, app):
         import os

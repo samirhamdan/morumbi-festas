@@ -1,5 +1,5 @@
 <header class="topo">
-  <button class="gaveta-botao" aria-label="Menu" aria-expanded="false"
+  <button class="gaveta-botao" aria-label="Menu" aria-expanded="false" aria-controls="nav"
           onclick="var nav=document.getElementById('nav');nav.classList.toggle('aberta');this.setAttribute('aria-expanded',nav.classList.contains('aberta'))">
     <span></span><span></span><span></span>
   </button>
@@ -9,41 +9,51 @@
     <span class="marca-festas">Festas</span>
   </a>
 
-  <span class="topo-usuario">
-    <span class="topo-avatar">{{ (usuario_nome or 'U')[:2]|upper }}</span>
-    {{ usuario_nome }}
-    <a href="{{ url_for('sair') }}">Sair</a>
-  </span>
+  {% if pode('lista_pedidos') %}
+  <form class="topo-busca" action="{{ url_for('lista_pedidos') }}" method="get" role="search">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <input type="search" name="q" placeholder="Buscar cliente, pedido ou produto..."
+           aria-label="Buscar cliente, pedido ou produto" autocomplete="off">
+  </form>
+  {% endif %}
+
+  <details class="topo-usuario">
+    <summary>
+      <span class="topo-avatar">{{ (usuario_nome or 'U')[:2]|upper }}</span>
+      <span class="topo-nome">{{ usuario_nome }}</span>
+      <svg class="topo-seta" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg>
+    </summary>
+    <div class="topo-menu">
+      <a href="{{ url_for('sair') }}">Sair</a>
+    </div>
+  </details>
 </header>
 
-{% set icones = {
-  'painel': '🏠',
-  'lista_clientes': '👥',
-  'lista_leads': '⭐',
-  'lista_orcamentos': '📋',
-  'agenda': '📅',
-  'lista_pedidos': '📦',
-  'painel_operacional': '⚙',
-  'catalogo_interno': '🛒',
-  'lista_produtos': '🎁',
-  'lista_kits': '🎠',
-  'lista_categorias': '🏷',
-  'lista_usuarios': '👤',
-  'lista_origens': '🔗',
-} %}
-
-<nav id="nav" class="lateral">
+<nav id="nav" class="lateral" aria-label="Menu principal">
+  <a class="lateral-marca" href="{{ url_for('painel') }}">
+    <span class="lateral-marca-nome">MORUMBI</span>
+    <span class="lateral-marca-festas">FESTAS</span>
+  </a>
   {% for grupo, itens in menu %}
-    {% set perfil_ok = grupo != 'Administração' or perfil == 'admin' %}
-    {% if perfil_ok %}
-    <details class="grupo" {{ 'open' if grupo == grupo_ativo }}>
-      <summary>{{ grupo }}</summary>
+    {% set links = [] %}
+    {% for ep, rotulo in itens %}{% if pode(ep) %}{% set _ = links.append((ep, rotulo)) %}{% endif %}{% endfor %}
+    {% if links %}
+      {% if grupo == 'Painel' %}
       <ul>
-        {% for ep, rotulo in itens %}
-          <li><a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}"><span class="nav-icone">{{ icones.get(ep, '●') }}</span>{{ rotulo }}</a></li>
+        {% for ep, rotulo in links %}
+        <li><a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}"{{ ' aria-current="page"'|safe if request.endpoint == ep }}>{{ rotulo }}</a></li>
         {% endfor %}
       </ul>
-    </details>
+      {% else %}
+      <details class="grupo" open>
+        <summary>{{ grupo }}</summary>
+        <ul>
+          {% for ep, rotulo in links %}
+          <li><a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}"{{ ' aria-current="page"'|safe if request.endpoint == ep }}>{{ rotulo }}</a></li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endif %}
     {% endif %}
   {% endfor %}
 </nav>

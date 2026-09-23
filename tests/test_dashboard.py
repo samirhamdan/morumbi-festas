@@ -184,10 +184,90 @@ class TesteApiPainel:
         assert "faturamento_anual" not in corpo
         assert "indicadores" in corpo
 
-    def test_alerta_traz_link(self, app, admin):
+    def test_alerta_traz_link_da_esteira(self, app, admin):
         cli = _cliente(admin)
         ontem = (_hoje() - timedelta(days=1)).isoformat()
         _pedido(admin, cli["id"], data_devolucao=ontem,
                 status_operacional="entregue")
         alertas = admin.get("/api/painel").get_json()["alertas"]
         assert alertas[0]["link"] == "/operacao"
+
+
+def _entrar_como(admin, client, perfil):
+    admin.post("/usuario", data={"nome": perfil.title(), "login": perfil,
+                                 "senha": "senha123", "perfil": perfil,
+                                 "ativo": "1"}, follow_redirects=True)
+    admin.get("/sair")
+    client.post("/entrar", data={"login": perfil, "senha": "senha123"})
+    return client
+
+
+class TestePaginaDashboard:
+    def test_renderiza_blocos_do_figma(self, app, admin):
+        r = admin.get("/")
+        for texto in ("Pedidos ativos", "Faturamento do mês", "Eventos hoje",
+                      "Clientes", "Evolução mensal de", "Agenda de hoje",
+                      "Esteira de pedidos", "Alertas", "Confirmados",
+                      "Em preparação", "Em entrega", "Finalizados"):
+            assert texto in r.text
+
+    def test_estados_vazios(self, app, admin):
+        r = admin.get("/")
+        assert "Nenhum evento para hoje." in r.text
+        assert "Nenhuma pendência." in r.text
+        assert "Nenhum pedido" in r.text
+
+    def test_agenda_e_esteira_mostram_pedido(self, app, admin):
+        cli = _cliente(admin, "Juliana Mello")
+        _pedido(admin, cli["id"], data_retirada=_hoje().isoformat())
+        r = admin.get("/")
+        assert "Juliana Mello" in r.text
+        assert "Retirada" in r.text
+
+    def test_ano_invalido_volta_para_atual(self, app, admin):
+        r = admin.get("/?ano=1500")
+        assert f"Evolução mensal de {_hoje().year}" in r.text
+
+    def test_erro_em_bloco_nao_derruba_pagina(self, app, admin, monkeypatch):
+        import sqlite3
+
+        def falha(*_):
+            raise sqlite3.OperationalError("banco indisponível")
+        monkeypatch.setattr(dados, "agenda_do_dia", falha)
+        r = admin.get("/")
+        assert r.status_code == 200
+        assert "Não foi possível carregar a agenda." in r.text
+        assert "Tentar novamente" in r.text
+        assert "Pedidos ativos" in r.text
+
+    def test_operacional_nao_ve_faturamento_nem_menu_comercial(
+            self, app, admin, client):
+        c = _entrar_como(admin, client, "operacional")
+        r = c.get("/")
+        assert r.status_code == 200
+        assert "Faturamento do mês" not in r.text
+        assert "Evolução mensal" not in r.text
+        assert 'href="/leads"' not in r.text
+        assert 'href="/faturamento"' not in r.text
+        assert 'href="/operacao"' in r.text
+
+    def test_comercial_ve_faturamento_e_esteira_leva_a_pedidos(
+            self, app, admin, client):
+        c = _entrar_como(admin, client, "comercial")
+        r = c.get("/")
+        assert "Faturamento do mês" in r.text
+        assert 'href="/operacao"' not in r.text
+        assert 'href="/usuarios"' not in r.text
+
+    def test_alerta_so_aparece_se_perfil_acessa_destino(
+            self, app, admin, client):
+        cli = _cliente(admin)
+        velho = (_hoje() - timedelta(days=10)).isoformat() + "T10:00:00"
+        with dados.conectar() as conn:
+            conn.execute(
+                "INSERT INTO orcamentos (cliente_id, status, criado_em,"
+                " atualizado_em) VALUES (?, 'enviado', ?, ?)",
+                (cli["id"], velho, velho))
+        assert "orçamento sem retorno" in admin.get("/").text
+        c = _entrar_como(admin, client, "operacional")
+        assert "orçamento sem retorno" not in c.get("/").text

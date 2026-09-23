@@ -19,20 +19,23 @@ MENU = (
         ("painel", "Dashboard"),
     )),
     ("Comercial", (
-        ("lista_clientes", "Clientes"),
         ("lista_leads", "Leads"),
         ("lista_orcamentos", "Orçamentos"),
+        ("lista_pedidos", "Pedidos"),
+        ("lista_clientes", "Clientes"),
     )),
     ("Operação", (
         ("agenda", "Agenda"),
-        ("lista_pedidos", "Pedidos"),
         ("painel_operacional", "Esteira de pedidos"),
     )),
     ("Catálogo", (
-        ("catalogo_interno", "Vitrine"),
         ("lista_produtos", "Produtos"),
         ("lista_kits", "Kits"),
         ("lista_categorias", "Categorias"),
+        ("catalogo_interno", "Vitrine"),
+    )),
+    ("BI", (
+        ("faturamento", "Relatórios"),
     )),
     ("Administração", (
         ("lista_usuarios", "Usuários"),
@@ -87,6 +90,10 @@ def criar_app() -> Flask:
     _css_path = os.path.join(app.static_folder, "sistema.css")
     _css_ver = int(os.path.getmtime(_css_path)) if os.path.exists(_css_path) else 0
 
+    def _pode(endpoint: str) -> bool:
+        return auth.pode_acessar(endpoint, session.get("perfil"),
+                                 app.view_functions)
+
     @app.context_processor
     def contexto_global():
         u = auth.usuario_atual()
@@ -98,6 +105,7 @@ def criar_app() -> Flask:
             "menu": MENU,
             "grupo_ativo": _grupo_de(request.endpoint or ""),
             "css_ver": _css_ver,
+            "pode": _pode,
         }
 
     # ------------------------------------------------------------------
@@ -128,53 +136,65 @@ def criar_app() -> Flask:
     # Dashboard
     # ------------------------------------------------------------------
 
+    def _dados_painel(ano: int) -> dict:
+        import sqlite3
+
+        def bloco(fn, *args):
+            try:
+                return fn(*args)
+            except sqlite3.Error:
+                app.logger.exception("Falha ao carregar bloco do dashboard")
+                return None
+
+        rota_esteira = ("painel_operacional" if _pode("painel_operacional")
+                        else "lista_pedidos")
+        rotas_alerta = {
+            "devolucao_atrasada": (rota_esteira, {}),
+            "orcamento_sem_retorno": ("lista_orcamentos", {"status": "enviado"}),
+        }
+        alertas = bloco(dados.alertas_dashboard)
+        if alertas is not None:
+            alertas = [
+                dict(a, link=url_for(rotas_alerta[a["tipo"]][0],
+                                     **rotas_alerta[a["tipo"]][1]))
+                for a in alertas if _pode(rotas_alerta[a["tipo"]][0])]
+
+        corpo = {
+            "usuario_nome": session.get("usuario_nome", ""),
+            "indicadores": bloco(dados.indicadores_dashboard),
+            "agenda_hoje": bloco(dados.agenda_do_dia),
+            "esteira": bloco(dados.esteira_pedidos, 2),
+            "alertas": alertas,
+            "link_esteira": url_for(rota_esteira),
+        }
+        if _pode("faturamento"):
+            hoje = formato.agora()
+            mensal = bloco(dados.faturamento_mensal,
+                           int(hoje[:4]), int(hoje[5:7]))
+            corpo["faturamento_mes"] = (
+                {k: v for k, v in mensal.items() if k != "pedidos"}
+                if mensal is not None else None)
+            meses = bloco(dados.faturamento_anual, ano)
+            corpo["faturamento_anual"] = (
+                {"ano": ano, "meses": meses} if meses is not None else None)
+        return corpo
+
+    def _ano_valido(ano: int | None) -> int:
+        atual = int(formato.agora()[:4])
+        return ano if ano and 2000 <= ano <= atual + 1 else atual
+
     @app.route("/")
     @auth.exige_login
     def painel():
-        import calendar as cal_mod
         from datetime import date
 
-        hoje = date.today()
-        ano = request.args.get("ano", type=int) or hoje.year
-        mes = request.args.get("mes", type=int) or hoje.month
-        if mes < 1 or mes > 12:
-            mes = hoje.month
-
-        _, ultimo_dia = cal_mod.monthrange(ano, mes)
-        data_inicio = f"{ano}-{mes:02d}-01"
-        data_fim = f"{ano}-{mes:02d}-{ultimo_dia:02d}"
-        eventos = dados.eventos_agenda(data_inicio, data_fim, None, None)
-        hist = dados.eventos_historico(data_inicio, data_fim)
-
-        primeiro_dia_semana = cal_mod.weekday(ano, mes, 1)
-        offset_dia = (primeiro_dia_semana + 1) % 7
-
-        calendario = []
-        for d in range(1, ultimo_dia + 1):
-            data_str = f"{ano}-{mes:02d}-{d:02d}"
-            evts = _eventos_do_dia(eventos, data_str, hist)
-            calendario.append({"dia": d, "data": data_str, "eventos": evts})
-
-        if mes == 1:
-            ano_ant, mes_ant = ano - 1, 12
-        else:
-            ano_ant, mes_ant = ano, mes - 1
-        if mes == 12:
-            ano_prox, mes_prox = ano + 1, 1
-        else:
-            ano_prox, mes_prox = ano, mes + 1
-
-        faturamento = dados.faturamento_mensal(ano, mes)
-
+        hoje = date.fromisoformat(formato.agora()[:10])
+        ano = _ano_valido(request.args.get("ano", type=int))
         return render_template("painel.html", aba="dashboard",
-                               calendario=calendario,
-                               offset_dia=offset_dia,
-                               ano=ano, mes=mes,
-                               ano_ant=ano_ant, mes_ant=mes_ant,
-                               ano_prox=ano_prox, mes_prox=mes_prox,
-                               meses=MESES_PT, hoje=hoje,
-                               faturamento=faturamento,
-                               **dados.resumo_painel())
+                               hoje=hoje, ano=ano, meses=MESES_PT,
+                               anos=sorted({hoje.year - 2, hoje.year - 1,
+                                            hoje.year, ano}),
+                               **_dados_painel(ano))
 
     # ------------------------------------------------------------------
     # Usuarios
@@ -1200,7 +1220,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     MESES_PT = [
-        "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
+        "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
         "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
     ]
 
@@ -1370,33 +1390,7 @@ def criar_app() -> Flask:
     @auth.exige_login
     def api_painel():
         from flask import jsonify
-        ano = request.args.get("ano", type=int) or int(formato.agora()[:4])
-        pode_ver_faturamento = session.get("perfil") in (
-            "admin", "comercial", "gestor")
-
-        rotas_alerta = {
-            "devolucao_atrasada": url_for("painel_operacional"),
-            "orcamento_sem_retorno": url_for("lista_orcamentos",
-                                             status="enviado"),
-        }
-        alertas = [dict(a, link=rotas_alerta[a["tipo"]])
-                   for a in dados.alertas_dashboard()]
-
-        corpo = {
-            "usuario_nome": session.get("usuario_nome", ""),
-            "indicadores": dados.indicadores_dashboard(),
-            "agenda_hoje": dados.agenda_do_dia(),
-            "esteira": dados.esteira_pedidos(),
-            "alertas": alertas,
-        }
-        if pode_ver_faturamento:
-            hoje = formato.agora()
-            corpo["faturamento_mes"] = {
-                k: v for k, v in dados.faturamento_mensal(
-                    int(hoje[:4]), int(hoje[5:7])).items()
-                if k != "pedidos"}
-            corpo["faturamento_anual"] = {
-                "ano": ano, "meses": dados.faturamento_anual(ano)}
-        return jsonify(corpo)
+        return jsonify(_dados_painel(
+            _ano_valido(request.args.get("ano", type=int))))
 
     return app

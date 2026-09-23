@@ -281,15 +281,16 @@ class TesteApiDisponibilidade:
 # ---- Painel com contadores comerciais ----
 
 class TestePainelComercial:
-    def test_painel_mostra_leads(self, app, admin):
+    def test_painel_mostra_clientes(self, app, admin):
         _cliente(admin, "Painel Lead")
         r = admin.get("/")
-        assert "Leads em andamento" in r.text
+        assert "Clientes" in r.text
+        assert "1 novo este mês" in r.text
 
-    def test_painel_mostra_orcamentos(self, app, admin):
+    def test_painel_mostra_faturamento(self, app, admin):
         _cliente(admin, "Painel Orc")
         r = admin.get("/")
-        assert "Orçamentos abertos" in r.text
+        assert "Faturamento do mês" in r.text
 
     def test_painel_mostra_pedidos(self, app, admin):
         _cliente(admin, "Painel Ped")

@@ -49,8 +49,15 @@ def exige_perfil(*perfis):
             if u["perfil"] not in perfis:
                 abort(403)
             return f(*args, **kwargs)
+        decorada.perfis = perfis
         return decorada
     return decorador
+
+
+def pode_acessar(endpoint: str, perfil: str | None, view_functions) -> bool:
+    view = view_functions.get(endpoint)
+    perfis = getattr(view, "perfis", None)
+    return perfis is None or perfil in perfis
 
 
 def login(login_: str, senha: str) -> dict | None:

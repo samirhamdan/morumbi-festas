@@ -5,6 +5,28 @@
 
 {% include "_topo.html" %}
 
+{% macro erro_bloco(nome) %}
+<div class="dash-erro" role="alert">
+  <p>Não foi possível carregar {{ nome }}.</p>
+  <a class="dash-link" href="{{ request.full_path }}">Tentar novamente</a>
+</div>
+{% endmacro %}
+
+{% macro kpi(titulo, valor, sub, endpoint, icone) %}
+{% set tag = 'a' if pode(endpoint) else 'div' %}
+<{{ tag }} class="dash-kpi"{% if tag == 'a' %} href="{{ url_for(endpoint) }}"{% endif %}>
+  <span class="dash-kpi-icone" aria-hidden="true">{{ icone|safe }}</span>
+  <span class="dash-kpi-info">
+    <span class="dash-kpi-titulo">{{ titulo }}</span>
+    <span class="dash-kpi-valor">{{ valor }}</span>
+    <span class="dash-kpi-sub">{{ sub }}</span>
+  </span>
+</{{ tag }}>
+{% endmacro %}
+
+{% set ve_fat = faturamento_anual is defined %}
+{% set rotulo_tipo = {'retirada': 'Retirada', 'evento': 'Evento', 'devolucao': 'Devolução'} %}
+
 <main id="conteudo" class="pagina dash">
 
 {% if not com_senha %}
@@ -17,240 +39,180 @@
 
 {% include "_erro.html" %}
 
-{% if vazio %}
-
-  <div class="dash-vazio bloco">
-    <div class="vazio">
-      <h3>Bem-vindo ao Morumbi Festas!</h3>
-      <p>O sistema está pronto. Comece cadastrando seu primeiro cliente.</p>
-      <p><a href="{{ url_for('editar_cliente') }}" class="botao primario">Cadastrar primeiro cliente</a></p>
-    </div>
-  </div>
-
-{% else %}
-
-  {# === SAUDACAO === #}
   <div class="dash-saudacao">
     <div>
-      <h2 class="dash-saudacao-titulo">Olá, {{ usuario_nome }}!</h2>
-      <p class="dash-saudacao-sub">Aqui está o resumo da sua operação hoje.</p>
+      <h1 class="dash-saudacao-titulo">Olá, {{ usuario_nome }}!</h1>
+      <p class="dash-saudacao-sub">Aqui está o resumo da sua operação.</p>
     </div>
-    <span class="dash-saudacao-data">{{ hoje.strftime('%d/%m/%Y') }}</span>
-  </div>
-
-  {# === CARDS INDICADORES === #}
-  <div class="dash-cards">
-    <a href="{{ url_for('lista_leads') }}" class="dash-card dash-card--laranja">
-      <span class="dash-card-icone">⭐</span>
-      <div class="dash-card-info">
-        <span class="dash-card-valor">{{ total_leads }}</span>
-        <span class="dash-card-rotulo">Leads em andamento</span>
-      </div>
-      <span class="dash-card-seta">›</span>
-    </a>
-    <a href="{{ url_for('lista_orcamentos') }}" class="dash-card dash-card--roxo">
-      <span class="dash-card-icone">📋</span>
-      <div class="dash-card-info">
-        <span class="dash-card-valor">{{ total_orcamentos }}</span>
-        <span class="dash-card-rotulo">Orçamentos abertos</span>
-      </div>
-      <span class="dash-card-seta">›</span>
-    </a>
-    <a href="{{ url_for('lista_pedidos') }}" class="dash-card dash-card--verde">
-      <span class="dash-card-icone">📦</span>
-      <div class="dash-card-info">
-        <span class="dash-card-valor">{{ total_pedidos }}</span>
-        <span class="dash-card-rotulo">Pedidos ativos</span>
-      </div>
-      <span class="dash-card-seta">›</span>
-    </a>
-    <a href="{{ url_for('painel_operacional') }}" class="dash-card dash-card--ciano">
-      <span class="dash-card-icone">⚙</span>
-      <div class="dash-card-info">
-        <span class="dash-card-valor">{{ pendencias_op }}</span>
-        <span class="dash-card-rotulo">Pendências operacionais</span>
-      </div>
-      <span class="dash-card-seta">›</span>
-    </a>
-    <a href="{{ url_for('faturamento', ano=ano, mes=mes) }}" class="dash-card dash-card--dourado">
-      <span class="dash-card-icone">💰</span>
-      <div class="dash-card-info">
-        <span class="dash-card-valor">{{ "R$ {:,.2f}".format(faturamento.total).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
-        <span class="dash-card-rotulo">Faturamento {{ meses[mes - 1] }}</span>
-        <span class="dash-card-sub">{{ faturamento.quantidade }} pedido{{ 's' if faturamento.quantidade != 1 }} finalizado{{ 's' if faturamento.quantidade != 1 }}</span>
-      </div>
-      <span class="dash-card-seta">›</span>
+    <a class="dash-saudacao-data" href="{{ url_for('agenda', visao='diaria', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">
+      {{ hoje.day }} de {{ meses[hoje.month - 1]|lower }} de {{ hoje.year }}
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
   </div>
 
-  {# === LAYOUT PRINCIPAL: PENDENCIAS + AGENDA === #}
-  <div class="dash-grid">
+  <section class="dash-kpis{{ ' dash-kpis--3' if not ve_fat }}" aria-label="Indicadores">
+  {% if indicadores is none %}
+    {{ erro_bloco('os indicadores') }}
+  {% else %}
+    {% set i = indicadores %}
+    {{ kpi('Pedidos ativos', i.pedidos_ativos,
+           '%d em preparação'|format(i.pedidos_em_preparacao),
+           'lista_pedidos',
+           '<svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4zm0 0v10l9 4 9-4V7M12 11v10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>') }}
+    {% if ve_fat %}
+      {% set fm = faturamento_mes %}
+      {{ kpi('Faturamento do mês',
+             fm.total|dinheiro if fm is not none else '—',
+             ('%d pedido%s finalizado%s'|format(fm.quantidade, '' if fm.quantidade == 1 else 's', '' if fm.quantidade == 1 else 's')) if fm is not none else 'Não foi possível carregar',
+             'faturamento',
+             '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>') }}
+    {% endif %}
+    {{ kpi('Eventos hoje', i.eventos_hoje,
+           'de %d no mês'|format(i.eventos_mes),
+           'agenda',
+           '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>') }}
+    {{ kpi('Clientes', i.clientes_total,
+           '%d novo%s este mês'|format(i.clientes_novos_mes, '' if i.clientes_novos_mes == 1 else 's'),
+           'lista_clientes',
+           '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.8a3.5 3.5 0 010 6.4M18 14.8c1.8.7 3 2.4 3.5 5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>') }}
+  {% endif %}
+  </section>
 
-    {# --- COLUNA ESQUERDA: PENDENCIAS --- #}
-    <div class="dash-col-pendencias">
+  <div class="dash-blocos{{ ' dash-blocos--sem-fat' if not ve_fat }}">
 
-      {% set tem_pendencias = retiradas_hoje or devolucoes_hoje or devolucoes_atrasadas or orcamentos_sem_retorno %}
-
-      {# --- PROXIMOS EVENTOS (movido para cima) --- #}
-      {% if proximos_eventos %}
-      <div class="dash-proximos cartao">
-        <div class="dash-proximos-cab">
-          <h4 class="dash-proximos-titulo">📅 Próximos eventos</h4>
-          <a href="{{ url_for('agenda') }}" class="dash-proximos-ver-mais">Ver agenda completa &rarr;</a>
+    {% if ve_fat %}
+    <section class="dash-bloco dash-fat" aria-labelledby="titulo-fat">
+      <div class="dash-bloco-cab">
+        <div>
+          <h2 id="titulo-fat" class="dash-bloco-titulo">Faturamento</h2>
+          <p class="dash-bloco-sub">Evolução mensal de {{ ano }}</p>
         </div>
-        <ul class="dash-proximos-lista">
-          {% for ev in proximos_eventos[:6] %}
+        <form method="get" class="dash-ano">
+          <label for="dash-ano" class="sr">Ano</label>
+          <select id="dash-ano" name="ano" onchange="this.form.submit()">
+            {% for a in anos %}
+            <option value="{{ a }}" {{ 'selected' if a == ano }}>{{ a }}</option>
+            {% endfor %}
+          </select>
+          <noscript><button type="submit" class="botao mini vazado">Ver</button></noscript>
+        </form>
+      </div>
+      {% if faturamento_anual is none %}
+        {{ erro_bloco('o faturamento') }}
+      {% else %}
+        {% set meses_fat = faturamento_anual.meses %}
+        {% set maximo = meses_fat|map(attribute='total')|max %}
+        <div class="dash-grafico">
+          <div class="dash-grafico-grade" aria-hidden="true"></div>
+          <ol class="dash-barras">
+            {% for m in meses_fat %}
+            <li class="dash-barra-col">
+              <a class="dash-barra{{ ' dash-barra--destaque' if maximo > 0 and m.total == maximo }}"
+                 href="{{ url_for('faturamento', ano=ano, mes=m.mes) }}"
+                 style="--altura: {{ ((m.total / maximo * 100) if maximo else 0)|round(2) }}"
+                 aria-label="{{ meses[m.mes - 1] }}: {{ m.total|dinheiro }}">
+                <span class="dash-dica" role="tooltip">
+                  <span class="dash-dica-mes">{{ meses[m.mes - 1] }}</span>
+                  <span class="dash-dica-valor">{{ m.total|dinheiro }}</span>
+                </span>
+              </a>
+              <span class="dash-mes" aria-hidden="true">{{ meses[m.mes - 1][:3] }}</span>
+            </li>
+            {% endfor %}
+          </ol>
+          {% if not maximo %}
+          <p class="dash-grafico-vazio">Nenhum pedido finalizado em {{ ano }}.</p>
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <section class="dash-bloco dash-agenda-hoje" aria-labelledby="titulo-agenda">
+      <div class="dash-bloco-cab">
+        <h2 id="titulo-agenda" class="dash-bloco-titulo">Agenda de hoje</h2>
+        <a class="dash-link" href="{{ url_for('agenda') }}">Ver agenda</a>
+      </div>
+      {% if agenda_hoje is none %}
+        {{ erro_bloco('a agenda') }}
+      {% elif not agenda_hoje %}
+        <p class="dash-vazio-msg">Nenhum evento para hoje.</p>
+      {% else %}
+        <ul class="dash-agenda-lista">
+          {% for a in agenda_hoje[:5] %}
           <li>
-            <a href="{{ url_for('ver_pedido', id_=ev.id) }}">
-              <span class="dash-proximos-data">{{ (ev.data_evento or ev.data_retirada or ev.data_devolucao or '')[-5:] }}</span>
-              <span class="dash-proximos-cliente">{{ ev.cliente_nome or '—' }}</span>
-              <span class="etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_operacional }}</span>
+            <a href="{{ url_for('ver_pedido', id_=a.pedido_id) }}">
+              <span class="dash-agenda-num">#{{ a.pedido_id }}</span>
+              <span class="dash-agenda-cliente">{{ a.cliente_nome or '—' }}</span>
+              <span class="dash-agenda-tipo dash-tipo--{{ a.tipo }}">{{ rotulo_tipo[a.tipo] }}</span>
             </a>
           </li>
           {% endfor %}
         </ul>
-      </div>
+        {% if agenda_hoje|length > 5 %}
+        <a class="dash-link dash-agenda-mais"
+           href="{{ url_for('agenda', visao='diaria', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">
+          + {{ agenda_hoje|length - 5 }} atividade{{ 's' if agenda_hoje|length - 5 != 1 }} hoje
+        </a>
+        {% endif %}
       {% endif %}
+    </section>
 
-      {% if devolucoes_atrasadas %}
-      <div class="dash-alerta dash-alerta--vermelho">
-        <h4 class="dash-alerta-titulo">⚠ Devoluções atrasadas ({{ devolucoes_atrasadas|length }})</h4>
-        <ul class="dash-alerta-lista">
-          {% for d in devolucoes_atrasadas %}
+    <section class="dash-bloco dash-esteira" aria-labelledby="titulo-esteira">
+      <div class="dash-bloco-cab">
+        <h2 id="titulo-esteira" class="dash-bloco-titulo">Esteira de pedidos</h2>
+        <a class="dash-link" href="{{ link_esteira }}">Ver todos</a>
+      </div>
+      {% if esteira is none %}
+        {{ erro_bloco('a esteira de pedidos') }}
+      {% else %}
+        <div class="dash-etapas">
+          {% for e in esteira %}
+          <div class="dash-etapa dash-etapa--{{ e.chave }}">
+            <div class="dash-etapa-cab">
+              <span class="dash-etapa-titulo">{{ e.rotulo }}</span>
+              <span class="dash-etapa-total">{{ e.total }}</span>
+            </div>
+            {% for p in e.pedidos %}
+            <a class="dash-etapa-pedido" href="{{ url_for('ver_pedido', id_=p.id) }}">
+              <span class="dash-etapa-num">#{{ p.id }}</span>
+              <span class="dash-etapa-cliente">{{ p.cliente_nome or '—' }}</span>
+            </a>
+            {% else %}
+            <p class="dash-etapa-vazio">Nenhum pedido</p>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="dash-bloco dash-alertas" aria-labelledby="titulo-alertas">
+      <div class="dash-bloco-cab">
+        <h2 id="titulo-alertas" class="dash-bloco-titulo">Alertas</h2>
+      </div>
+      {% if alertas is none %}
+        {{ erro_bloco('os alertas') }}
+      {% elif not alertas %}
+        <p class="dash-vazio-msg">Nenhuma pendência.</p>
+      {% else %}
+        <ul class="dash-alertas-lista">
+          {% for a in alertas %}
+          {% set n = a.quantidade %}
           <li>
-            <a href="{{ url_for('ver_pedido', id_=d.id) }}">
-              <strong>#{{ d.id }}</strong> {{ d.cliente_nome or '—' }}
-              <span class="dash-alerta-detalhe">{{ d.data_devolucao }}</span>
+            <a class="dash-alertas-item dash-alertas-item--{{ a.nivel }}" href="{{ a.link }}">
+              {% if a.tipo == 'devolucao_atrasada' %}
+                {{ n }} {{ 'devolução atrasada' if n == 1 else 'devoluções atrasadas' }}
+              {% elif a.tipo == 'orcamento_sem_retorno' %}
+                {{ n }} {{ 'orçamento sem retorno' if n == 1 else 'orçamentos sem retorno' }}
+              {% endif %}
             </a>
           </li>
           {% endfor %}
         </ul>
-      </div>
       {% endif %}
-
-      {% if retiradas_hoje %}
-      <div class="dash-alerta dash-alerta--laranja">
-        <h4 class="dash-alerta-titulo">🚚 Retiradas hoje ({{ retiradas_hoje|length }})</h4>
-        <ul class="dash-alerta-lista">
-          {% for r in retiradas_hoje %}
-          <li>
-            <a href="{{ url_for('ver_pedido', id_=r.id) }}">
-              <strong>#{{ r.id }}</strong> {{ r.cliente_nome or '—' }}
-              <span class="etiqueta">{{ r.status_operacional }}</span>
-            </a>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-
-      {% if devolucoes_hoje %}
-      <div class="dash-alerta dash-alerta--ciano">
-        <h4 class="dash-alerta-titulo">📦 Devoluções hoje ({{ devolucoes_hoje|length }})</h4>
-        <ul class="dash-alerta-lista">
-          {% for d in devolucoes_hoje %}
-          <li>
-            <a href="{{ url_for('ver_pedido', id_=d.id) }}">
-              <strong>#{{ d.id }}</strong> {{ d.cliente_nome or '—' }}
-              <span class="etiqueta">{{ d.status_operacional }}</span>
-            </a>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-
-      {% if orcamentos_sem_retorno %}
-      <div class="dash-alerta dash-alerta--roxo">
-        <h4 class="dash-alerta-titulo">💬 Orçamentos aguardando retorno ({{ orcamentos_sem_retorno|length }})</h4>
-        <ul class="dash-alerta-lista">
-          {% for o in orcamentos_sem_retorno %}
-          <li>
-            <a href="{{ url_for('editar_orcamento', id_=o.id) }}">
-              <strong>#{{ o.id }}</strong> {{ o.cliente_nome or '—' }}
-              <span class="dash-alerta-detalhe">{{ o.criado_em[:10] if o.criado_em else '' }}</span>
-            </a>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-
-      {% if not tem_pendencias %}
-      <div class="dash-alerta dash-alerta--ok">
-        <h4 class="dash-alerta-titulo">✅ Tudo em dia</h4>
-        <p class="dash-alerta-msg">Nenhuma pendência para hoje.</p>
-      </div>
-      {% endif %}
-
-    </div>
-
-    {# --- COLUNA DIREITA: AGENDA MENSAL --- #}
-    <div class="dash-col-agenda">
-      <div class="cartao dash-agenda">
-        <div class="cal-nav">
-          <a href="{{ url_for('painel', ano=ano_ant, mes=mes_ant) }}"
-             class="botao mini vazado">&larr;</a>
-          <strong>{{ meses[mes - 1] }} {{ ano }}</strong>
-          <a href="{{ url_for('painel', ano=ano_prox, mes=mes_prox) }}"
-             class="botao mini vazado">&rarr;</a>
-        </div>
-
-        <div class="ag-grade-mensal">
-          <span class="cal-dia-nome">Dom</span>
-          <span class="cal-dia-nome">Seg</span>
-          <span class="cal-dia-nome">Ter</span>
-          <span class="cal-dia-nome">Qua</span>
-          <span class="cal-dia-nome">Qui</span>
-          <span class="cal-dia-nome">Sex</span>
-          <span class="cal-dia-nome">Sab</span>
-
-          {% for _ in range(offset_dia) %}
-          <span class="cal-dia vazio"></span>
-          {% endfor %}
-
-          {% for d in calendario %}
-          <a class="ag-cel {{ 'ag-hoje' if d.data == hoje.isoformat() }}"
-             href="{{ url_for('agenda', visao='diaria', ano=ano, mes=mes, dia=d.dia) }}">
-            <span class="ag-num">{{ d.dia }}</span>
-            {% if d.eventos %}
-            <span class="ag-badge">{{ d.eventos|length }}</span>
-            {% endif %}
-          </a>
-          {% endfor %}
-        </div>
-
-        <div class="cal-legenda">
-          <span class="leg-evento">Evento</span>
-          <span class="leg-retirada">Retirada</span>
-          <span class="leg-devolucao">Devolução</span>
-          <span class="leg-historico">Histórico</span>
-        </div>
-
-        <div class="dash-agenda-link">
-          <a href="{{ url_for('agenda') }}" class="botao mini vazado">Abrir agenda completa &rarr;</a>
-        </div>
-      </div>
-    </div>
+    </section>
 
   </div>
-
-  {# === ACOES RAPIDAS === #}
-  <div class="dash-acoes">
-    <span class="dash-acoes-titulo">⚡ Ações rápidas</span>
-    <div class="dash-acoes-btns">
-      <a href="{{ url_for('editar_lead') }}" class="botao mini vazado">⭐ Lead</a>
-      <a href="{{ url_for('editar_orcamento') }}" class="botao mini vazado">📋 Orçamento</a>
-      <a href="{{ url_for('editar_pedido') }}" class="botao mini vazado">📦 Pedido</a>
-      <a href="{{ url_for('editar_cliente') }}" class="botao mini vazado">👥 Cliente</a>
-      {% if perfil in ('admin', 'comercial', 'gestor') %}
-      <a href="{{ url_for('editar_produto') }}" class="botao mini vazado">🎁 Produto</a>
-      <a href="{{ url_for('editar_kit') }}" class="botao mini vazado">🎠 Kit</a>
-      {% endif %}
-    </div>
-  </div>
-
-{% endif %}
-
 </main>
 {% endblock %}
