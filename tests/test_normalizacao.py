@@ -137,7 +137,7 @@ class TesteCenariosObrigatorios:
                                  (cli,)).fetchone()[0]
         assert total == 0
 
-    def test_6_morumbi_3d_mantem_origem_e_fica_finalizado(self, app):
+    def test_6_morumbi_3d_fica_preservado_e_oculto(self, app):
         cli = _cliente()
         imp = _importado(cli, "2024-06-15", origem="Morumbi 3D",
                          status="entregue", valor=500)
@@ -145,14 +145,18 @@ class TesteCenariosObrigatorios:
             antes = dict(conn.execute("SELECT * FROM eventos_historico WHERE id=?",
                                       (imp,)).fetchone())
         _normalizar()
+        dados.atualizar_todas_classificacoes()
         with dados.conectar() as conn:
             depois = dict(conn.execute("SELECT * FROM eventos_historico WHERE id=?",
                                        (imp,)).fetchone())
+            festas = conn.execute("SELECT total_festas FROM clientes WHERE id=?",
+                                  (cli,)).fetchone()[0]
         assert depois == antes
-        r = _unificado("historico", imp)
-        assert r["origem"] == "Morumbi 3D"
-        assert r["status_comercial"] == "finalizado"
-        assert r["historico"] is True
+        assert all(r["origem"] != "Morumbi 3D" for r in dados.listar_pedidos_unificados())
+        assert "Morumbi 3D" not in dados.origens_pedidos_unificados()
+        assert dados.faturamento_periodo("2024-01-01", "2024-12-31")["total"] == 0
+        assert dados.eventos_historico_cliente(cli) == []
+        assert festas == 0
 
     def test_7_reexecutar_nao_duplica_nem_altera(self, app):
         cli = _cliente()
@@ -180,7 +184,7 @@ class TesteCenariosObrigatorios:
         _pedido(cli, "2026-09-05", valor=200)
         _importado(cli, "2026-09-12", valor=240)
         _pedido(cli, "2026-09-19", sc="devolvido", so="conferido", valor=300)
-        _pedido(cli, "2026-09-20", valor=999)
+        _pedido(cli, "2026-09-28", valor=999)
         _pedido(cli, "2026-09-21", sc="cancelado", so="cancelado", valor=999)
         _pedido(cli, "2026-08-31", sc="devolvido", so="conferido", valor=999)
         _normalizar()
@@ -201,8 +205,10 @@ class TesteRegras:
                 "SELECT origem FROM eventos_historico"))
         assert origens == ["Formulario Festas", "Morumbi 3D", "Morumbi Festas"]
 
-    def test_3d_usa_status_proprio_e_planilha_usa_data(self, app):
-        assert dados.situacao_historico("Morumbi 3D", "aprovado", "2024-11-01") == "pendente"
+    def test_regra_de_data_vale_para_todas_as_origens(self, app):
+        assert dados.situacao_historico("Morumbi 3D", "aprovado", "2024-11-01") == "finalizado"
+        assert dados.situacao_historico("Formulario Festas", "aprovado", "2026-09-22") == "finalizado"
+        assert dados.situacao_historico("Formulario Festas", "aprovado", "2026-09-23") == "pendente"
         assert dados.situacao_historico("Morumbi 3D", "entregue", None) == "finalizado"
         assert dados.situacao_historico("Formulario Festas", "aprovado", "2025-01-25") == "finalizado"
         assert dados.situacao_historico("Formulario Festas", "aprovado", DEPOIS_DO_CORTE) == "pendente"
@@ -234,7 +240,7 @@ class TesteRegras:
         _normalizar()
         dados.atualizar_todas_classificacoes()
         assert len(dados.pedidos_cliente(cli)) == 1
-        assert len(dados.eventos_historico_cliente(cli)) == 2
+        assert len(dados.eventos_historico_cliente(cli)) == 1
         with dados.conectar() as conn:
             c = dict(conn.execute("SELECT total_festas, ultima_festa FROM clientes"
                                   " WHERE id=?", (cli,)).fetchone())
@@ -404,7 +410,9 @@ class TesteValorManual:
         r = admin.post(f"/faturamento/historico/{imp}", data={"valor": "999"},
                        follow_redirects=True)
         assert "não são editados aqui" in r.text
-        assert dados.faturamento_mensal(2026, 8)["total"] == 15
+        with dados.conectar() as conn:
+            assert conn.execute("SELECT valor FROM eventos_historico WHERE id=?",
+                                (imp,)).fetchone()[0] == 15
         pagina = admin.get("/faturamento?periodo=personalizado&inicio=2026-08-01&fim=2026-08-31")
         assert f"/faturamento/historico/{imp}" not in pagina.text
 

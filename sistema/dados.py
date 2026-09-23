@@ -29,14 +29,16 @@ COMERCIAL_FATURADO = ("devolvido", "finalizado")
 # Festa realizada: conta para a classificação do cliente.
 COMERCIAL_REALIZADO = ("entregue", "devolvido", "finalizado")
 
-DATA_CORTE_FINALIZADOS = "2026-09-18"
+DATA_CORTE_FINALIZADOS = "2026-09-23"
 
 # Status vindos das origens externas (planilha, Morumbi 3D) em eventos_historico.
 STATUS_ORIGEM_CANCELADO = ("cancelado", "cancelada")
 STATUS_ORIGEM_REALIZADO = ("entregue",)
-# Origens cujo status é mantido pelo próprio sistema de origem: vale o status,
-# não a data (ex.: pedido 3D "aprovado" em 2024 e nunca entregue não é festa).
-ORIGENS_STATUS_PROPRIO = ("Morumbi 3D",)
+# Origens cujos dados vêm de outro sistema: valor e data não são editados aqui.
+ORIGENS_SOMENTE_LEITURA = ("Morumbi 3D",)
+# Origens mantidas no banco, mas fora de todas as telas e cálculos da Festas
+# (o Morumbi 3D é outro negócio). Para voltar a exibir, esvazie a tupla.
+ORIGENS_OCULTAS = ("Morumbi 3D",)
 
 CAMINHO_BD = os.environ.get("FESTAS_DADOS", "morumbi_festas.db")
 
@@ -48,10 +50,17 @@ def situacao_historico(origem, status_origem, data_evento) -> str:
         return "cancelado"
     if status in STATUS_ORIGEM_REALIZADO:
         return "finalizado"
-    if (origem not in ORIGENS_STATUS_PROPRIO
-            and data_evento and data_evento < DATA_CORTE_FINALIZADOS):
+    if data_evento and data_evento < DATA_CORTE_FINALIZADOS:
         return "finalizado"
     return "pendente"
+
+
+def _origem_visivel(alias: str = "h") -> str:
+    if not ORIGENS_OCULTAS:
+        return "1 = 1"
+    campo = f"{alias}.origem" if alias else "origem"
+    lista = ",".join(f"'{o}'" for o in ORIGENS_OCULTAS)
+    return f"COALESCE({campo}, '') NOT IN ({lista})"
 
 
 def _em_operacao(alias: str = "p") -> str:
@@ -1326,6 +1335,7 @@ def faturamento_periodo(inicio: str, fim: str) -> dict:
             " c.nome AS cliente_nome, h.data_evento AS data, h.valor"
             " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
             " WHERE situacao_historico(h.origem, h.status_origem, h.data_evento) = 'finalizado'"
+            f" AND {_origem_visivel()}"
             " AND h.data_evento BETWEEN ? AND ? ORDER BY h.data_evento, h.id",
             (inicio, fim)).fetchall()
 
@@ -2264,7 +2274,7 @@ def listar_eventos_historico(origem: str | None = None,
            " c.nome AS cliente_nome"
            " FROM eventos_historico h"
            " LEFT JOIN clientes c ON c.id = h.cliente_id")
-    conds: list[str] = []
+    conds: list[str] = [_origem_visivel()]
     params: list = []
     if origem:
         conds.append("h.origem = ?")
@@ -2295,6 +2305,7 @@ def eventos_historico(data_inicio: str, data_fim: str) -> list:
             " FROM eventos_historico h"
             " LEFT JOIN clientes c ON c.id = h.cliente_id"
             " WHERE h.data_evento >= ? AND h.data_evento <= ?"
+            f" AND {_origem_visivel()}"
             " ORDER BY h.data_evento",
             (data_inicio, data_fim)).fetchall()
     return [dict(r) for r in rows]
@@ -2306,7 +2317,7 @@ def eventos_historico_cliente(cliente_id: int) -> list:
             "SELECT id, data_evento, descricao, observacoes, canal, valor,"
             " status_origem, origem, origem_id,"
             " situacao_historico(origem, status_origem, data_evento) AS situacao"
-            " FROM eventos_historico WHERE cliente_id = ?"
+            f" FROM eventos_historico WHERE cliente_id = ? AND {_origem_visivel('')}"
             " ORDER BY data_evento DESC",
             (cliente_id,)).fetchall()
     return [dict(r) for r in rows]
@@ -2350,7 +2361,7 @@ def salvar_historico_manual(id_: int, valor: float | None = None,
             " FROM eventos_historico WHERE id = ?", (id_,)).fetchone()
         if not r:
             raise ValueError("Registro histórico não encontrado.")
-        if r["origem"] in ORIGENS_STATUS_PROPRIO:
+        if r["origem"] in ORIGENS_SOMENTE_LEITURA:
             raise ValueError(f"Registros {r['origem']} vêm do próprio"
                              f" {r['origem']} e não são editados aqui.")
         mudancas = {}
@@ -2404,6 +2415,7 @@ def historicos_data_futura() -> list:
             " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
             " WHERE situacao_historico(h.origem, h.status_origem, h.data_evento)"
             "       = 'finalizado'"
+            f" AND {_origem_visivel()}"
             " AND h.data_evento > ? ORDER BY h.data_evento",
             (_hoje_iso(),)).fetchall()]
 
@@ -2428,6 +2440,7 @@ def _festas_realizadas_sql() -> str:
     return (
         "SELECT cliente_id, data_evento FROM eventos_historico"
         " WHERE situacao_historico(origem, status_origem, data_evento) = 'finalizado'"
+        f" AND {_origem_visivel('')}"
         " UNION ALL"
         " SELECT cliente_id, data_evento FROM pedidos"
         f" WHERE status_comercial IN ({realizados})")
@@ -2537,6 +2550,7 @@ def listar_pedidos_unificados() -> list:
             " situacao_historico(h.origem, h.status_origem, h.data_evento) AS situacao"
             " FROM eventos_historico h"
             " LEFT JOIN clientes c ON c.id = h.cliente_id"
+            f" WHERE {_origem_visivel()}"
         ).fetchall()
         for h in hists:
             h = dict(h)
@@ -2574,7 +2588,7 @@ def origens_pedidos_unificados() -> list:
         origens = ["Morumbi Festas"]
         rows = conn.execute(
             "SELECT DISTINCT origem FROM eventos_historico"
-            " WHERE origem IS NOT NULL ORDER BY origem"
+            f" WHERE origem IS NOT NULL AND {_origem_visivel('')} ORDER BY origem"
         ).fetchall()
         for r in rows:
             if r[0] and r[0] not in origens:
@@ -2607,7 +2621,7 @@ def indicadores_pedidos() -> dict:
         ).fetchone()[0]
 
         historico = conn.execute(
-            "SELECT COUNT(*) FROM eventos_historico"
+            f"SELECT COUNT(*) FROM eventos_historico WHERE {_origem_visivel('')}"
         ).fetchone()[0]
 
     fin = faturamento_mensal(ano, mes)
@@ -2687,7 +2701,8 @@ def diagnostico_normalizacao(conn, amostra: int = 15) -> dict:
             " FROM eventos_historico GROUP BY 1, 2, 3 ORDER BY 1, 2").fetchall():
         o = por_origem.setdefault(r["origem"], {
             "total": 0, "finalizado": 0, "cancelado": 0, "pendente": 0,
-            "sem_valor_finalizado": 0, "sem_data": 0, "status_origem": []})
+            "sem_valor_finalizado": 0, "sem_data": 0, "status_origem": [],
+            "oculta": r["origem"] in ORIGENS_OCULTAS})
         o["total"] += r["n"]
         o[r["situacao"]] += r["n"]
         o["sem_data"] += r["sem_data"]
@@ -2702,6 +2717,7 @@ def diagnostico_normalizacao(conn, amostra: int = 15) -> dict:
         " c.nome AS cliente_nome FROM eventos_historico h"
         " LEFT JOIN clientes c ON c.id = h.cliente_id"
         " WHERE situacao_historico(h.origem, h.status_origem, h.data_evento) = 'pendente'"
+        f" AND {_origem_visivel()}"
         " ORDER BY h.data_evento").fetchall()]
 
     migracao_antiga = conn.execute(

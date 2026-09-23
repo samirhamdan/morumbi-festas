@@ -77,6 +77,7 @@ def faturamento_por_ano(conn) -> list:
         "SELECT DISTINCT substr(d, 1, 4) FROM ("
         f" SELECT {dados._data_pedido_sql()} AS d FROM pedidos p"
         " UNION SELECT data_evento FROM eventos_historico"
+        f" WHERE {dados._origem_visivel('')}"
         ") WHERE d IS NOT NULL AND d != '' ORDER BY 1")]
     linhas = []
     for ano in anos:
@@ -145,9 +146,9 @@ Como cada informação está representada:
   • Histórico ............... pedidos.historico = 1 após a normalização;
                               eventos_historico é histórico por definição
   • Situação dos importados . calculada, nunca gravada: cancelado se o status
-                              de origem é cancelado; finalizado se entregue;
-                              Morumbi 3D: vale só o status do 3D; demais
-                              origens: evento antes do corte = finalizado""")
+                              de origem é cancelado; finalizado se entregue
+                              ou se o evento é anterior ao corte (todas as
+                              origens, inclusive Morumbi 3D)""")
 
 
 def imprimir_pre(diag: dict, amostra: int):
@@ -155,10 +156,10 @@ def imprimir_pre(diag: dict, amostra: int):
     titulo("ETAPA 2 — RELATÓRIO DE PRÉ-VALIDAÇÃO")
     print(f"Regra de data: registros com evento anterior a {diag['data_corte']}")
     tres_d = h["por_origem"].get("Morumbi 3D", {}).get("total", 0)
-    sem_valor = p["sem_valor_historicos"] + sum(
-        o["sem_valor_finalizado"] for o in h["por_origem"].values())
-    sem_data = p["sem_data"] + sum(o["sem_data"] for o in h["por_origem"].values())
-    hist_finalizados = sum(o["finalizado"] for o in h["por_origem"].values())
+    visiveis = [o for o in h["por_origem"].values() if not o["oculta"]]
+    sem_valor = p["sem_valor_historicos"] + sum(o["sem_valor_finalizado"] for o in visiveis)
+    sem_data = p["sem_data"] + sum(o["sem_data"] for o in visiveis)
+    hist_finalizados = sum(o["finalizado"] for o in visiveis)
     print(f"""
 Pedidos encontrados ................ {p['total'] + h['total']}
     no sistema (pedidos) ........... {p['total']}
@@ -172,12 +173,16 @@ Pedidos já finalizados ............. {p['ja_finalizados']}
 Pedidos que serão alterados ........ {p['a_alterar']}
 Pedidos atuais preservados ......... {p['atuais_preservados']}
 Pedidos cancelados (inalterados) ... {p['cancelados']}
-Pedidos Morumbi 3D preservados ..... {tres_d}
+Pedidos Morumbi 3D preservados ..... {tres_d} (mantidos no banco, fora das telas e do faturamento)
 Pedidos sem valor .................. {sem_valor}
 Pedidos sem data válida ............ {sem_data}""")
 
     secao("Importados por origem (nada é regravado; a origem é preservada)")
     for origem, o in sorted(h["por_origem"].items()):
+        if o["oculta"]:
+            print(f"  {origem}: {o['total']} registros — OCULTOS (preservados no banco;"
+                  " fora das telas, do faturamento e da classificação)")
+            continue
         print(f"  {origem}: {o['total']} registros — {o['finalizado']} finalizados,"
               f" {o['cancelado']} cancelados, {o['pendente']} pendentes"
               f" | finalizados sem valor: {o['sem_valor_finalizado']}"
@@ -197,9 +202,8 @@ Pedidos sem data válida ............ {sem_data}""")
         print("  depois: finalizado/finalizado, histórico = sim")
 
     if h["pendentes"]:
-        secao(f"ATENÇÃO — {len(h['pendentes'])} importados pendentes: nem entregues nem"
-              " cancelados (Morumbi 3D: vale o status do 3D; demais: evento a partir de"
-              f" {diag['data_corte']}). Não entram no faturamento; revisar")
+        secao(f"ATENÇÃO — {len(h['pendentes'])} importados pendentes: evento a partir de"
+              f" {diag['data_corte']} ou sem data. Não entram no faturamento; revisar")
         for r in h["pendentes"][:amostra]:
             print(f"  {r['origem']} #{r['origem_id']}  {r['data_evento'] or 'sem data'}"
                   f"  {r['status_origem']}  {r['cliente_nome'] or '—'}")
@@ -226,16 +230,16 @@ def imprimir_pos(pre: dict, diag: dict, verif: dict, resultado: dict,
     p, h = diag["pedidos"], diag["historico"]
     titulo("RELATÓRIO PÓS-EXECUÇÃO")
     tres_d = h["por_origem"].get("Morumbi 3D", {}).get("total", 0)
-    sem_valor = p["sem_valor_historicos"] + sum(
-        o["sem_valor_finalizado"] for o in h["por_origem"].values())
-    sem_data = p["sem_data"] + sum(o["sem_data"] for o in h["por_origem"].values())
+    visiveis = [o for o in h["por_origem"].values() if not o["oculta"]]
+    sem_valor = p["sem_valor_historicos"] + sum(o["sem_valor_finalizado"] for o in visiveis)
+    sem_data = p["sem_data"] + sum(o["sem_data"] for o in visiveis)
     problemas = p["inconsistentes"] + sum(verif.values()) + len(h["pendentes"])
     print(f"""
 Total de pedidos analisados ........ {p['total'] + h['total']}
 Total normalizado como histórico ... {resultado['alterados']}
 Total já finalizado ................ {pre['pedidos']['ja_finalizados']}
 Total preservado ................... {p['atuais_preservados'] + p['cancelados'] + h['total']}
-Total Morumbi 3D ................... {tres_d}
+Total Morumbi 3D ................... {tres_d} (ocultos, preservados)
 Total sem valor .................... {sem_valor}
 Total sem data ..................... {sem_data}
 Total com problemas ................ {problemas}""")

@@ -199,12 +199,12 @@ class TesteEventosHistorico:
             cid = conn.execute(
                 "SELECT id FROM clientes WHERE nome='Maria Silva'").fetchone()[0]
         dados.salvar_evento_historico({
-            "cliente_id": cid, "origem_id": 1,
+            "cliente_id": cid, "origem_id": 1, "origem": "Formulario Festas",
             "data_evento": "2024-06-15", "descricao": "Festa 1",
             "status_origem": "entregue",
         })
         dados.salvar_evento_historico({
-            "cliente_id": cid, "origem_id": 2,
+            "cliente_id": cid, "origem_id": 2, "origem": "Formulario Festas",
             "data_evento": "2024-09-20", "descricao": "Festa 2",
             "status_origem": "entregue",
         })
@@ -218,7 +218,7 @@ class TesteEventosHistorico:
             cid = conn.execute(
                 "SELECT id FROM clientes WHERE nome='Maria Silva'").fetchone()[0]
         dados.salvar_evento_historico({
-            "cliente_id": cid, "origem_id": 10,
+            "cliente_id": cid, "origem_id": 10, "origem": "Formulario Festas",
             "data_evento": "2024-06-15", "status_origem": "entregue",
         })
         evts = dados.eventos_historico("2024-06-01", "2024-06-30")
@@ -233,7 +233,7 @@ class TesteAtualizarClassificacao:
                 "SELECT id FROM clientes WHERE nome='Maria Silva'").fetchone()[0]
         for i in range(3):
             dados.salvar_evento_historico({
-                "cliente_id": cid, "origem_id": 200 + i,
+                "cliente_id": cid, "origem_id": 200 + i, "origem": "Formulario Festas",
                 "data_evento": f"2024-0{i+1}-15",
                 "status_origem": "entregue",
             })
@@ -252,15 +252,15 @@ class TesteAtualizarClassificacao:
             cid = conn.execute(
                 "SELECT id FROM clientes WHERE nome='Maria Silva'").fetchone()[0]
         dados.salvar_evento_historico({
-            "cliente_id": cid, "origem_id": 300,
+            "cliente_id": cid, "origem_id": 300, "origem": "Formulario Festas",
             "data_evento": "2024-06-15", "status_origem": "entregue",
         })
         dados.salvar_evento_historico({
-            "cliente_id": cid, "origem_id": 301,
-            "data_evento": "2024-07-15", "status_origem": "aprovado",
+            "cliente_id": cid, "origem_id": 301, "origem": "Formulario Festas",
+            "data_evento": "2026-10-15", "status_origem": "aprovado",
         })
         dados.salvar_evento_historico({
-            "cliente_id": cid, "origem_id": 302,
+            "cliente_id": cid, "origem_id": 302, "origem": "Formulario Festas",
             "data_evento": "2024-08-15", "status_origem": "cancelado",
         })
         dados.atualizar_classificacao_cliente(cid)
@@ -279,12 +279,12 @@ class TesteAtualizarClassificacao:
                 "SELECT id FROM clientes WHERE nome='Joao Santos'").fetchone()[0]
         for i in range(5):
             dados.salvar_evento_historico({
-                "cliente_id": c1, "origem_id": 400 + i,
+                "cliente_id": c1, "origem_id": 400 + i, "origem": "Formulario Festas",
                 "data_evento": f"2024-0{i+1}-15",
                 "status_origem": "entregue",
             })
         dados.salvar_evento_historico({
-            "cliente_id": c2, "origem_id": 450,
+            "cliente_id": c2, "origem_id": 450, "origem": "Formulario Festas",
             "data_evento": "2024-06-15", "status_origem": "entregue",
         })
         dados.atualizar_todas_classificacoes()
@@ -349,23 +349,17 @@ class TesteImportarEventos3D:
         assert r2["importados"] == 0
         assert r2["ignorados_duplicados"] == 5
 
-    def test_classificacao_atualizada(self):
+    def test_3d_fica_no_banco_mas_nao_conta_como_festa(self):
         self._importar()
         with dados.conectar() as conn:
-            maria = dict(conn.execute(
+            total_3d = conn.execute("SELECT COUNT(*) FROM eventos_historico"
+                                    " WHERE origem='Morumbi 3D'").fetchone()[0]
+            clientes = [dict(r) for r in conn.execute(
                 "SELECT total_festas, classificacao FROM clientes"
-                " WHERE nome='Maria Silva'").fetchone())
-        assert maria["total_festas"] == 2
-        assert maria["classificacao"] == "Cliente recorrente"
-
-    def test_joao_uma_festa(self):
-        self._importar()
-        with dados.conectar() as conn:
-            joao = dict(conn.execute(
-                "SELECT total_festas, classificacao FROM clientes"
-                " WHERE nome='Joao Santos'").fetchone())
-        assert joao["total_festas"] == 1
-        assert joao["classificacao"] == "Cliente de 1 festa"
+                " WHERE nome IN ('Maria Silva', 'Joao Santos')")]
+        assert total_3d == 5
+        assert all(c["total_festas"] == 0 for c in clientes)
+        assert all(c["classificacao"] == "Sem histórico" for c in clientes)
 
     def test_vincula_por_nome(self):
         """Cliente sem cliente_3d_id mas com nome igual e vinculado."""
@@ -381,12 +375,9 @@ class TesteImportarEventos3D:
                 " WHERE nome='Maria Silva'").fetchone()
             assert maria["cliente_3d_id"] == 1
 
-    def test_eventos_aparecem_na_agenda(self):
+    def test_eventos_3d_nao_aparecem_na_agenda(self):
         self._importar()
-        evts = dados.eventos_historico("2024-06-01", "2024-06-30")
-        assert len(evts) >= 1
-        nomes = [e["cliente_nome"] for e in evts]
-        assert "Maria Silva" in nomes
+        assert dados.eventos_historico("2024-01-01", "2025-12-31") == []
 
     def test_evento_nao_cria_pedido(self):
         self._importar()
@@ -418,7 +409,7 @@ class TesteAgendaComHistorico:
             "cliente_id": cid, "origem_id": 900,
             "data_evento": "2024-06-15", "descricao": "Festa",
             "status_origem": "entregue",
-            "origem": "Morumbi 3D",
+            "origem": "Formulario Festas",
         })
         r = admin.get("/?ano=2024&mes=6")
         assert r.status_code == 200
@@ -431,7 +422,7 @@ class TesteAgendaComHistorico:
         dados.salvar_evento_historico({
             "cliente_id": cid, "origem_id": 901,
             "data_evento": "2024-06-15", "descricao": "Festa Junina",
-            "status_origem": "entregue", "origem": "Morumbi 3D",
+            "status_origem": "entregue", "origem": "Formulario Festas",
         })
         r = admin.get("/agenda?visao=mensal&ano=2024&mes=6")
         assert r.status_code == 200
@@ -445,7 +436,7 @@ class TesteAgendaComHistorico:
         dados.salvar_evento_historico({
             "cliente_id": cid, "origem_id": 902,
             "data_evento": "2024-06-15", "descricao": "Festa Junina",
-            "status_origem": "entregue", "origem": "Morumbi 3D",
+            "status_origem": "entregue", "origem": "Formulario Festas",
             "valor": 500.0,
         })
         r = admin.get("/agenda?visao=diaria&ano=2024&mes=6&dia=15")
@@ -461,7 +452,7 @@ class TesteAgendaComHistorico:
         dados.salvar_evento_historico({
             "cliente_id": cid, "origem_id": 903,
             "data_evento": "2024-06-15", "descricao": "Festa",
-            "status_origem": "entregue", "origem": "Morumbi 3D",
+            "status_origem": "entregue", "origem": "Formulario Festas",
         })
         r = admin.get("/agenda?visao=semanal&ano=2024&mes=6&dia=15")
         assert r.status_code == 200

@@ -1158,7 +1158,7 @@ def criar_app() -> Flask:
                                periodos=dados.PERIODOS_FATURAMENTO,
                                registros=registros, so_sem_valor=so_sem_valor,
                                datas_futuras=dados.historicos_data_futura(),
-                               origens_editaveis_bloqueadas=dados.ORIGENS_STATUS_PROPRIO)
+                               origens_editaveis_bloqueadas=dados.ORIGENS_SOMENTE_LEITURA)
 
     @app.route("/faturamento/historico/<int:id_>", methods=["POST"])
     @auth.exige_perfil("admin", "comercial", "gestor")
