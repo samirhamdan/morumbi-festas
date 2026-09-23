@@ -355,3 +355,89 @@ class TesteFerramenta:
                          (pid,)).fetchone()[0] == "confirmado"
         b.close()
         assert _status(pid)["status_comercial"] == "finalizado"
+
+
+class TesteValorManual:
+    @pytest.mark.parametrize("texto,esperado", [
+        ("150", 150.0), ("150,00", 150.0), ("1.250,50", 1250.5),
+        ("R$ 1.250,50", 1250.5), ("99.9", 99.9), ("", None), ("  ", None),
+    ])
+    def test_ler_dinheiro(self, texto, esperado):
+        assert formato.ler_dinheiro(texto) == esperado
+
+    @pytest.mark.parametrize("texto", ["abc", "-10", "1,2,3"])
+    def test_ler_dinheiro_invalido(self, texto):
+        with pytest.raises(ValueError):
+            formato.ler_dinheiro(texto)
+
+    def test_valor_informado_entra_no_faturamento_e_e_auditado(self, app, admin):
+        cli = _cliente()
+        imp = _importado(cli, "2026-08-15", status="entregue", valor=0, origem_id=77)
+        assert dados.faturamento_mensal(2026, 8)["sem_valor"] == 1
+        r = admin.post(f"/faturamento/historico/{imp}/valor",
+                       data={"valor": "1.250,50",
+                             "voltar": "/faturamento?periodo=personalizado&inicio=2026-08-01&fim=2026-08-31"})
+        assert r.status_code == 302
+        assert r.headers["Location"].startswith("/faturamento?periodo=personalizado")
+        fat = dados.faturamento_mensal(2026, 8)
+        assert (fat["total"], fat["sem_valor"]) == (1250.5, 0)
+        with dados.conectar() as conn:
+            h = dict(conn.execute("SELECT origem, origem_id, data_evento, status_origem"
+                                  " FROM eventos_historico WHERE id=?", (imp,)).fetchone())
+            aud = conn.execute("SELECT dados FROM audit_log WHERE tipo='valor_historico'"
+                               ).fetchone()
+        assert h == {"origem": "Formulario Festas", "origem_id": 77,
+                     "data_evento": "2026-08-15", "status_origem": "entregue"}
+        assert json.loads(aud["dados"])["antes"] is None
+        assert json.loads(aud["dados"])["depois"] == 1250.5
+
+    def test_limpar_valor_volta_a_sem_valor(self, app):
+        cli = _cliente()
+        imp = _importado(cli, "2026-08-15", status="entregue", valor=100)
+        dados.salvar_valor_historico(imp, None)
+        assert dados.faturamento_mensal(2026, 8)["sem_valor"] == 1
+        assert dados.salvar_valor_historico(imp, None) == {"alterado": False}
+
+    def test_morumbi_3d_nao_e_editavel(self, app, admin):
+        cli = _cliente()
+        imp = _importado(cli, "2026-08-15", origem="Morumbi 3D", status="entregue", valor=15)
+        r = admin.post(f"/faturamento/historico/{imp}/valor", data={"valor": "999"},
+                       follow_redirects=True)
+        assert "não é editado aqui" in r.text
+        assert dados.faturamento_mensal(2026, 8)["total"] == 15
+        pagina = admin.get("/faturamento?periodo=personalizado&inicio=2026-08-01&fim=2026-08-31")
+        assert f"/faturamento/historico/{imp}/valor" not in pagina.text
+
+    def test_valor_invalido_mostra_erro(self, app, admin):
+        cli = _cliente()
+        imp = _importado(cli, "2026-08-15", status="entregue")
+        r = admin.post(f"/faturamento/historico/{imp}/valor", data={"valor": "abc"},
+                       follow_redirects=True)
+        assert "Valor inválido" in r.text
+
+    def test_nao_redireciona_para_fora(self, app, admin):
+        cli = _cliente()
+        imp = _importado(cli, "2026-08-15", status="entregue")
+        r = admin.post(f"/faturamento/historico/{imp}/valor",
+                       data={"valor": "10", "voltar": "https://exemplo.com"})
+        assert r.headers["Location"] == "/faturamento"
+
+    def test_operacional_nao_edita(self, app, admin, client):
+        cli = _cliente()
+        imp = _importado(cli, "2026-08-15", status="entregue")
+        admin.post("/usuario", data={"nome": "Op", "login": "op", "senha": "op12345",
+                                     "perfil": "operacional", "ativo": "1"})
+        admin.get("/sair")
+        client.post("/entrar", data={"login": "op", "senha": "op12345"})
+        assert client.post(f"/faturamento/historico/{imp}/valor",
+                           data={"valor": "10"}).status_code == 403
+
+    def test_filtro_so_sem_valor(self, app, admin):
+        cli = _cliente()
+        _importado(cli, "2026-08-10", status="entregue", valor=0, origem_id=501)
+        _importado(cli, "2026-08-11", status="entregue", valor=80, origem_id=502)
+        base = "/faturamento?periodo=personalizado&inicio=2026-08-01&fim=2026-08-31"
+        assert "Mostrar só esses para preencher" in admin.get(base).text
+        r = admin.get(base + "&sem_valor=1")
+        assert "#501" in r.text and "#502" not in r.text
+        assert "80,00" in r.text

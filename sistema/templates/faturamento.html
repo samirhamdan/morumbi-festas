@@ -54,7 +54,19 @@
     {% endfor %}
   </div>
 
-  {% if fat.registros %}
+  {% if fat.sem_valor or so_sem_valor %}
+  <p class="fat-filtro">
+    {% if so_sem_valor %}
+    Mostrando só os {{ registros|length }} pedidos sem valor.
+    <a href="{{ url_for('faturamento', periodo=periodo, inicio=fat.inicio, fim=fat.fim) }}">Mostrar todos</a>
+    {% else %}
+    {{ fat.sem_valor }} pedido{{ 's' if fat.sem_valor != 1 }} sem valor informado.
+    <a href="{{ url_for('faturamento', periodo=periodo, inicio=fat.inicio, fim=fat.fim, sem_valor=1) }}">Mostrar só esses para preencher</a>
+    {% endif %}
+  </p>
+  {% endif %}
+
+  {% if registros %}
   <div class="cartao" style="padding:0;overflow:hidden">
     <table class="tabela">
       <thead>
@@ -67,7 +79,7 @@
         </tr>
       </thead>
       <tbody>
-        {% for r in fat.registros %}
+        {% for r in registros %}
         <tr>
           <td data-rotulo="Pedido" class="chave">
             {% if r.tipo == 'pedido' %}
@@ -79,7 +91,16 @@
           <td data-rotulo="Data do evento">{{ data_br(r.data) }}</td>
           <td data-rotulo="Origem"><span class="etiqueta {{ 'roxo' if r.origem == 'Morumbi Festas' else 'cinza' }}">{{ r.origem }}</span></td>
           <td data-rotulo="Valor" style="text-align:right;font-variant-numeric:tabular-nums">
-            {% if r.valor is none %}<span style="color:var(--suave)">não informado</span>{% else %}<strong>{{ r.valor|dinheiro }}</strong>{% endif %}
+            {% if r.tipo == 'historico' and r.origem not in origens_editaveis_bloqueadas %}
+            <form method="post" action="{{ url_for('salvar_valor_historico', id_=r.id) }}" class="fat-valor">
+              <input type="hidden" name="voltar" value="{{ request.full_path }}">
+              <input type="text" name="valor" inputmode="decimal" placeholder="0,00"
+                     value="{{ ('%.2f'|format(r.valor))|replace('.', ',') if r.valor is not none }}"
+                     aria-label="Valor do pedido #{{ r.numero }} de {{ r.cliente_nome or 'cliente sem nome' }}">
+              <button type="submit" class="botao mini vazado">Salvar</button>
+            </form>
+            {% elif r.valor is none %}<span style="color:var(--suave)">não informado</span>
+            {% else %}<strong>{{ r.valor|dinheiro }}</strong>{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -94,7 +115,7 @@
   </div>
   {% else %}
   <div class="cartao" style="padding:20px;text-align:center">
-    <p style="color:var(--suave)">Nenhum pedido finalizado neste período.</p>
+    <p style="color:var(--suave)">{{ 'Nenhum pedido sem valor neste período.' if so_sem_valor else 'Nenhum pedido finalizado neste período.' }}</p>
   </div>
   {% endif %}
 

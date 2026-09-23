@@ -2937,3 +2937,10 @@ a.cat-card:hover {
 }
 .fat-personalizado { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-3); }
 .fat-personalizado .campo { margin: 0; }
+.fat-filtro { font-size: var(--texto-sm); color: var(--suave); margin: 0 0 var(--esp-3); }
+.fat-valor { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--esp-2); }
+.fat-valor input {
+  width: 110px; text-align: right; font: inherit; font-variant-numeric: tabular-nums;
+  padding: 6px 8px; border: 1px solid var(--borda); border-radius: 8px; background: var(--superficie);
+}
+.fat-valor input:focus { outline: none; border-color: var(--roxo); box-shadow: var(--foco); }

@@ -2331,6 +2331,39 @@ def salvar_evento_historico(dados_evt: dict) -> int:
         return cur.lastrowid
 
 
+def salvar_valor_historico(id_: int, valor: float | None, usuario_id=None) -> dict:
+    """Informa à mão o valor de um registro importado (a planilha não tinha valor).
+
+    Só o valor muda; origem, identificadores e datas são preservados.
+    """
+    with conectar() as conn:
+        r = conn.execute(
+            "SELECT id, origem, origem_id, valor FROM eventos_historico WHERE id = ?",
+            (id_,)).fetchone()
+        if not r:
+            raise ValueError("Registro histórico não encontrado.")
+        if r["origem"] in ORIGENS_STATUS_PROPRIO:
+            raise ValueError(f"O valor de registros {r['origem']} vem do próprio"
+                             f" {r['origem']} e não é editado aqui.")
+        antes = r["valor"] or None
+        valor = valor or None
+        if antes == valor:
+            return {"alterado": False}
+        conn.execute("UPDATE eventos_historico SET valor = ? WHERE id = ?",
+                     (valor, id_))
+        conn.execute(
+            "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
+            " VALUES (?, 'valor_historico', ?, ?, ?)",
+            (usuario_id,
+             f"Valor de {r['origem']} #{r['origem_id']}:"
+             f" {formato.dinheiro(antes)} → {formato.dinheiro(valor)}",
+             json.dumps({"id": id_, "origem": r["origem"],
+                         "origem_id": r["origem_id"],
+                         "antes": antes, "depois": valor}),
+             formato.agora()))
+    return {"alterado": True, "antes": antes, "depois": valor}
+
+
 def pedidos_cliente(cliente_id: int) -> list:
     with conectar() as conn:
         rows = conn.execute(

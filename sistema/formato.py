@@ -28,6 +28,22 @@ def dinheiro(valor) -> str:
     return f"{sinal}R$ {milhar},{centavos:02d}"
 
 
+def ler_dinheiro(texto) -> float | None:
+    """'1.250,50', 'R$ 150' ou '150.5' -> float; vazio -> None."""
+    s = (texto or "").replace("R$", "").replace("\xa0", "").replace(" ", "")
+    if not s:
+        return None
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    try:
+        valor = float(s)
+    except ValueError:
+        raise ValueError(f"Valor inválido: {texto}")
+    if valor < 0:
+        raise ValueError("O valor não pode ser negativo.")
+    return round(valor, 2)
+
+
 def numero(valor, casas=0) -> str:
     if valor is None:
         return "—"
