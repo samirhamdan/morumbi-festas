@@ -374,7 +374,7 @@ class TesteValorManual:
         cli = _cliente()
         imp = _importado(cli, "2026-08-15", status="entregue", valor=0, origem_id=77)
         assert dados.faturamento_mensal(2026, 8)["sem_valor"] == 1
-        r = admin.post(f"/faturamento/historico/{imp}/valor",
+        r = admin.post(f"/faturamento/historico/{imp}",
                        data={"valor": "1.250,50",
                              "voltar": "/faturamento?periodo=personalizado&inicio=2026-08-01&fim=2026-08-31"})
         assert r.status_code == 302
@@ -396,29 +396,29 @@ class TesteValorManual:
         imp = _importado(cli, "2026-08-15", status="entregue", valor=100)
         dados.salvar_valor_historico(imp, None)
         assert dados.faturamento_mensal(2026, 8)["sem_valor"] == 1
-        assert dados.salvar_valor_historico(imp, None) == {"alterado": False}
+        assert dados.salvar_valor_historico(imp, None)["alterado"] is False
 
     def test_morumbi_3d_nao_e_editavel(self, app, admin):
         cli = _cliente()
         imp = _importado(cli, "2026-08-15", origem="Morumbi 3D", status="entregue", valor=15)
-        r = admin.post(f"/faturamento/historico/{imp}/valor", data={"valor": "999"},
+        r = admin.post(f"/faturamento/historico/{imp}", data={"valor": "999"},
                        follow_redirects=True)
-        assert "não é editado aqui" in r.text
+        assert "não são editados aqui" in r.text
         assert dados.faturamento_mensal(2026, 8)["total"] == 15
         pagina = admin.get("/faturamento?periodo=personalizado&inicio=2026-08-01&fim=2026-08-31")
-        assert f"/faturamento/historico/{imp}/valor" not in pagina.text
+        assert f"/faturamento/historico/{imp}" not in pagina.text
 
     def test_valor_invalido_mostra_erro(self, app, admin):
         cli = _cliente()
         imp = _importado(cli, "2026-08-15", status="entregue")
-        r = admin.post(f"/faturamento/historico/{imp}/valor", data={"valor": "abc"},
+        r = admin.post(f"/faturamento/historico/{imp}", data={"valor": "abc"},
                        follow_redirects=True)
         assert "Valor inválido" in r.text
 
     def test_nao_redireciona_para_fora(self, app, admin):
         cli = _cliente()
         imp = _importado(cli, "2026-08-15", status="entregue")
-        r = admin.post(f"/faturamento/historico/{imp}/valor",
+        r = admin.post(f"/faturamento/historico/{imp}",
                        data={"valor": "10", "voltar": "https://exemplo.com"})
         assert r.headers["Location"] == "/faturamento"
 
@@ -429,7 +429,7 @@ class TesteValorManual:
                                      "perfil": "operacional", "ativo": "1"})
         admin.get("/sair")
         client.post("/entrar", data={"login": "op", "senha": "op12345"})
-        assert client.post(f"/faturamento/historico/{imp}/valor",
+        assert client.post(f"/faturamento/historico/{imp}",
                            data={"valor": "10"}).status_code == 403
 
     def test_filtro_so_sem_valor(self, app, admin):
@@ -441,3 +441,61 @@ class TesteValorManual:
         r = admin.get(base + "&sem_valor=1")
         assert "#501" in r.text and "#502" not in r.text
         assert "80,00" in r.text
+
+
+class TesteDataManual:
+    def test_data_futura_e_avisada_e_corrigida(self, app, admin):
+        cli = _cliente("Thaís Oshita")
+        imp = _importado(cli, "2035-01-25", status="entregue", valor=0, origem_id=351)
+        dados.atualizar_todas_classificacoes()
+        r = admin.get("/faturamento")
+        assert "com data do evento no futuro" in r.text
+        assert "Formulario Festas #351" in r.text
+        assert "inicio=2035-01-25" in r.text
+
+        r = admin.post(f"/faturamento/historico/{imp}",
+                       data={"valor": "150,00", "data_evento": "2025-01-25"},
+                       follow_redirects=True)
+        assert "Alterações salvas." in r.text
+        assert "com data do evento no futuro" not in r.text
+        fat = dados.faturamento_mensal(2025, 1)
+        assert (fat["total"], fat["quantidade"]) == (150.0, 1)
+        assert dados.faturamento_periodo("2035-01-01", "2035-12-31")["quantidade"] == 0
+        with dados.conectar() as conn:
+            aud = {row["tipo"]: json.loads(row["dados"]) for row in conn.execute(
+                "SELECT tipo, dados FROM audit_log"
+                " WHERE tipo IN ('valor_historico','data_historico')")}
+            ultima = conn.execute("SELECT ultima_festa FROM clientes WHERE id=?",
+                                  (cli,)).fetchone()[0]
+            origem = conn.execute("SELECT origem, origem_id FROM eventos_historico"
+                                  " WHERE id=?", (imp,)).fetchone()
+        assert (aud["data_historico"]["antes"], aud["data_historico"]["depois"]) == (
+            "2035-01-25", "2025-01-25")
+        assert aud["valor_historico"]["depois"] == 150.0
+        assert ultima == "2025-01-25"
+        assert tuple(origem) == ("Formulario Festas", 351)
+
+    def test_so_valor_mantem_a_data(self, app):
+        cli = _cliente()
+        imp = _importado(cli, "2026-08-15", status="entregue")
+        dados.salvar_historico_manual(imp, valor=90)
+        with dados.conectar() as conn:
+            assert conn.execute("SELECT data_evento FROM eventos_historico WHERE id=?",
+                                (imp,)).fetchone()[0] == "2026-08-15"
+
+    def test_data_invalida(self, app, admin):
+        cli = _cliente()
+        imp = _importado(cli, "2026-08-15", status="entregue")
+        r = admin.post(f"/faturamento/historico/{imp}",
+                       data={"valor": "", "data_evento": "31/02/2026"},
+                       follow_redirects=True)
+        assert "Data do evento inválida." in r.text
+
+    def test_pagina_tem_campo_de_data_so_para_editaveis(self, app, admin):
+        cli = _cliente()
+        planilha = _importado(cli, "2026-08-10", status="entregue", origem_id=601)
+        tres_d = _importado(cli, "2026-08-11", origem="Morumbi 3D", status="entregue",
+                            valor=15, origem_id=602)
+        r = admin.get("/faturamento?periodo=personalizado&inicio=2026-08-01&fim=2026-08-31")
+        assert f'form="h-{planilha}"' in r.text
+        assert f'form="h-{tres_d}"' not in r.text

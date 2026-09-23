@@ -2944,3 +2944,9 @@ a.cat-card:hover {
   padding: 6px 8px; border: 1px solid var(--borda); border-radius: 8px; background: var(--superficie);
 }
 .fat-valor input:focus { outline: none; border-color: var(--roxo); box-shadow: var(--foco); }
+.fat-data {
+  font: inherit; padding: 6px 8px; border: 1px solid var(--borda); border-radius: 8px;
+  background: var(--superficie); font-variant-numeric: tabular-nums;
+}
+.fat-data:focus { outline: none; border-color: var(--roxo); box-shadow: var(--foco); }
+.fat-datas { margin: var(--esp-2) 0 0; padding-left: var(--esp-5); }

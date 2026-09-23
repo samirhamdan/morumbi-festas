@@ -1157,19 +1157,23 @@ def criar_app() -> Flask:
         return render_template("faturamento.html", fat=fat, periodo=periodo,
                                periodos=dados.PERIODOS_FATURAMENTO,
                                registros=registros, so_sem_valor=so_sem_valor,
+                               datas_futuras=dados.historicos_data_futura(),
                                origens_editaveis_bloqueadas=dados.ORIGENS_STATUS_PROPRIO)
 
-    @app.route("/faturamento/historico/<int:id_>/valor", methods=["POST"])
+    @app.route("/faturamento/historico/<int:id_>", methods=["POST"])
     @auth.exige_perfil("admin", "comercial", "gestor")
-    def salvar_valor_historico(id_):
+    def salvar_historico(id_):
         voltar = request.form.get("voltar") or ""
         if not voltar.startswith("/faturamento"):
             voltar = url_for("faturamento")
         try:
-            valor = formato.ler_dinheiro(request.form.get("valor"))
-            r = dados.salvar_valor_historico(id_, valor, session.get("usuario_id"))
+            r = dados.salvar_historico_manual(
+                id_,
+                valor=formato.ler_dinheiro(request.form.get("valor")),
+                data_evento=request.form.get("data_evento") or None,
+                usuario_id=session.get("usuario_id"))
             if r["alterado"]:
-                flash("Valor salvo.", "ok")
+                flash("Alterações salvas.", "ok")
         except ValueError as e:
             flash(str(e), "erro")
         return redirect(voltar)

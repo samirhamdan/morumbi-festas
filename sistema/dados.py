@@ -2331,37 +2331,81 @@ def salvar_evento_historico(dados_evt: dict) -> int:
         return cur.lastrowid
 
 
-def salvar_valor_historico(id_: int, valor: float | None, usuario_id=None) -> dict:
-    """Informa à mão o valor de um registro importado (a planilha não tinha valor).
+def salvar_historico_manual(id_: int, valor: float | None = None,
+                            data_evento: str | None = None,
+                            usuario_id=None) -> dict:
+    """Corrige à mão valor e/ou data de um registro importado.
 
-    Só o valor muda; origem, identificadores e datas são preservados.
+    data_evento=None mantém a data atual. Origem e identificadores nunca mudam;
+    cada campo alterado vira um registro de auditoria com antes e depois.
     """
+    if data_evento is not None:
+        try:
+            data_evento = date.fromisoformat(data_evento).isoformat()
+        except ValueError:
+            raise ValueError("Data do evento inválida.")
     with conectar() as conn:
         r = conn.execute(
-            "SELECT id, origem, origem_id, valor FROM eventos_historico WHERE id = ?",
-            (id_,)).fetchone()
+            "SELECT id, origem, origem_id, valor, data_evento"
+            " FROM eventos_historico WHERE id = ?", (id_,)).fetchone()
         if not r:
             raise ValueError("Registro histórico não encontrado.")
         if r["origem"] in ORIGENS_STATUS_PROPRIO:
-            raise ValueError(f"O valor de registros {r['origem']} vem do próprio"
-                             f" {r['origem']} e não é editado aqui.")
-        antes = r["valor"] or None
-        valor = valor or None
-        if antes == valor:
-            return {"alterado": False}
-        conn.execute("UPDATE eventos_historico SET valor = ? WHERE id = ?",
-                     (valor, id_))
-        conn.execute(
-            "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
-            " VALUES (?, 'valor_historico', ?, ?, ?)",
-            (usuario_id,
-             f"Valor de {r['origem']} #{r['origem_id']}:"
-             f" {formato.dinheiro(antes)} → {formato.dinheiro(valor)}",
-             json.dumps({"id": id_, "origem": r["origem"],
-                         "origem_id": r["origem_id"],
-                         "antes": antes, "depois": valor}),
-             formato.agora()))
-    return {"alterado": True, "antes": antes, "depois": valor}
+            raise ValueError(f"Registros {r['origem']} vêm do próprio"
+                             f" {r['origem']} e não são editados aqui.")
+        mudancas = {}
+        if (r["valor"] or None) != (valor or None):
+            mudancas["valor"] = (r["valor"] or None, valor or None)
+        if data_evento is not None and data_evento != r["data_evento"]:
+            mudancas["data_evento"] = (r["data_evento"], data_evento)
+        if not mudancas:
+            return {"alterado": False, "mudancas": {}}
+
+        agora_ = formato.agora()
+        for campo, (antes, depois) in mudancas.items():
+            conn.execute(f"UPDATE eventos_historico SET {campo} = ? WHERE id = ?",
+                         (depois, id_))
+            if campo == "valor":
+                tipo = "valor_historico"
+                texto = f"{formato.dinheiro(antes)} → {formato.dinheiro(depois)}"
+            else:
+                tipo = "data_historico"
+                texto = f"{antes or 'sem data'} → {depois}"
+            conn.execute(
+                "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (usuario_id, tipo,
+                 f"{campo} de {r['origem']} #{r['origem_id']}: {texto}",
+                 json.dumps({"id": id_, "origem": r["origem"],
+                             "origem_id": r["origem_id"], "campo": campo,
+                             "antes": antes, "depois": depois}),
+                 agora_))
+    atualizar_classificacao_cliente_do_historico(id_)
+    return {"alterado": True, "mudancas": mudancas}
+
+
+def salvar_valor_historico(id_: int, valor: float | None, usuario_id=None) -> dict:
+    return salvar_historico_manual(id_, valor=valor, usuario_id=usuario_id)
+
+
+def atualizar_classificacao_cliente_do_historico(id_: int):
+    with conectar() as conn:
+        r = conn.execute("SELECT cliente_id FROM eventos_historico WHERE id = ?",
+                         (id_,)).fetchone()
+    if r and r["cliente_id"]:
+        atualizar_classificacao_cliente(r["cliente_id"])
+
+
+def historicos_data_futura() -> list:
+    """Importados finalizados com evento depois de hoje: quase sempre erro de digitação."""
+    with conectar() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT h.id, h.origem, h.origem_id, h.data_evento, c.nome AS cliente_nome"
+            " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
+            " WHERE situacao_historico(h.origem, h.status_origem, h.data_evento)"
+            "       = 'finalizado'"
+            " AND h.data_evento > ? ORDER BY h.data_evento",
+            (_hoje_iso(),)).fetchall()]
 
 
 def pedidos_cliente(cliente_id: int) -> list:

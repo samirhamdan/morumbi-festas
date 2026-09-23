@@ -54,6 +54,20 @@
     {% endfor %}
   </div>
 
+  {% if datas_futuras %}
+  <div class="avisos">
+    <div class="aviso mal">
+      <b>{{ datas_futuras|length }} pedido{{ 's' if datas_futuras|length != 1 }} finalizado{{ 's' if datas_futuras|length != 1 }} com data do evento no futuro</b>
+      — provável erro de digitação. Abra e corrija a data:
+      <ul class="fat-datas">
+        {% for h in datas_futuras %}
+        <li><a href="{{ url_for('faturamento', periodo='personalizado', inicio=h.data_evento, fim=h.data_evento) }}">{{ h.origem }} #{{ h.origem_id }} · {{ h.cliente_nome or 'sem cliente' }} · {{ data_br(h.data_evento) }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+  {% endif %}
+
   {% if fat.sem_valor or so_sem_valor %}
   <p class="fat-filtro">
     {% if so_sem_valor %}
@@ -88,11 +102,17 @@
             {% if r.historico %}<span class="etiqueta cinza">histórico</span>{% endif %}
           </td>
           <td data-rotulo="Cliente">{{ r.cliente_nome or '—' }}</td>
-          <td data-rotulo="Data do evento">{{ data_br(r.data) }}</td>
+          {% set editavel = r.tipo == 'historico' and r.origem not in origens_editaveis_bloqueadas %}
+          <td data-rotulo="Data do evento">
+            {% if editavel %}
+            <input type="date" name="data_evento" form="h-{{ r.id }}" value="{{ r.data }}" required
+                   class="fat-data" aria-label="Data do evento do pedido #{{ r.numero }}">
+            {% else %}{{ data_br(r.data) }}{% endif %}
+          </td>
           <td data-rotulo="Origem"><span class="etiqueta {{ 'roxo' if r.origem == 'Morumbi Festas' else 'cinza' }}">{{ r.origem }}</span></td>
           <td data-rotulo="Valor" style="text-align:right;font-variant-numeric:tabular-nums">
-            {% if r.tipo == 'historico' and r.origem not in origens_editaveis_bloqueadas %}
-            <form method="post" action="{{ url_for('salvar_valor_historico', id_=r.id) }}" class="fat-valor">
+            {% if editavel %}
+            <form method="post" action="{{ url_for('salvar_historico', id_=r.id) }}" class="fat-valor" id="h-{{ r.id }}">
               <input type="hidden" name="voltar" value="{{ request.full_path }}">
               <input type="text" name="valor" inputmode="decimal" placeholder="0,00"
                      value="{{ ('%.2f'|format(r.valor))|replace('.', ',') if r.valor is not none }}"
