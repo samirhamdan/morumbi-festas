@@ -163,6 +163,7 @@ def criar_app() -> Flask:
             "usuario_nome": session.get("usuario_nome", ""),
             "indicadores": bloco(dados.indicadores_dashboard),
             "agenda_hoje": bloco(dados.agenda_do_dia),
+            "agenda_semana": bloco(dados.agenda_proximos_dias),
             "esteira": bloco(dados.esteira_pedidos, 2),
             "alertas": alertas,
             "link_esteira": url_for(rota_esteira),

@@ -1279,6 +1279,32 @@ a.dash-kpi:focus-visible { outline: none; box-shadow: var(--foco); }
 .dash-tipo--devolucao { color: var(--status-verde); }
 .dash-agenda-mais { display: inline-block; margin-top: var(--esp-2); }
 
+.dash-agenda-titulo { display: flex; align-items: center; gap: var(--esp-3); flex-wrap: wrap; }
+.dash-abas { display: inline-flex; padding: 2px; gap: 2px; background: var(--fundo); border-radius: 8px; }
+.dash-abas button {
+  border: none; background: transparent; font: inherit; font-size: var(--texto-xs);
+  color: var(--texto-apoio); padding: 3px 10px; border-radius: 6px; cursor: pointer;
+}
+.dash-abas button[aria-selected="true"] { background: var(--superficie); color: var(--marca-roxo-ativo); box-shadow: 0 1px 2px rgba(26,18,64,.08); }
+.dash-abas button:focus-visible { outline: none; box-shadow: var(--foco); }
+
+.dash-semana-cab, .dash-semana-dia {
+  display: grid; grid-template-columns: 78px repeat(3, minmax(0, 1fr));
+  align-items: center; padding: 0 6px;
+}
+.dash-semana-cab { height: 20px; margin-top: 10px; font-size: 10px; color: var(--texto-apoio); text-align: center; }
+.dash-semana-lista { list-style: none; margin: 0; padding: 0; }
+.dash-semana-lista li { border-top: 1px solid var(--linha-lista); }
+.dash-semana-dia { height: 27px; color: var(--texto-titulo); text-decoration: none; border-radius: 6px; }
+.dash-semana-dia:hover { background: var(--etapa-fundo); text-decoration: none; }
+.dash-semana-dia:focus-visible { outline: none; box-shadow: var(--foco); }
+.dash-semana-dia--hoje { background: var(--lilas-fundo); }
+.dash-semana-dia--hoje:hover { background: var(--lilas-fundo); }
+.dash-semana-data { font-size: 12px; }
+.dash-semana-data span { font-size: 10px; color: var(--texto-apoio); margin-left: 2px; }
+.dash-semana-n { font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+.dash-semana-n.dash-semana-zero { color: var(--texto-apoio); opacity: .45; }
+
 /* Esteira */
 .dash-etapas {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1342,6 +1368,8 @@ a.dash-kpi:focus-visible { outline: none; box-shadow: var(--foco); }
   .dash-barra { border-radius: 4px; }
   .dash-agenda-lista a { grid-template-columns: 44px minmax(0, 1fr) auto; height: var(--toque-min); }
   .dash-etapa { min-height: 0; }
+  .dash-abas button { min-height: 32px; padding: 0 12px; }
+  .dash-semana-dia { height: 40px; }
   .dash-etapa-pedido { min-height: 36px; justify-content: center; }
 }
 

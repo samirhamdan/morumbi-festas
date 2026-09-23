@@ -130,9 +130,45 @@
 
     <section class="dash-bloco dash-agenda-hoje" aria-labelledby="titulo-agenda">
       <div class="dash-bloco-cab">
-        <h2 id="titulo-agenda" class="dash-bloco-titulo">Agenda de hoje</h2>
-        <a class="dash-link" href="{{ url_for('agenda') }}">Ver agenda</a>
+        <div class="dash-agenda-titulo">
+          <h2 id="titulo-agenda" class="dash-bloco-titulo">Agenda</h2>
+          <div class="dash-abas" role="tablist" aria-label="Período da agenda">
+            <button type="button" role="tab" id="aba-hoje" aria-controls="agenda-hoje"
+                    aria-selected="true" data-link="{{ url_for('agenda', visao='diaria', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">Hoje</button>
+            <button type="button" role="tab" id="aba-semana" aria-controls="agenda-semana"
+                    aria-selected="false" tabindex="-1" data-link="{{ url_for('agenda', visao='semanal', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">7 dias</button>
+          </div>
+        </div>
+        <a class="dash-link" id="agenda-ver" href="{{ url_for('agenda', visao='diaria', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">Ver agenda</a>
       </div>
+
+      <div role="tabpanel" id="agenda-semana" aria-labelledby="aba-semana" hidden>
+      {% if agenda_semana is none %}
+        {{ erro_bloco('a agenda da semana') }}
+      {% else %}
+        {% set dias_nome = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'] %}
+        {% set dias_extenso = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'] %}
+        <div class="dash-semana-cab" aria-hidden="true">
+          <span></span><span>Retiradas</span><span>Eventos</span><span>Devoluções</span>
+        </div>
+        <ul class="dash-semana-lista">
+          {% for d in agenda_semana %}
+          <li>
+            <a class="dash-semana-dia{{ ' dash-semana-dia--hoje' if loop.first }}"
+               href="{{ url_for('agenda', visao='diaria', ano=d.data[:4]|int, mes=d.data[5:7]|int, dia=d.data[8:10]|int) }}"
+               aria-label="{{ 'Hoje' if loop.first else dias_extenso[d.dia_semana] }}, {{ d.data[8:10] }}/{{ d.data[5:7] }}: {{ d.retiradas }} {{ 'retirada' if d.retiradas == 1 else 'retiradas' }}, {{ d.eventos }} {{ 'evento' if d.eventos == 1 else 'eventos' }}, {{ d.devolucoes }} {{ 'devolução' if d.devolucoes == 1 else 'devoluções' }}">
+              <span class="dash-semana-data">{{ 'Hoje' if loop.first else dias_nome[d.dia_semana] }} <span>{{ d.data[8:10] }}/{{ d.data[5:7] }}</span></span>
+              <span class="dash-semana-n dash-tipo--retirada{{ ' dash-semana-zero' if not d.retiradas }}">{{ d.retiradas or '—' }}</span>
+              <span class="dash-semana-n dash-tipo--evento{{ ' dash-semana-zero' if not d.eventos }}">{{ d.eventos or '—' }}</span>
+              <span class="dash-semana-n dash-tipo--devolucao{{ ' dash-semana-zero' if not d.devolucoes }}">{{ d.devolucoes or '—' }}</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      </div>
+
+      <div role="tabpanel" id="agenda-hoje" aria-labelledby="aba-hoje">
       {% if agenda_hoje is none %}
         {{ erro_bloco('a agenda') }}
       {% elif not agenda_hoje %}
@@ -156,6 +192,7 @@
         </a>
         {% endif %}
       {% endif %}
+      </div>
     </section>
 
     <section class="dash-bloco dash-esteira" aria-labelledby="titulo-esteira">
@@ -215,4 +252,35 @@
 
   </div>
 </main>
+
+<script>
+(function(){
+  var abas = Array.prototype.slice.call(document.querySelectorAll('.dash-abas [role=tab]'));
+  var ver = document.getElementById('agenda-ver');
+  if (!abas.length) return;
+  function ativar(aba, foco) {
+    abas.forEach(function(a) {
+      var sel = a === aba;
+      a.setAttribute('aria-selected', sel);
+      a.tabIndex = sel ? 0 : -1;
+      document.getElementById(a.getAttribute('aria-controls')).hidden = !sel;
+    });
+    ver.href = aba.dataset.link;
+    if (foco) aba.focus();
+    try { localStorage.setItem('dash-agenda', aba.id); } catch (e) {}
+  }
+  abas.forEach(function(a, i) {
+    a.addEventListener('click', function() { ativar(a); });
+    a.addEventListener('keydown', function(ev) {
+      if (ev.key !== 'ArrowRight' && ev.key !== 'ArrowLeft') return;
+      ev.preventDefault();
+      ativar(abas[(i + (ev.key === 'ArrowRight' ? 1 : abas.length - 1)) % abas.length], true);
+    });
+  });
+  var salva = null;
+  try { salva = localStorage.getItem('dash-agenda'); } catch (e) {}
+  var inicial = document.getElementById(salva);
+  if (inicial && abas.indexOf(inicial) >= 0) ativar(inicial);
+})();
+</script>
 {% endblock %}

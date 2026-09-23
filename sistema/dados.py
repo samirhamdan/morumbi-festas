@@ -1381,6 +1381,37 @@ def agenda_do_dia(data: str | None = None) -> list:
     return itens
 
 
+def agenda_proximos_dias(dias: int = 7, inicio: str | None = None) -> list:
+    """Quantidade de retiradas, eventos e devoluções por dia, a partir de hoje."""
+    from datetime import date, timedelta
+    primeiro = date.fromisoformat(inicio or _hoje_iso())
+    datas = [(primeiro + timedelta(days=i)).isoformat() for i in range(dias)]
+    periodo = (datas[0], datas[-1])
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT d, tipo, COUNT(*) AS n FROM ("
+            " SELECT data_retirada AS d, 'retiradas' AS tipo FROM pedidos"
+            "  WHERE status_comercial != 'cancelado'"
+            "  AND data_retirada BETWEEN ? AND ?"
+            " UNION ALL"
+            " SELECT data_evento, 'eventos' FROM pedidos"
+            "  WHERE status_comercial != 'cancelado'"
+            "  AND data_evento BETWEEN ? AND ?"
+            " UNION ALL"
+            " SELECT data_devolucao, 'devolucoes' FROM pedidos"
+            "  WHERE status_comercial != 'cancelado'"
+            "  AND data_devolucao BETWEEN ? AND ?"
+            ") GROUP BY d, tipo", periodo * 3).fetchall()
+    por_dia = {d: {"data": d, "dia_semana": date.fromisoformat(d).weekday(),
+                   "retiradas": 0, "eventos": 0, "devolucoes": 0}
+               for d in datas}
+    for r in rows:
+        por_dia[r["d"]][r["tipo"]] = r["n"]
+    for dia in por_dia.values():
+        dia["total"] = dia["retiradas"] + dia["eventos"] + dia["devolucoes"]
+    return [por_dia[d] for d in datas]
+
+
 def esteira_pedidos(limite_por_etapa: int = 5) -> list:
     inicio_mes = _hoje_iso()[:8] + "01"
     with conectar() as conn:

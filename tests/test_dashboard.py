@@ -103,6 +103,33 @@ class TesteAgendaDoDia:
         assert dados.agenda_do_dia() == []
 
 
+class TesteAgendaProximosDias:
+    def test_conta_por_tipo_em_sete_dias_a_partir_de_hoje(self, app, admin):
+        cli = _cliente(admin)
+        hoje = _hoje()
+        amanha = (hoje + timedelta(days=1)).isoformat()
+        _pedido(admin, cli["id"], data_retirada=hoje.isoformat(),
+                data_evento=amanha, data_devolucao=amanha)
+        _pedido(admin, cli["id"], data_evento=amanha)
+        fora = (hoje + timedelta(days=7)).isoformat()
+        _pedido(admin, cli["id"], data_retirada=fora, data_evento=fora,
+                data_devolucao=fora)
+        dias = dados.agenda_proximos_dias()
+        assert len(dias) == 7
+        assert dias[0]["data"] == hoje.isoformat()
+        assert dias[0]["dia_semana"] == hoje.weekday()
+        assert (dias[0]["retiradas"], dias[0]["eventos"]) == (1, 0)
+        assert (dias[1]["eventos"], dias[1]["devolucoes"]) == (2, 1)
+        assert dias[1]["total"] == 3
+        assert sum(d["total"] for d in dias) == 4
+
+    def test_ignora_cancelados(self, app, admin):
+        cli = _cliente(admin)
+        ped = _pedido(admin, cli["id"], data_evento=_hoje().isoformat())
+        dados.cancelar_pedido(ped["id"])
+        assert all(d["total"] == 0 for d in dados.agenda_proximos_dias())
+
+
 class TesteEsteira:
     def test_agrupa_status_operacional_nas_etapas(self, app, admin):
         cli = _cliente(admin)
@@ -206,7 +233,7 @@ class TestePaginaDashboard:
     def test_renderiza_blocos_do_figma(self, app, admin):
         r = admin.get("/")
         for texto in ("Pedidos ativos", "Faturamento do mês", "Eventos hoje",
-                      "Clientes", "Evolução mensal de", "Agenda de hoje",
+                      "Clientes", "Evolução mensal de", "Agenda", "7 dias",
                       "Esteira de pedidos", "Alertas", "Confirmados",
                       "Em preparação", "Em entrega", "Finalizados"):
             assert texto in r.text
@@ -271,3 +298,13 @@ class TestePaginaDashboard:
         assert "orçamento sem retorno" in admin.get("/").text
         c = _entrar_como(admin, client, "operacional")
         assert "orçamento sem retorno" not in c.get("/").text
+
+    def test_agenda_tem_abas_hoje_e_sete_dias(self, app, admin):
+        cli = _cliente(admin, "Paula Santos")
+        amanha = _hoje() + timedelta(days=1)
+        _pedido(admin, cli["id"], data_evento=amanha.isoformat())
+        r = admin.get("/")
+        assert 'role="tablist"' in r.text
+        assert 'id="agenda-semana"' in r.text and 'id="agenda-hoje"' in r.text
+        assert "visao=semanal" in r.text
+        assert f"{amanha.day:02d}/{amanha.month:02d}: 0 retiradas, 1 evento" in r.text
