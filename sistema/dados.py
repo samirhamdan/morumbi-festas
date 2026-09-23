@@ -1285,6 +1285,158 @@ def faturamento_mensal(ano: int, mes: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Dashboard — camada de consulta (sem tabelas próprias)
+# ---------------------------------------------------------------------------
+
+# Etapas da esteira do Dashboard agrupando o status operacional real.
+ETAPAS_ESTEIRA = (
+    ("confirmados", "Confirmados", ("preparacao",)),
+    ("em_preparacao", "Em preparação", ("separado", "montado")),
+    ("em_entrega", "Em entrega", ("entregue",)),
+    ("finalizados", "Finalizados", ("recolhido", "conferido")),
+)
+STATUS_ATIVOS = ("preparacao", "separado", "montado", "entregue")
+DIAS_ORCAMENTO_SEM_RETORNO = 3
+
+
+def _hoje_iso() -> str:
+    return formato.agora()[:10]
+
+
+def indicadores_dashboard() -> dict:
+    hoje = _hoje_iso()
+    inicio_mes = hoje[:8] + "01"
+    ativos = ",".join(f"'{s}'" for s in STATUS_ATIVOS)
+    em_prep = ",".join(f"'{s}'" for s in ETAPAS_ESTEIRA[1][2])
+    with conectar() as conn:
+        pedidos_ativos = conn.execute(
+            "SELECT COUNT(*) FROM pedidos WHERE status_comercial != 'cancelado'"
+            f" AND status_operacional IN ({ativos})").fetchone()[0]
+        pedidos_em_preparacao = conn.execute(
+            "SELECT COUNT(*) FROM pedidos WHERE status_comercial != 'cancelado'"
+            f" AND status_operacional IN ({em_prep})").fetchone()[0]
+        eventos_hoje = conn.execute(
+            "SELECT COUNT(*) FROM pedidos WHERE status_comercial != 'cancelado'"
+            " AND data_evento = ?", (hoje,)).fetchone()[0]
+        eventos_mes = conn.execute(
+            "SELECT COUNT(*) FROM pedidos WHERE status_comercial != 'cancelado'"
+            " AND data_evento >= ? AND data_evento <= ?",
+            (inicio_mes, hoje[:8] + "31")).fetchone()[0]
+        clientes_total = conn.execute(
+            "SELECT COUNT(*) FROM clientes WHERE status='ativo'").fetchone()[0]
+        clientes_novos_mes = conn.execute(
+            "SELECT COUNT(*) FROM clientes WHERE status='ativo'"
+            " AND criado_em >= ?", (inicio_mes,)).fetchone()[0]
+    return {
+        "pedidos_ativos": pedidos_ativos,
+        "pedidos_em_preparacao": pedidos_em_preparacao,
+        "eventos_hoje": eventos_hoje,
+        "eventos_mes": eventos_mes,
+        "clientes_total": clientes_total,
+        "clientes_novos_mes": clientes_novos_mes,
+    }
+
+
+def faturamento_anual(ano: int) -> list:
+    """Mesmo critério de faturamento_mensal, agregado por mês em uma query."""
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT CAST(substr(p.data_devolucao, 6, 2) AS INTEGER) AS mes,"
+            " COUNT(DISTINCT p.id) AS quantidade,"
+            " COALESCE(SUM(i.quantidade * i.preco_unitario), 0) AS total"
+            " FROM pedidos p LEFT JOIN itens_pedido i ON i.pedido_id = p.id"
+            " WHERE p.status_comercial='devolvido'"
+            " AND p.data_devolucao >= ? AND p.data_devolucao < ?"
+            " GROUP BY mes",
+            (f"{ano}-01-01", f"{ano + 1}-01-01")).fetchall()
+    por_mes = {r["mes"]: r for r in rows}
+    return [{"mes": m,
+             "total": por_mes[m]["total"] if m in por_mes else 0.0,
+             "quantidade": por_mes[m]["quantidade"] if m in por_mes else 0}
+            for m in range(1, 13)]
+
+
+def agenda_do_dia(data: str | None = None) -> list:
+    data = data or _hoje_iso()
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT p.id, p.data_evento, p.data_retirada, p.data_devolucao,"
+            " p.status_operacional, c.nome AS cliente_nome"
+            " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
+            " WHERE p.status_comercial != 'cancelado'"
+            " AND (p.data_retirada = ? OR p.data_evento = ?"
+            "      OR p.data_devolucao = ?)"
+            " ORDER BY c.nome", (data, data, data)).fetchall()
+    itens = []
+    for ordem, (campo, tipo) in enumerate((("data_retirada", "retirada"),
+                                            ("data_evento", "evento"),
+                                            ("data_devolucao", "devolucao"))):
+        for r in rows:
+            if r[campo] == data:
+                itens.append({"pedido_id": r["id"], "tipo": tipo,
+                              "cliente_nome": r["cliente_nome"] or "",
+                              "status_operacional": r["status_operacional"],
+                              "_ordem": ordem})
+    itens.sort(key=lambda x: x.pop("_ordem"))
+    return itens
+
+
+def esteira_pedidos(limite_por_etapa: int = 5) -> list:
+    inicio_mes = _hoje_iso()[:8] + "01"
+    with conectar() as conn:
+        etapas = []
+        for chave, rotulo, status in ETAPAS_ESTEIRA:
+            marcadores = ",".join("?" * len(status))
+            filtro = (f" WHERE p.status_comercial != 'cancelado'"
+                      f" AND p.status_operacional IN ({marcadores})")
+            params: list = list(status)
+            if chave == "finalizados":
+                filtro += " AND p.atualizado_em >= ?"
+                params.append(inicio_mes)
+            total = conn.execute(
+                "SELECT COUNT(*) FROM pedidos p" + filtro, params).fetchone()[0]
+            pedidos = [dict(r) for r in conn.execute(
+                "SELECT p.id, p.data_evento, p.status_operacional,"
+                " c.nome AS cliente_nome"
+                " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
+                + filtro +
+                " ORDER BY COALESCE(p.data_evento, p.data_retirada, p.criado_em)"
+                " LIMIT ?", params + [limite_por_etapa]).fetchall()]
+            etapas.append({"chave": chave, "rotulo": rotulo,
+                           "status": list(status), "total": total,
+                           "pedidos": pedidos})
+    return etapas
+
+
+def alertas_dashboard() -> list:
+    from datetime import date, timedelta
+    hoje = _hoje_iso()
+    dias = int(parametro("dias_orcamento_sem_retorno",
+                         str(DIAS_ORCAMENTO_SEM_RETORNO)))
+    limite = (date.fromisoformat(hoje) - timedelta(days=dias)).isoformat()
+    with conectar() as conn:
+        devolucoes_atrasadas = conn.execute(
+            "SELECT COUNT(*) FROM pedidos"
+            " WHERE data_devolucao < ? AND status_comercial != 'cancelado'"
+            " AND status_operacional NOT IN ('recolhido','conferido','cancelado')",
+            (hoje,)).fetchone()[0]
+        orcamentos_sem_retorno = conn.execute(
+            "SELECT COUNT(*) FROM orcamentos"
+            " WHERE status='enviado' AND atualizado_em < ?",
+            (limite,)).fetchone()[0]
+    alertas = []
+    if devolucoes_atrasadas:
+        alertas.append({"tipo": "devolucao_atrasada",
+                        "quantidade": devolucoes_atrasadas,
+                        "nivel": "critico"})
+    if orcamentos_sem_retorno:
+        alertas.append({"tipo": "orcamento_sem_retorno",
+                        "quantidade": orcamentos_sem_retorno,
+                        "nivel": "atencao", "dias": dias})
+    return alertas
+
+
+# ---------------------------------------------------------------------------
 # Catalogo publico
 # ---------------------------------------------------------------------------
 

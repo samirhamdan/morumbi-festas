@@ -1366,4 +1366,37 @@ def criar_app() -> Flask:
                                      data_fim or None)
         return jsonify({"disponivel": disp})
 
+    @app.route("/api/painel")
+    @auth.exige_login
+    def api_painel():
+        from flask import jsonify
+        ano = request.args.get("ano", type=int) or int(formato.agora()[:4])
+        pode_ver_faturamento = session.get("perfil") in (
+            "admin", "comercial", "gestor")
+
+        rotas_alerta = {
+            "devolucao_atrasada": url_for("painel_operacional"),
+            "orcamento_sem_retorno": url_for("lista_orcamentos",
+                                             status="enviado"),
+        }
+        alertas = [dict(a, link=rotas_alerta[a["tipo"]])
+                   for a in dados.alertas_dashboard()]
+
+        corpo = {
+            "usuario_nome": session.get("usuario_nome", ""),
+            "indicadores": dados.indicadores_dashboard(),
+            "agenda_hoje": dados.agenda_do_dia(),
+            "esteira": dados.esteira_pedidos(),
+            "alertas": alertas,
+        }
+        if pode_ver_faturamento:
+            hoje = formato.agora()
+            corpo["faturamento_mes"] = {
+                k: v for k, v in dados.faturamento_mensal(
+                    int(hoje[:4]), int(hoje[5:7])).items()
+                if k != "pedidos"}
+            corpo["faturamento_anual"] = {
+                "ano": ano, "meses": dados.faturamento_anual(ano)}
+        return jsonify(corpo)
+
     return app
