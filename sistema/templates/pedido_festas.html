@@ -168,7 +168,7 @@
           <div><dt>Retirada / entrega</dt><dd>{{ data_hora(p.data_retirada, p.hora_retirada) }}</dd></div>
           <div><dt>Local</dt><dd>{{ p.local_evento or '—' }}</dd></div>
           <div><dt>Devolução</dt><dd>{{ data_hora(p.data_devolucao, p.hora_devolucao) }}</dd></div>
-          <div><dt>Responsável</dt><dd>{{ p.responsavel or '—' }}</dd></div>
+          <div><dt>Responsável</dt><dd>{{ p.responsavel_nome or p.responsavel or '—' }}</dd></div>
           {% if p.servicos %}
           <div><dt>Serviços</dt><dd class="ped-chips">{% for s in p.servicos %}<span class="ped-chip">{{ s }}</span>{% endfor %}</dd></div>
           {% endif %}

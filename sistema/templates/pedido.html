@@ -70,9 +70,16 @@
           </label>
         </div>
 
-        <label class="campo" id="campo-responsavel">
+        <label class="campo" id="campo-responsavel_id">
           <span>Responsável pela logística</span>
-          <input type="text" name="responsavel" maxlength="200" value="{{ atual.get('responsavel') or '' }}">
+          <select name="responsavel_id">
+            <option value="">Sem responsável</option>
+            {% if responsaveis.anterior %}<option value="manter" {{ 'selected' if responsaveis.escolhido == 'manter' }}>{{ responsaveis.anterior }}</option>{% endif %}
+            {% for uid, nome in responsaveis.usuarios %}
+            <option value="{{ uid }}" {{ 'selected' if responsaveis.escolhido == uid|string }}>{{ nome }}</option>
+            {% endfor %}
+          </select>
+          <small class="campo-ajuda">Usuários ativos da equipe (Configurações → Usuários).</small>
         </label>
       </div>
 

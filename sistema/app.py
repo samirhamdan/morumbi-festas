@@ -1337,6 +1337,7 @@ def criar_app() -> Flask:
                                rot_com=dados.ROTULOS_COMERCIAL,
                                rot_op=dados.ROTULOS_OPERACIONAL,
                                canais=dados.CANAIS,
+                               responsaveis=dados.opcoes_responsavel(atual),
                                servicos=dados.listar_servicos(somente_ativos=True),
                                formas_pagamento=dados.lista_config("formas_pagamento"))
 

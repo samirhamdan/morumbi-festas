@@ -511,6 +511,12 @@ def inicializar():
                              ("valor_informado", "REAL")):
             if coluna not in cols_pedido:
                 conn.execute(f"ALTER TABLE pedidos ADD COLUMN {coluna} {tipo}")
+        # Sprint 3.1: responsável escolhido entre os usuários da empresa. O
+        # texto em "responsavel" continua guardado (nome na data da escolha e
+        # nomes digitados antes da lista existir, que não são alterados).
+        if "responsavel_id" not in cols_pedido:
+            conn.execute("ALTER TABLE pedidos ADD COLUMN responsavel_id"
+                         " INTEGER REFERENCES usuarios(id)")
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_pedidos_historico_id"
             " ON pedidos (historico_id) WHERE historico_id IS NOT NULL")
@@ -2796,11 +2802,18 @@ def listar_pedidos(status_comercial: str | None = None,
         return peds
 
 
+# Nome exibido do responsável: o do usuário vinculado (acompanha mudanças de
+# nome); sem vínculo, o texto guardado no pedido.
+_SQL_NOME_RESPONSAVEL = "COALESCE(u.nome, NULLIF(TRIM(p.responsavel), ''), '')"
+
+
 def buscar_pedido_festas(id_: int) -> dict | None:
     with conectar() as conn:
         r = conn.execute(
-            "SELECT p.*, c.nome AS cliente_nome FROM pedidos p"
+            "SELECT p.*, c.nome AS cliente_nome,"
+            f" {_SQL_NOME_RESPONSAVEL} AS responsavel_nome FROM pedidos p"
             " LEFT JOIN clientes c ON c.id = p.cliente_id"
+            " LEFT JOIN usuarios u ON u.id = p.responsavel_id"
             f" WHERE p.id = ? AND {_t('p')}", (id_,)).fetchone()
         if not r:
             return None
@@ -2867,7 +2880,72 @@ def campos_pedido_festas(form) -> dict:
     }
     for campo in CAMPOS_TEXTO_PEDIDO:
         d[campo] = (form.get(campo) or "").strip()
+    # O responsável vem só da lista de usuários; o texto livre do formulário
+    # é ignorado. Formulário sem o campo (aberto antes da atualização) mantém
+    # o que já estava no pedido.
+    d["responsavel_id"] = (form.get("responsavel_id", "manter") or "").strip()
     return d
+
+
+def _resolver_responsavel(conn, dados_: dict, atual: dict | None):
+    """Define responsavel_id e o nome guardado a partir da escolha na lista.
+
+    "manter" preserva o que o pedido já tinha (inclusive um nome digitado antes
+    da lista ou um usuário depois desativado); um id precisa ser de usuário
+    ativo da empresa atual. Chamadas internas sem o campo mantêm o vínculo."""
+    atual = atual or {}
+    if "responsavel_id" not in dados_:
+        dados_["responsavel_id"] = atual.get("responsavel_id")
+        return
+    escolha = str(dados_.get("responsavel_id") or "").strip()
+    if escolha == "manter":
+        dados_["responsavel_id"] = atual.get("responsavel_id")
+        dados_["responsavel"] = atual.get("responsavel") or ""
+        return
+    if not escolha:
+        dados_["responsavel_id"], dados_["responsavel"] = None, ""
+        return
+    try:
+        uid = int(escolha)
+    except ValueError:
+        raise ErroDeCampo("responsavel_id", "Responsável inválido.")
+    r = conn.execute(
+        "SELECT u.nome, u.ativo = 1 AND m.ativo = 1 AS ativo FROM membros m"
+        f" JOIN usuarios u ON u.id = m.usuario_id WHERE m.usuario_id = ? AND {_t('m')}",
+        (uid,)).fetchone()
+    if not r or (not r["ativo"] and uid != atual.get("responsavel_id")):
+        raise ErroDeCampo("responsavel_id", "Responsável não encontrado entre os usuários ativos.")
+    if uid == atual.get("responsavel_id"):
+        dados_["responsavel_id"] = uid
+        dados_["responsavel"] = atual.get("responsavel") or r["nome"]
+        return
+    dados_["responsavel_id"], dados_["responsavel"] = uid, r["nome"]
+
+
+def opcoes_responsavel(pedido: dict | None) -> dict:
+    """Opções do campo Responsável no formulário do pedido.
+
+    Um nome digitado antes da lista é pré-selecionado no usuário de nome
+    idêntico (só se houver exatamente um); senão aparece como "anterior" e
+    fica como está até alguém escolher outro."""
+    pedido = pedido or {}
+    usuarios = [(u["id"], u["nome"]) for u in listar_usuarios()]
+    rid = pedido.get("responsavel_id")
+    texto = (pedido.get("responsavel") or "").strip()
+    escolhido, anterior = "", ""
+    if rid and any(i == rid for i, _ in usuarios):
+        escolhido = str(rid)
+    elif rid:
+        escolhido = "manter"
+        anterior = f"{pedido.get('responsavel_nome') or texto} (usuário inativo)"
+    elif texto:
+        chave = normalizar_texto(texto).split()
+        iguais = [i for i, n in usuarios if normalizar_texto(n).split() == chave]
+        if len(iguais) == 1:
+            escolhido = str(iguais[0])
+        else:
+            escolhido, anterior = "manter", f"{texto} (registrado antes)"
+    return {"usuarios": usuarios, "escolhido": escolhido, "anterior": anterior}
 
 
 def _validar_itens(itens: list) -> list:
@@ -2996,6 +3074,7 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
             atual = dict(r)
             atual["itens"] = [dict(i) for i in conn.execute(
                 "SELECT * FROM itens_pedido WHERE pedido_id = ?", (id_,))]
+        _resolver_responsavel(conn, dados_, atual)
 
     if atual:
         if dados_.get("versao") and dados_["versao"] != atual["atualizado_em"]:
@@ -3039,10 +3118,10 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
                 " data_retirada=?, data_devolucao=?,"
                 " status_comercial=?, status_operacional=?, observacoes=?,"
                 + "".join(f" {c}=?," for c in CAMPOS_TEXTO_PEDIDO) +
-                f" historico=?, atualizado_em=? WHERE id=? AND {_t()}",
+                f" responsavel_id=?, historico=?, atualizado_em=? WHERE id=? AND {_t()}",
                 (dados_["cliente_id"], dados_.get("data_evento"), data_ret,
                  data_dev, sc, so, dados_.get("observacoes", ""),
-                 *extras, historico, agora_, id_))
+                 *extras, dados_.get("responsavel_id"), historico, agora_, id_))
             conn.execute("DELETE FROM itens_pedido WHERE pedido_id=?", (id_,))
             novo_id = id_
         else:
@@ -3051,11 +3130,11 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
                 " data_devolucao, status_comercial, status_operacional,"
                 " observacoes, "
                 + "".join(f"{c}, " for c in CAMPOS_TEXTO_PEDIDO) +
-                "criado_em, atualizado_em) VALUES ("
-                + ",".join("?" * (10 + len(CAMPOS_TEXTO_PEDIDO))) + ")",
+                "responsavel_id, criado_em, atualizado_em) VALUES ("
+                + ",".join("?" * (11 + len(CAMPOS_TEXTO_PEDIDO))) + ")",
                 (tenant_atual(), dados_["cliente_id"], dados_.get("data_evento"), data_ret,
                  data_dev, sc, so, dados_.get("observacoes", ""),
-                 *extras, agora_, agora_))
+                 *extras, dados_.get("responsavel_id"), agora_, agora_))
             novo_id = r.lastrowid
 
         for item in itens:
@@ -3073,7 +3152,7 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
             for campo in ("cliente_id", "data_evento", "data_retirada",
                           "data_devolucao", "status_comercial",
                           "status_operacional", "observacoes", "historico",
-                          *CAMPOS_TEXTO_PEDIDO):
+                          "responsavel_id", *CAMPOS_TEXTO_PEDIDO):
                 antes, depois = atual.get(campo) or "", novos.get(campo) or ""
                 if str(antes) != str(depois):
                     mudancas[campo] = [antes, depois]
@@ -3086,8 +3165,8 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
                     conn, novo_id,
                     "Status corrigido pelo administrador" if status else "Pedido editado",
                     "Comercial", usuario_id,
-                    detalhe=", ".join(sorted(ROTULOS_CAMPO_PEDIDO.get(k, k)
-                                             for k in mudancas)),
+                    detalhe=", ".join(sorted({ROTULOS_CAMPO_PEDIDO.get(k, k)
+                                              for k in mudancas})),
                     mudancas=mudancas)
         else:
             registrar_evento_pedido(conn, novo_id, "Pedido criado", "Comercial",
@@ -3106,7 +3185,8 @@ ROTULOS_CAMPO_PEDIDO = {
     "status_operacional": "status operacional", "observacoes": "observações",
     "itens": "itens e valores", "local_evento": "local",
     "hora_retirada": "horário da retirada", "hora_devolucao": "horário da devolução",
-    "responsavel": "responsável", "forma_pagamento": "forma de pagamento",
+    "responsavel": "responsável", "responsavel_id": "responsável",
+    "forma_pagamento": "forma de pagamento",
     "condicao_pagamento": "condição de pagamento", "canal": "canal",
     "historico": "marca de histórico",
 }
@@ -4677,11 +4757,12 @@ def _pedidos_da_esteira(conn, dia: str) -> list:
     rows = conn.execute(
         "SELECT p.id, p.cliente_id, p.data_evento, p.data_retirada, p.data_devolucao,"
         " p.hora_retirada, p.status_comercial, p.status_operacional,"
-        " COALESCE(p.responsavel, '') AS responsavel, p.atualizado_em,"
+        f" {_SQL_NOME_RESPONSAVEL} AS responsavel, p.atualizado_em,"
         " c.nome AS cliente_nome, c.whatsapp AS cliente_whatsapp,"
         " c.telefone AS cliente_telefone,"
         f" {finalizado_em} AS finalizado_em"
         " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
+        " LEFT JOIN usuarios u ON u.id = p.responsavel_id"
         f" WHERE {_t('p')} AND p.historico = 0 AND p.status_comercial != 'cancelado'"
         " AND (p.status_operacional NOT IN ('finalizado', 'cancelado')"
         "      AND p.status_comercial != 'finalizado'"

@@ -323,3 +323,106 @@ class TesteOcorrencias:
              if x["categoria"] == "Ocorrência"][0]
         assert (e["titulo"], e["detalhe"]) == ("Ocorrência: Item danificado", "Mesa riscada")
         assert "Item danificado" in admin.get(f"/pedido/{pid}").text
+
+
+# --- Sprint 3.1: responsável escolhido entre os usuários -------------------
+
+def _usuario(nome, login, ativo=1):
+    return dados.salvar_usuario({"nome": nome, "login": login, "perfil": "operacional",
+                                 "ativo": ativo}, senha_hash=generate_password_hash("x"))
+
+
+def _editar(cliente, pid, **campos):
+    p = dados.buscar_pedido_festas(pid)
+    form = {"cliente_id": p["cliente_id"], "data_evento": p["data_evento"],
+            "data_retirada": p["data_retirada"], "data_devolucao": p["data_devolucao"]}
+    form.update(campos)
+    return cliente.post(f"/pedido/{pid}/editar", data=form, follow_redirects=True)
+
+
+class TesteResponsavel:
+    def test_escolhe_usuario_da_lista(self, app, admin):
+        carlos = _usuario("Carlos Lima", "carlos")
+        _usuario("Bruna Dias", "bruna")
+        pid = _pedido(_cliente())
+        form = admin.get(f"/pedido/{pid}/editar").text
+        assert 'name="responsavel_id"' in form and 'name="responsavel"' not in form
+        assert f'value="{carlos}"' in form and "Bruna Dias" in form
+        r = _editar(admin, pid, responsavel_id=str(carlos))
+        assert "Pedido salvo." in r.text
+        p = dados.buscar_pedido_festas(pid)
+        assert (p["responsavel_id"], p["responsavel"]) == (carlos, "Carlos Lima")
+        assert _cartoes()[pid][1]["responsavel"] == "Carlos Lima"
+        assert set(_cartoes(responsavel="carlos lima")) == {pid}
+        assert "Carlos Lima" in admin.get(f"/pedido/{pid}").text
+        # a troca fica na linha do tempo, sem repetir o rótulo
+        eventos = [e for e in dados.buscar_pedido_detalhe(pid)["linha_do_tempo"]
+                   if e["titulo"] == "Pedido editado"]
+        assert eventos and "responsável" in eventos[-1]["detalhe"]
+        assert eventos[-1]["detalhe"].count("responsável") == 1
+        # sem responsável
+        _editar(admin, pid, responsavel_id="")
+        p = dados.buscar_pedido_festas(pid)
+        assert (p["responsavel_id"], p["responsavel"]) == (None, "")
+
+    def test_texto_livre_nao_e_aceito(self, app, admin):
+        pid = _pedido(_cliente())
+        _editar(admin, pid, responsavel_id="", responsavel="Qualquer Um")
+        assert dados.buscar_pedido_festas(pid)["responsavel"] == ""
+        r = _editar(admin, pid, responsavel_id="abc")
+        assert "Responsável inválido." in r.text
+
+    def test_nome_digitado_antes_e_preservado(self, app, admin):
+        _usuario("Carlos Lima", "carlos")
+        antigo = _pedido(_cliente(), responsavel="Equipe da tarde")
+        form = admin.get(f"/pedido/{antigo}/editar").text
+        assert '<option value="manter" selected>Equipe da tarde (registrado antes)</option>' in form
+        _editar(admin, antigo, responsavel_id="manter", observacoes="ok")
+        p = dados.buscar_pedido_festas(antigo)
+        assert (p["responsavel_id"], p["responsavel"]) == (None, "Equipe da tarde")
+        assert _cartoes()[antigo][1]["responsavel"] == "Equipe da tarde"
+        # formulário aberto antes da atualização (sem o campo) não apaga o nome
+        _editar(admin, antigo, observacoes="de novo")
+        assert dados.buscar_pedido_festas(antigo)["responsavel"] == "Equipe da tarde"
+
+    def test_nome_identico_e_pre_selecionado(self, app, admin):
+        carlos = _usuario("Carlos Lima", "carlos")
+        pid = _pedido(_cliente(), responsavel="carlos  lima")
+        ops = dados.opcoes_responsavel(dados.buscar_pedido_festas(pid))
+        assert (ops["escolhido"], ops["anterior"]) == (str(carlos), "")
+        # dois usuários com o mesmo nome: nada é escolhido por aproximação
+        _usuario("Carlos Lima", "carlos2")
+        ops = dados.opcoes_responsavel(dados.buscar_pedido_festas(pid))
+        assert ops["escolhido"] == "manter"
+        # o vínculo só é gravado quando alguém salva
+        assert dados.buscar_pedido_festas(pid)["responsavel_id"] is None
+
+    def test_nome_acompanha_o_usuario_e_inativo_e_mantido(self, app, admin):
+        carlos = _usuario("Carlos Lima", "carlos")
+        pid = _pedido(_cliente())
+        _editar(admin, pid, responsavel_id=str(carlos))
+        dados.salvar_usuario({"nome": "Carlos Lima Souza", "login": "carlos",
+                              "perfil": "operacional"}, id_=carlos)
+        assert _cartoes()[pid][1]["responsavel"] == "Carlos Lima Souza"
+        assert "Carlos Lima Souza" in admin.get(f"/pedido/{pid}").text
+        # desativado: continua no pedido, mas não pode ser escolhido para outro
+        dados.salvar_usuario({"nome": "Carlos Lima Souza", "login": "carlos",
+                              "perfil": "operacional", "ativo": 0}, id_=carlos)
+        form = admin.get(f"/pedido/{pid}/editar").text
+        assert "Carlos Lima Souza (usuário inativo)" in form
+        _editar(admin, pid, responsavel_id="manter", observacoes="x")
+        assert dados.buscar_pedido_festas(pid)["responsavel_id"] == carlos
+        outro = _pedido(_cliente("Rafael Souza"))
+        r = _editar(admin, outro, responsavel_id=str(carlos))
+        assert "Responsável não encontrado" in r.text
+        assert dados.buscar_pedido_festas(outro)["responsavel_id"] is None
+
+    def test_usuario_de_outra_empresa_e_recusado(self, app, admin):
+        b = dados.criar_empresa("Empresa Teste")
+        with dados.usando_tenant(b):
+            de_fora = _usuario("Pessoa de Fora", "fora")
+        pid = _pedido(_cliente())
+        assert "Pessoa de Fora" not in admin.get(f"/pedido/{pid}/editar").text
+        r = _editar(admin, pid, responsavel_id=str(de_fora))
+        assert "Responsável não encontrado" in r.text
+        assert dados.buscar_pedido_festas(pid)["responsavel_id"] is None
