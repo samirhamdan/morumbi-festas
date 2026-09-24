@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% import "_esteira_partes.html" as partes with context %}
+{% block titulo %}Esteira de pedidos — {{ empresa.nome_exibicao }}{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+<main id="conteudo" class="pagina est">
+  {% include "_erro.html" %}
+  <p class="est-aviso" id="est-aviso" role="status" aria-live="polite" hidden></p>
+
+  <div id="est-topo" data-parte="topo">{{ partes.topo() }}</div>
+
+  <form class="est-filtros" id="est-filtros" method="get" action="{{ url_for('painel_operacional') }}" role="search" aria-label="Filtrar esteira">
+    <input type="hidden" name="data" value="{{ dia if not eh_hoje }}" data-dia>
+    <label class="est-filtro">
+      <span class="sr">Evento</span>
+      <select name="evento">
+        {% for valor, rotulo in filtros_evento %}<option value="{{ valor }}" {{ 'selected' if filtros.evento == valor }}>{{ rotulo }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="est-filtro">
+      <span class="sr">Serviço</span>
+      <select name="servico">
+        <option value="">Todos os serviços</option>
+        {% for s in quadro.servicos %}<option value="{{ s }}" {{ 'selected' if filtros.servico == s }}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="est-filtro">
+      <span class="sr">Responsável</span>
+      <select name="responsavel">
+        <option value="">Todos os responsáveis</option>
+        {% for r in quadro.responsaveis %}<option value="{{ r }}" {{ 'selected' if filtros.responsavel == r }}>{{ r }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="est-filtro">
+      <span class="sr">Status</span>
+      <select name="status">
+        <option value="">Todos os status</option>
+        {% for chave, rotulo, _ in etapas %}<option value="{{ chave }}" {{ 'selected' if filtros.status == chave }}>{{ rotulo }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="est-busca">
+      <span aria-hidden="true">⌕</span>
+      <span class="sr">Buscar pedido ou cliente</span>
+      <input type="search" name="q" value="{{ filtros.q }}" placeholder="Buscar pedido ou cliente" autocomplete="off">
+    </label>
+    <a class="est-botao est-botao--roxo est-limpar" id="est-limpar" href="{{ url_for('painel_operacional', data=None if eh_hoje else dia) }}">Limpar</a>
+    <button type="submit" class="sr">Filtrar</button>
+  </form>
+
+  <div id="est-quadro" data-parte="kanban" aria-live="polite">{{ partes.kanban() }}</div>
+
+  <p class="est-dica">
+    <span>Fluxo: Preparação → Separado → Entregue/Retirado → Recolhido/Devolvido → Conferência → Finalizado</span>
+    <strong>Históricos não entram na esteira.</strong>
+  </p>
+</main>
+
+<script>
+(function(){
+  var form = document.getElementById('est-filtros');
+  var topo = document.getElementById('est-topo');
+  var quadro = document.getElementById('est-quadro');
+  var aviso = document.getElementById('est-aviso');
+  if (!form || !window.fetch || !window.URLSearchParams) return;
+  var ultimo = 0, espera, url = location.href;
+
+  function avisar(texto, erro) {
+    aviso.textContent = texto;
+    aviso.className = 'est-aviso' + (erro ? ' est-aviso--erro' : '');
+    aviso.hidden = !texto;
+  }
+  function urlDoFormulario() {
+    var p = new URLSearchParams();
+    new FormData(form).forEach(function(v, k) { if (v) p.set(k, v); });
+    return form.action + (p.toString() ? '?' + p.toString() : '');
+  }
+  function carregar(href, empurrar, destaque) {
+    var u = new URL(href, location.href);
+    var p = new URLSearchParams(u.search);
+    p.set('parcial', '1');
+    if (destaque) p.set('destaque', destaque);
+    var id = ++ultimo;
+    quadro.setAttribute('aria-busy', 'true');
+    document.body.classList.add('est-carregando');
+    return fetch(u.pathname + '?' + p.toString(), { credentials: 'same-origin' })
+      .then(function(r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function(html) {
+        if (id !== ultimo) return;
+        var tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        topo.innerHTML = tmp.querySelector('[data-parte="topo"]').innerHTML;
+        quadro.innerHTML = tmp.querySelector('[data-parte="kanban"]').innerHTML;
+        form.elements.data.value = tmp.querySelector('[data-estado]').getAttribute('data-dia') || '';
+        p.delete('parcial'); p.delete('destaque');
+        url = u.pathname + (p.toString() ? '?' + p.toString() : '');
+        if (empurrar) history.pushState(null, '', url);
+      })
+      .catch(function() {
+        if (id !== ultimo) return;
+        quadro.innerHTML = '<div class="est-erro" role="alert"><p>Não foi possível carregar a esteira.</p>'
+          + '<button type="button" class="est-botao est-botao--roxo" data-tentar>Tentar novamente</button></div>';
+        quadro.querySelector('[data-tentar]').addEventListener('click', function() { carregar(href, empurrar); });
+      })
+      .then(function() {
+        if (id !== ultimo) return;
+        quadro.removeAttribute('aria-busy');
+        document.body.classList.remove('est-carregando');
+      });
+  }
+  // Mudança de etapa: botão do cartão ou arrastar usam a mesma rota validada.
+  function mover(formAcao) {
+    var botao = formAcao.querySelector('button');
+    if (botao) botao.disabled = true;
+    var dados = new FormData(formAcao);
+    var pedido = formAcao.closest('[data-id]').getAttribute('data-id');
+    fetch(formAcao.action, { method: 'POST', body: dados, credentials: 'same-origin',
+                             headers: { 'X-Requested-With': 'fetch' } })
+      .then(function(r) { return r.json().catch(function() { return { ok: false, mensagem: 'Sem permissão para esta ação.' }; }); })
+      .then(function(res) {
+        avisar(res.mensagem, !res.ok);
+        carregar(url, false, res.ok ? pedido : null);
+      })
+      .catch(function() { avisar('Não foi possível salvar. Tente novamente.', true); if (botao) botao.disabled = false; });
+  }
+
+  form.addEventListener('submit', function(e) { e.preventDefault(); carregar(urlDoFormulario(), true); });
+  form.addEventListener('change', function(e) {
+    if (e.target.name === 'q') return;
+    carregar(urlDoFormulario(), true);
+  });
+  topo.addEventListener('change', function(e) {
+    if (e.target.type === 'date' && e.target.value) { form.elements.data.value = e.target.value; carregar(urlDoFormulario(), true); }
+  });
+  topo.addEventListener('click', function(e) {
+    var d = e.target.closest('input[type="date"]');
+    if (d && d.showPicker) { try { d.showPicker(); } catch (_) {} }
+  });
+  form.elements.q.addEventListener('input', function() {
+    clearTimeout(espera);
+    espera = setTimeout(function() { carregar(urlDoFormulario(), true); }, 350);
+  });
+  document.getElementById('est-limpar').addEventListener('click', function(e) {
+    e.preventDefault();
+    ['evento', 'servico', 'responsavel', 'status', 'q'].forEach(function(k) { form.elements[k].value = ''; });
+    carregar(urlDoFormulario(), true);
+  });
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest('a[data-parcial]');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    carregar(a.href, true);
+  });
+  quadro.addEventListener('submit', function(e) {
+    var f = e.target.closest('form[data-mover]');
+    if (!f) return;
+    e.preventDefault();
+    mover(f);
+  });
+
+  // Arrastar: só a coluna da próxima etapa aceita o cartão.
+  var arrastando = null;
+  quadro.addEventListener('dragstart', function(e) {
+    var c = e.target.closest('.est-cartao[draggable="true"]');
+    if (!c) return;
+    arrastando = c;
+    c.classList.add('est-cartao--arrastando');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', c.getAttribute('data-id'));
+    var alvo = quadro.querySelector('[data-coluna="' + c.getAttribute('data-coluna-destino') + '"]');
+    if (alvo) alvo.classList.add('est-coluna--alvo');
+  });
+  quadro.addEventListener('dragend', function() {
+    if (arrastando) arrastando.classList.remove('est-cartao--arrastando');
+    arrastando = null;
+    quadro.querySelectorAll('.est-coluna--alvo').forEach(function(c) { c.classList.remove('est-coluna--alvo'); });
+  });
+  quadro.addEventListener('dragover', function(e) {
+    var col = e.target.closest('[data-coluna]');
+    if (arrastando && col && col.getAttribute('data-coluna') === arrastando.getAttribute('data-coluna-destino')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    }
+  });
+  quadro.addEventListener('drop', function(e) {
+    var col = e.target.closest('[data-coluna]');
+    if (!arrastando || !col || col.getAttribute('data-coluna') !== arrastando.getAttribute('data-coluna-destino')) return;
+    e.preventDefault();
+    var f = arrastando.querySelector('form[data-mover]');
+    if (f) mover(f);
+  });
+  window.addEventListener('popstate', function() { location.reload(); });
+})();
+</script>
+{% endblock %}

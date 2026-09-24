@@ -100,7 +100,7 @@ class TesteListagem:
         cancelado = _pedido(cli, evento="2026-10-06")
         dados.cancelar_pedido(cancelado)
         finalizado = _pedido(cli, evento="2026-10-07")
-        for _ in range(5):
+        for _ in range(4):
             dados.avancar_status_operacional(finalizado)
         dados.finalizar_pedido(finalizado)
         historico = _pedido(cli, evento="2025-01-10")
@@ -162,7 +162,7 @@ class TesteServicos:
 class TesteStatus:
     def test_fluxo_completo_com_eventos(self, app, admin):
         pid = _pedido(_cliente())
-        for esperado in ("separado", "montado", "entregue", "recolhido", "conferido"):
+        for esperado in ("separado", "entregue", "recolhido", "conferido"):
             r = admin.post(f"/operacao/pedido/{pid}/avancar",
                            data={"voltar": f"/pedido/{pid}"})
             assert r.headers["Location"] == f"/pedido/{pid}"
@@ -170,7 +170,7 @@ class TesteStatus:
         admin.post(f"/pedido/{pid}/finalizar", data={"voltar": f"/pedido/{pid}"})
         assert _status(pid) == ("finalizado", "finalizado")
         titulos = [e["titulo"] for e in _eventos(pid)]
-        assert titulos == ["Pedido criado", "Itens separados", "Pedido montado",
+        assert titulos == ["Pedido criado", "Itens separados",
                            "Retirada / entrega registrada", "Devolução registrada",
                            "Itens conferidos", "Pedido finalizado"]
         assert all(e["usuario_id"] == 1 for e in _eventos(pid)[1:])
@@ -189,7 +189,7 @@ class TesteStatus:
         with pytest.raises(ValueError, match="já está cancelado"):
             dados.cancelar_pedido(pid)
         fin = _pedido(_cliente("Outro"))
-        for _ in range(5):
+        for _ in range(4):
             dados.avancar_status_operacional(fin)
         dados.finalizar_pedido(fin)
         with pytest.raises(ValueError, match="finalizado não pode ser cancelado"):
@@ -211,7 +211,7 @@ class TesteStatus:
 
     def test_finalizado_entra_no_faturamento(self, app):
         pid = _pedido(_cliente(), evento="2026-08-10")
-        for _ in range(5):
+        for _ in range(4):
             dados.avancar_status_operacional(pid)
         dados.finalizar_pedido(pid)
         fat = dados.faturamento_periodo("2026-08-01", "2026-08-31")

@@ -1,0 +1,83 @@
+{% macro data_curta(v) -%}{{ v[8:10] }}/{{ v[5:7] }}{%- endmacro %}
+{% macro topo() %}
+{% set meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'] %}
+<div class="est-cab">
+  <div class="est-titulos">
+    <h1 class="est-titulo">Esteira de pedidos</h1>
+    <p class="est-sub">Acompanhe e avance cada pedido pela operação.</p>
+  </div>
+  <a data-parcial class="est-botao est-botao--roxo{{ ' ativo' if eh_hoje }}" href="{{ url_esteira(data=hoje) }}">Hoje</a>
+  <label class="est-botao est-data">
+    <span>{{ dia[8:10]|int }} {{ meses[dia[5:7]|int - 1] }} {{ dia[:4] }}</span>
+    <input type="date" value="{{ dia }}" aria-label="Escolher data da operação">
+  </label>
+  <a data-parcial class="est-botao est-seta" href="{{ url_esteira(data=dia_anterior) }}" aria-label="Dia anterior">‹</a>
+  <a data-parcial class="est-botao est-seta" href="{{ url_esteira(data=dia_seguinte) }}" aria-label="Próximo dia">›</a>
+</div>
+
+{% set k = quadro.kpis %}
+<div class="est-kpis" role="group" aria-label="Indicadores da operação">
+  <div class="est-kpi"><span class="est-kpi-rotulo">Pedidos na esteira</span><strong class="est-kpi-valor est-roxo">{{ k.na_esteira }}</strong></div>
+  <div class="est-kpi"><span class="est-kpi-rotulo">Em atraso</span><strong class="est-kpi-valor est-vermelho">{{ k.atrasados }}</strong></div>
+  <div class="est-kpi"><span class="est-kpi-rotulo">No prazo</span><strong class="est-kpi-valor est-verde">{{ k.no_prazo }}</strong></div>
+  <div class="est-kpi"><span class="est-kpi-rotulo">Entregas {{ 'hoje' if eh_hoje else 'em ' ~ data_curta(dia) }}</span><strong class="est-kpi-valor est-laranja">{{ k.entregas_dia }}</strong></div>
+</div>
+
+{% endmacro %}
+
+{% macro kanban() %}
+<div class="est-kanban" aria-label="Etapas da operação">
+  {% for col in quadro.colunas %}
+  <section class="est-coluna" data-coluna="{{ col.chave }}" aria-labelledby="col-{{ col.chave }}">
+    <div class="est-coluna-cab">
+      <h2 id="col-{{ col.chave }}" class="est-coluna-titulo">{{ col.rotulo }}</h2>
+      <span class="est-contador" aria-label="{{ col.cartoes|length }} pedidos">{{ col.cartoes|length }}</span>
+    </div>
+    {% for c in col.cartoes %}
+    {% set pode_acao = c.acao and ((c.destino == 'finalizado' and pode_finalizar) or (c.destino != 'finalizado' and pode_mover)) %}
+    <article class="est-cartao{{ ' est-cartao--atrasado' if c.situacao == 'atrasado' }}{{ ' est-cartao--destaque' if destaque == c.id }}"
+             {% if pode_acao %}draggable="true" data-destino="{{ c.destino }}" data-coluna-destino="{{ c.coluna_destino }}"{% endif %}
+             data-id="{{ c.id }}" data-esperado="{{ c.status_operacional }}" aria-label="Pedido #{{ c.id }}, {{ c.cliente_nome or 'sem cliente' }}">
+      <div class="est-cartao-cab">
+        <a class="est-num" href="{{ url_for('ver_pedido', id_=c.id) }}">#{{ c.id }}</a>
+        {% if c.situacao == 'atrasado' %}<span class="est-badge est-badge--atrasado">Atrasado</span>
+        {% elif c.situacao == 'no_prazo' %}<span class="est-badge est-badge--prazo">No prazo</span>{% endif %}
+      </div>
+      <p class="est-cliente">{{ c.cliente_nome or 'Cliente não vinculado' }}</p>
+      <p class="est-linha">{% if c.data_evento %}Evento {{ data_curta(c.data_evento) }}{% else %}Sem data do evento{% endif %}</p>
+      <p class="est-linha est-meta">
+        <span>{{ c.itens }} {{ 'item' if c.itens == 1 else 'itens' }}</span>
+        {% if c.principal %}<span aria-hidden="true">•</span><span class="est-principal">{{ c.principal }}</span>{% endif %}
+      </p>
+      {% if c.servicos or c.responsavel %}
+      <p class="est-linha est-extra">
+        {% if c.servicos %}<span class="est-servicos" title="Serviços: {{ c.servicos|join(', ') }}">{{ 'Serviços' if c.servicos|length > 1 else 'Serviço' }}: {{ c.servicos[0] }}{% if c.servicos|length > 1 %} +{{ c.servicos|length - 1 }}{% endif %}</span>{% endif %}
+        {% if c.responsavel %}<span class="est-resp" title="Responsável: {{ c.responsavel }}">Resp.: {{ c.responsavel }}</span>{% endif %}
+      </p>
+      {% endif %}
+      <span class="est-badge est-badge--acao">{{ c.proxima }}</span>
+      {% if pode_acao %}
+      <form method="post" action="{{ url_for('mover_pedido', id_=c.id) }}" class="est-form-acao" data-mover>
+        <input type="hidden" name="destino" value="{{ c.destino }}">
+        <input type="hidden" name="esperado" value="{{ c.status_operacional }}">
+        <input type="hidden" name="voltar" value="{{ url_esteira() }}">
+        <button type="submit" class="est-acao">{{ c.acao }}</button>
+        {% if pode('ocorrencia_pedido') %}
+        <a class="est-ocorrencia" href="{{ url_for('ver_pedido', id_=c.id) }}#ocorrencia" title="Registrar ocorrência" aria-label="Registrar ocorrência no pedido #{{ c.id }}">!</a>
+        {% endif %}
+      </form>
+      {% endif %}
+    </article>
+    {% else %}
+    <div class="est-vazio">
+      <strong>Tudo em dia</strong>
+      <span>{{ 'Nenhum pedido finalizado nos últimos %d dias.'|format(dias_finalizados) if col.chave == 'finalizado' else 'Nenhum pedido pendente nesta etapa.' }}</span>
+    </div>
+    {% endfor %}
+    {% if col.chave == 'preparacao' and pode('editar_pedido') and tem('orders.create') %}
+    <a class="est-adicionar" href="{{ url_for('editar_pedido') }}">+ Adicionar pedido</a>
+    {% endif %}
+  </section>
+  {% endfor %}
+</div>
+{% endmacro %}

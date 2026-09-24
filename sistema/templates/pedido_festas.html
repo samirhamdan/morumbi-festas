@@ -239,8 +239,13 @@
             <summary>Registrar ocorrência</summary>
             <form method="post" action="{{ url_for('ocorrencia_pedido', id_=p.id) }}">
               <input type="hidden" name="voltar" value="{{ request.path }}">
+              <label class="sr" for="tipo-ocorrencia">Tipo da ocorrência</label>
+              <select id="tipo-ocorrencia" name="tipo">
+                <option value="">Tipo (opcional)</option>
+                {% for t in tipos_ocorrencia %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+              </select>
               <label class="sr" for="texto-ocorrencia">Descrição da ocorrência</label>
-              <textarea id="texto-ocorrencia" name="texto" rows="3" maxlength="1000" required placeholder="O que aconteceu?"></textarea>
+              <textarea id="texto-ocorrencia" name="texto" rows="3" maxlength="1000" placeholder="O que aconteceu?"></textarea>
               <button type="submit" class="ped-botao-sec">Registrar</button>
             </form>
           </details>

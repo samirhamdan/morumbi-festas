@@ -47,7 +47,9 @@ class TesteIndicadores:
         cancelado = _pedido(admin, cli["id"])
         dados.cancelar_pedido(cancelado["id"])
         ind = dados.indicadores_dashboard()
-        assert ind["pedidos_ativos"] == 2
+        # Sprint 3: mesma fonte da Esteira; conferência ainda é operação
+        assert ind["pedidos_ativos"] == 3
+        assert ind["pedidos_ativos"] == dados.indicadores_esteira()["na_esteira"]
         assert ind["pedidos_em_preparacao"] == 1
 
     def test_eventos_hoje_e_do_mes(self, app, admin):

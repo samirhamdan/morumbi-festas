@@ -1,0 +1,5 @@
+{% import "_esteira_partes.html" as partes with context %}
+<div data-estado data-dia="{{ dia if not eh_hoje }}">
+  <div data-parte="topo">{{ partes.topo() }}</div>
+  <div data-parte="kanban">{{ partes.kanban() }}</div>
+</div>

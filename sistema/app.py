@@ -136,6 +136,7 @@ def criar_app() -> Flask:
             "css_ver": _css_ver,
             "pode": _pode,
             "rotulo_fonte": dados.rotulo_fonte,
+            "tipos_ocorrencia": dados.TIPOS_OCORRENCIA,
         }
 
     # ------------------------------------------------------------------
@@ -1289,7 +1290,7 @@ def criar_app() -> Flask:
 
     def _voltar_pedido(id_):
         voltar = request.form.get("voltar") or ""
-        if voltar.startswith("/pedido") and not voltar.startswith("//"):
+        if voltar.startswith(("/pedido", "/operacao")) and not voltar.startswith("//"):
             return redirect(voltar)
         return redirect(url_for("ver_pedido", id_=id_))
 
@@ -1365,7 +1366,8 @@ def criar_app() -> Flask:
     def ocorrencia_pedido(id_):
         try:
             dados.registrar_ocorrencia(id_, request.form.get("texto"),
-                                       session.get("usuario_id"))
+                                       session.get("usuario_id"),
+                                       tipo=request.form.get("tipo") or "")
             flash("Ocorrência registrada.", "ok")
         except ValueError as e:
             flash(str(e), "erro")
@@ -1430,36 +1432,75 @@ def criar_app() -> Flask:
     @app.route("/operacao")
     @auth.exige_permissao("operation.view")
     def painel_operacional():
-        busca = request.args.get("q", "")
-        filtro = request.args.get("status", "")
-        peds = dados.listar_pedidos_operacional(
-            status_operacional=filtro or None,
-            busca=busca or None)
-        por_status = {}
-        for s in dados.STATUS_PEDIDO_OPERACIONAL:
-            if s in dados.FORA_DA_OPERACAO:
-                continue
-            por_status[s] = [p for p in peds if p["status_operacional"] == s]
-        return render_template("operacao.html",
-                               pedidos=peds,
-                               por_status=por_status,
-                               status_operacional=list(por_status),
-                               fluxo=dados.FLUXO_OPERACIONAL,
-                               busca=busca,
-                               filtro=filtro)
+        """Esteira de pedidos (Sprint 3): visão operacional dos próprios pedidos."""
+        from datetime import date, timedelta
+        a = request.args
+        hoje = formato.agora()[:10]
+        try:
+            dia = date.fromisoformat(a.get("data", "")).isoformat()
+        except ValueError:
+            dia = hoje
+        filtros = {
+            "evento": a.get("evento", "") if a.get("evento") in dict(dados.FILTROS_EVENTO) else "",
+            "servico": a.get("servico", "").strip(),
+            "responsavel": a.get("responsavel", "").strip(),
+            "status": a.get("status", "") if a.get("status") in dados.COLUNA_DO_STATUS.values() else "",
+            "q": a.get("q", "").strip(),
+        }
+        quadro = dados.quadro_esteira(dia, filtros)
+        d = date.fromisoformat(dia)
+
+        def url_esteira(**mudancas):
+            args = {k: v for k, v in a.items() if k not in ("parcial", "destaque")}
+            args.update(mudancas)
+            if args.get("data") == hoje:
+                args.pop("data")
+            return url_for("painel_operacional",
+                           **{k: v for k, v in args.items() if v not in (None, "")})
+
+        contexto = dict(
+            quadro=quadro, filtros=filtros, dia=dia, hoje=hoje, eh_hoje=dia == hoje,
+            dia_anterior=(d - timedelta(days=1)).isoformat(),
+            dia_seguinte=(d + timedelta(days=1)).isoformat(),
+            filtros_evento=dados.FILTROS_EVENTO, etapas=dados.ETAPAS_OPERACAO,
+            url_esteira=url_esteira, destaque=a.get("destaque", type=int),
+            pode_mover=auth.tem("operation.edit"),
+            pode_finalizar=auth.tem("orders.finish"),
+            dias_finalizados=dados.DIAS_FINALIZADOS_NA_ESTEIRA)
+        if a.get("parcial") == "1":
+            return render_template("_esteira_quadro.html", **contexto)
+        return render_template("esteira.html", **contexto)
 
     @app.route("/operacao/pedido/<int:id_>")
     @auth.exige_permissao("operation.view")
     def ver_pedido_operacional(id_):
-        ped = dados.buscar_pedido_festas(id_)
-        if not ped:
-            abort(404)
-        proximo = dados.FLUXO_OPERACIONAL.get(ped["status_operacional"])
-        etapas = [s for s in dados.STATUS_PEDIDO_OPERACIONAL
-                  if s not in dados.FORA_DA_OPERACAO]
-        return render_template("pedido_operacional.html",
-                               pedido=ped, proximo=proximo,
-                               etapas=etapas)
+        # um só detalhe de pedido: o da tela de Pedidos (timeline completa)
+        return redirect(url_for("ver_pedido", id_=id_))
+
+    @app.route("/operacao/pedido/<int:id_>/mover", methods=["POST"])
+    @auth.exige_permissao("operation.view")
+    def mover_pedido(id_):
+        """Muda a etapa (botão do cartão ou arrastar): mesma validação sempre."""
+        destino = request.form.get("destino", "")
+        necessaria = "orders.finish" if destino == "finalizado" else "operation.edit"
+        if not auth.tem(necessaria):
+            abort(403)
+        try:
+            novo = dados.mover_etapa(id_, destino, session.get("usuario_id"),
+                                     esperado=request.form.get("esperado") or None,
+                                     observacao=request.form.get("observacao") or "")
+            ok, mensagem = True, (f"Pedido #{id_} movido para "
+                                  f"{dados.ROTULOS_OPERACIONAL.get(novo, novo)}.")
+        except ValueError as e:
+            ok, mensagem = False, str(e)
+        if request.headers.get("X-Requested-With") == "fetch":
+            from flask import jsonify
+            return jsonify({"ok": ok, "mensagem": mensagem}), 200 if ok else 409
+        flash(mensagem, "ok" if ok else "erro")
+        voltar = request.form.get("voltar") or ""
+        if voltar.startswith("/operacao") and not voltar.startswith("//"):
+            return redirect(voltar)
+        return redirect(url_for("painel_operacional"))
 
     @app.route("/operacao/pedido/<int:id_>/avancar", methods=["POST"])
     @auth.exige_permissao("operation.edit")
@@ -1473,7 +1514,7 @@ def criar_app() -> Flask:
         voltar = request.form.get("voltar") or ""
         if voltar.startswith("/pedido") and not voltar.startswith("//"):
             return redirect(voltar)
-        return redirect(url_for("ver_pedido_operacional", id_=id_))
+        return redirect(url_for("ver_pedido", id_=id_))
 
     # ------------------------------------------------------------------
     # Agenda

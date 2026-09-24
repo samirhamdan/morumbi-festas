@@ -115,7 +115,7 @@
         <textarea name="formas_pagamento" rows="4" maxlength="1000" {{ 'disabled' if not pode_editar }}>{{ atual.formas_pagamento }}</textarea>
         <small class="campo-ajuda">Uma por linha. Aparecem como sugestão no pedido.</small>
       </label>
-      <p class="cfg-nota">Os status e as etapas da operação (Preparação → Separado → Montado → Entregue → Recolhido → Conferido → Finalizado) são controlados pelo sistema.</p>
+      <p class="cfg-nota">Os status e as etapas da operação (Preparação → Separado → Entregue/Retirado → Recolhido/Devolvido → Conferência → Finalizado) são controlados pelo sistema.</p>
     </div>
     {% if pode_editar %}
     <div class="barra-acoes"><button type="submit" class="botao primario">Salvar alterações</button></div>

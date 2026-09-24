@@ -75,7 +75,8 @@ class TesteAvancarStatus:
     def test_fluxo_completo(self, app, admin):
         cli = _cliente(admin)
         ped = _pedido(admin, cli["id"])
-        esperado = ["separado", "montado", "entregue", "recolhido", "conferido"]
+        # Sprint 3: sem a etapa "montado" (fluxo do Figma da Esteira)
+        esperado = ["separado", "entregue", "recolhido", "conferido"]
         for s in esperado:
             novo = dados.avancar_status_operacional(ped["id"])
             assert novo == s
@@ -83,7 +84,7 @@ class TesteAvancarStatus:
     def test_conferido_nao_avanca(self, app, admin):
         cli = _cliente(admin)
         ped = _pedido(admin, cli["id"])
-        for _ in range(5):
+        for _ in range(4):
             dados.avancar_status_operacional(ped["id"])
         try:
             dados.avancar_status_operacional(ped["id"])
@@ -155,12 +156,13 @@ class TesteRotasOperacao:
     def test_ver_pedido_operacional(self, app, admin):
         cli = _cliente(admin)
         ped = _pedido(admin, cli["id"])
+        # Sprint 3: um só detalhe de pedido (o da tela de Pedidos)
         r = admin.get(f"/operacao/pedido/{ped['id']}")
-        assert r.status_code == 200
-        assert "Avançar para separado" in r.text
+        assert r.status_code == 302 and r.headers["Location"].endswith(f"/pedido/{ped['id']}")
+        assert "Marcar como separado" in admin.get(r.headers["Location"]).text
 
     def test_ver_pedido_inexistente_404(self, app, admin):
-        r = admin.get("/operacao/pedido/9999")
+        r = admin.get("/operacao/pedido/9999", follow_redirects=True)
         assert r.status_code == 404
 
     def test_avancar_via_rota(self, app, admin):
@@ -183,11 +185,13 @@ class TesteRotasOperacao:
     def test_pedido_conferido_sem_botao_avancar(self, app, admin):
         cli = _cliente(admin)
         ped = _pedido(admin, cli["id"])
-        for _ in range(5):
+        for _ in range(4):
             dados.avancar_status_operacional(ped["id"])
-        r = admin.get(f"/operacao/pedido/{ped['id']}")
-        assert "Pedido concluído" in r.text
-        assert "Avançar" not in r.text
+        # na Conferência a única ação é Finalizar
+        r = admin.get("/operacao")
+        cartao = r.text[r.text.index(f'data-id="{ped["id"]}"'):]
+        cartao = cartao[:cartao.index("</article>")]
+        assert 'value="finalizado"' in cartao and ">Finalizar<" in cartao
 
     def test_menu_operacao_tem_pedidos(self, app, admin):
         r = admin.get("/operacao")

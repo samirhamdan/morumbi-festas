@@ -2247,15 +2247,14 @@ def _hoje_iso() -> str:
 def indicadores_dashboard() -> dict:
     hoje = _hoje_iso()
     inicio_mes = hoje[:8] + "01"
-    ativos = ",".join(f"'{s}'" for s in STATUS_ATIVOS)
-    em_prep = ",".join(f"'{s}'" for s in ETAPAS_ESTEIRA[1][2])
+    # mesma fonte da Esteira: pedidos atuais em operação, sem históricos
     with conectar() as conn:
-        pedidos_ativos = conn.execute(
-            f"SELECT COUNT(*) FROM pedidos WHERE {_em_operacao('')}"
-            f" AND status_operacional IN ({ativos})").fetchone()[0]
-        pedidos_em_preparacao = conn.execute(
-            f"SELECT COUNT(*) FROM pedidos WHERE {_em_operacao('')}"
-            f" AND status_operacional IN ({em_prep})").fetchone()[0]
+        esteira = _pedidos_da_esteira(conn, hoje)
+    kpis = indicadores_esteira(hoje, esteira)
+    pedidos_ativos = kpis["na_esteira"]
+    pedidos_em_preparacao = sum(1 for p in esteira
+                                if p["status_operacional"] in ETAPAS_ESTEIRA[1][2])
+    with conectar() as conn:
         eventos_hoje = conn.execute(
             "SELECT COUNT(*) FROM pedidos WHERE status_comercial != 'cancelado'"
             f" AND data_evento = ? AND {_t()}", (hoje,)).fetchone()[0]
@@ -2272,6 +2271,8 @@ def indicadores_dashboard() -> dict:
     return {
         "pedidos_ativos": pedidos_ativos,
         "pedidos_em_preparacao": pedidos_em_preparacao,
+        "pedidos_atrasados": kpis["atrasados"],
+        "entregas_hoje": kpis["entregas_dia"],
         "eventos_hoje": eventos_hoje,
         "eventos_mes": eventos_mes,
         "clientes_total": clientes_total,
@@ -2345,29 +2346,22 @@ def agenda_proximos_dias(dias: int = 7, inicio: str | None = None) -> list:
 
 
 def esteira_pedidos(limite_por_etapa: int = 5) -> list:
-    inicio_mes = _hoje_iso()[:8] + "01"
+    """Resumo da Esteira para o Dashboard (mesmos pedidos e regras da Esteira)."""
+    hoje = _hoje_iso()
     with conectar() as conn:
-        etapas = []
-        for chave, rotulo, status in ETAPAS_ESTEIRA:
-            marcadores = ",".join("?" * len(status))
-            filtro = (f" WHERE {_em_operacao()}"
-                      f" AND p.status_operacional IN ({marcadores})")
-            params: list = list(status)
-            if chave == "finalizados":
-                filtro += " AND p.atualizado_em >= ?"
-                params.append(inicio_mes)
-            total = conn.execute(
-                "SELECT COUNT(*) FROM pedidos p" + filtro, params).fetchone()[0]
-            pedidos = [dict(r) for r in conn.execute(
-                "SELECT p.id, p.data_evento, p.status_operacional,"
-                " c.nome AS cliente_nome"
-                " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
-                + filtro +
-                " ORDER BY COALESCE(p.data_evento, p.data_retirada, p.criado_em)"
-                " LIMIT ?", params + [limite_por_etapa]).fetchall()]
-            etapas.append({"chave": chave, "rotulo": rotulo,
-                           "status": list(status), "total": total,
-                           "pedidos": pedidos})
+        pedidos = [p for p in _pedidos_da_esteira(conn, hoje)
+                   if p["status_operacional"] != "finalizado"]
+    etapas = []
+    for chave, rotulo, status in ETAPAS_ESTEIRA:
+        grupo = sorted((p for p in pedidos if p["status_operacional"] in status),
+                       key=lambda p: (p["data_evento"] or p["data_retirada"] or "9999",
+                                      p["id"]))
+        etapas.append({"chave": chave, "rotulo": rotulo, "status": list(status),
+                       "total": len(grupo),
+                       "pedidos": [{"id": p["id"], "data_evento": p["data_evento"],
+                                    "status_operacional": p["status_operacional"],
+                                    "cliente_nome": p["cliente_nome"]}
+                                   for p in grupo[:limite_por_etapa]]})
     return etapas
 
 
@@ -2378,12 +2372,12 @@ def alertas_dashboard() -> list:
                          str(DIAS_ORCAMENTO_SEM_RETORNO)))
     limite = (date.fromisoformat(hoje) - timedelta(days=dias)).isoformat()
     with conectar() as conn:
-        devolucoes_atrasadas = conn.execute(
-            "SELECT COUNT(*) FROM pedidos"
-            f" WHERE data_devolucao < ? AND {_em_operacao('')}"
-            " AND status_operacional NOT IN"
-            " ('recolhido','conferido','finalizado','cancelado')",
-            (hoje,)).fetchone()[0]
+        # regra única de atraso (a mesma da Esteira): com o cliente e a
+        # devolução já deveria ter sido registrada
+        devolucoes_atrasadas = sum(
+            1 for p in _pedidos_da_esteira(conn, hoje)
+            if p["status_operacional"] == "entregue"
+            and situacao_prazo(p, hoje) == "atrasado")
         orcamentos_sem_retorno = conn.execute(
             "SELECT COUNT(*) FROM orcamentos"
             f" WHERE status='enviado' AND atualizado_em < ? AND {_t()}",
@@ -3118,9 +3112,12 @@ ROTULOS_CAMPO_PEDIDO = {
 }
 
 
+# Sprint 3: Preparação → Separado → Entregue/Retirado → Recolhido/Devolvido
+# → Conferência → Finalizado. "montado" é um valor antigo, mantido nos dados:
+# fica na coluna Separado e segue direto para a entrega.
 FLUXO_OPERACIONAL = {
     "preparacao": "separado",
-    "separado": "montado",
+    "separado": "entregue",
     "montado": "entregue",
     "entregue": "recolhido",
     "recolhido": "conferido",
@@ -3154,30 +3151,68 @@ def listar_pedidos_operacional(status_operacional: str | None = None,
 
 def avancar_status_operacional(pedido_id: int, observacao: str = "",
                                usuario_id=None) -> str:
+    """Avança uma etapa (a seguinte do fluxo). Mesma regra da esteira."""
+    with conectar() as conn:
+        ped = conn.execute(
+            "SELECT status_comercial, status_operacional, historico FROM pedidos"
+            f" WHERE id=? AND {_t()}", (pedido_id,)).fetchone()
+    if not ped:
+        raise ValueError("Pedido não encontrado.")
+    _verificar_operavel(ped)
+    destino = FLUXO_OPERACIONAL.get(ped["status_operacional"])
+    if not destino:
+        raise ValueError(f"Status '{ped['status_operacional']}' não pode avançar.")
+    return mover_etapa(pedido_id, destino, usuario_id, observacao=observacao)
+
+
+def _verificar_operavel(ped) -> None:
+    """Histórico, cancelado e finalizado não se movem na operação."""
+    if ped["historico"]:
+        raise ValueError("Pedido histórico não gera operação.")
+    if ped["status_comercial"] == "cancelado" or ped["status_operacional"] == "cancelado":
+        raise ValueError("Pedido cancelado não pode avançar.")
+    if ped["status_comercial"] == "finalizado" or ped["status_operacional"] == "finalizado":
+        raise ValueError("Pedido finalizado não pode avançar.")
+
+
+def mover_etapa(pedido_id: int, destino: str, usuario_id=None,
+                esperado: str | None = None, observacao: str = "") -> str:
+    """Única porta de mudança de etapa operacional (botão, arrastar, detalhe).
+
+    Valida o estado atual no servidor: histórico, cancelado e finalizado não
+    se movem; só vale a etapa seguinte do fluxo (sem pular, sem voltar);
+    `esperado` recusa a ação se o pedido mudou de etapa enquanto a tela
+    estava aberta. Finalizar exige a conferência.
+    """
     with conectar() as conn:
         ped = conn.execute(
             "SELECT status_comercial, status_operacional, historico FROM pedidos"
             f" WHERE id=? AND {_t()}", (pedido_id,)).fetchone()
         if not ped:
             raise ValueError("Pedido não encontrado.")
-        if ped["historico"]:
-            raise ValueError("Pedido histórico não gera operação.")
-        if ped["status_comercial"] == "cancelado":
-            raise ValueError("Pedido cancelado não pode avançar.")
-        if ped["status_comercial"] == "finalizado":
-            raise ValueError("Pedido finalizado não pode avançar.")
+        _verificar_operavel(ped)
         atual = ped["status_operacional"]
-        if atual not in FLUXO_OPERACIONAL:
-            raise ValueError(f"Status '{atual}' não pode avançar.")
-        proximo = FLUXO_OPERACIONAL[atual]
+        if esperado and esperado != atual:
+            raise ValueError("Este pedido mudou de etapa enquanto a tela estava aberta."
+                             " Atualize a esteira.")
+        permitido = "finalizado" if atual == "conferido" else FLUXO_OPERACIONAL.get(atual)
+        if destino != permitido:
+            de = ROTULOS_OPERACIONAL.get(atual, atual)
+            para = ROTULOS_OPERACIONAL.get(destino, destino)
+            raise ValueError(f"Transição inválida: {de} → {para}.")
+    if destino == "finalizado":
+        finalizar_pedido(pedido_id, usuario_id)
+        return destino
+    with conectar() as conn:
         conn.execute(
             f"UPDATE pedidos SET status_operacional=?, atualizado_em=? WHERE id=? AND {_t()}",
-            (proximo, formato.agora(), pedido_id))
+            (destino, formato.agora(), pedido_id))
         registrar_evento_pedido(
-            conn, pedido_id, TITULO_AVANCO.get(proximo, f"Avançou para {proximo}"),
-            "Operação", usuario_id, detalhe=observacao.strip(),
-            mudancas={"status_operacional": [atual, proximo]})
-        return proximo
+            conn, pedido_id, TITULO_AVANCO.get(destino, f"Avançou para {destino}"),
+            "Agenda" if destino == "entregue" else "Operação", usuario_id,
+            detalhe=observacao.strip(),
+            mudancas={"status_operacional": [atual, destino]})
+    return destino
 
 
 def cancelar_pedido(id_: int, motivo: str = "", usuario_id=None):
@@ -3820,15 +3855,15 @@ ROTULOS_COMERCIAL = {
 ROTULOS_OPERACIONAL = {
     "preparacao": "Em preparação", "separado": "Separado", "montado": "Montado",
     "entregue": "Entregue/Retirado", "recolhido": "Recolhido/Devolvido",
-    "conferido": "Conferido", "finalizado": "Finalizado", "cancelado": "Cancelado",
+    "conferido": "Conferência", "finalizado": "Finalizado", "cancelado": "Cancelado",
 }
 # status operacional atual -> (ação principal, explicação do momento)
 PROXIMA_ACAO = {
     "preparacao": ("Marcar como separado", "O pedido está em preparação."),
-    "separado": ("Marcar como montado", "Os itens já foram separados."),
+    "separado": ("Registrar retirada/entrega", "Os itens já foram separados."),
     "montado": ("Registrar retirada/entrega", "O pedido está pronto para sair."),
     "entregue": ("Registrar devolução", "O pedido está com o cliente."),
-    "recolhido": ("Conferir", "Os itens voltaram e aguardam conferência."),
+    "recolhido": ("Conferir pedido", "Os itens voltaram e aguardam conferência."),
     "conferido": ("Finalizar", "Pedido conferido. Pode ser finalizado."),
 }
 TITULO_AVANCO = {
@@ -4166,17 +4201,24 @@ def finalizar_pedido(id_: int, usuario_id=None):
     atualizar_classificacao_cliente(p["cliente_id"])
 
 
-def registrar_ocorrencia(id_: int, texto: str, usuario_id=None):
+TIPOS_OCORRENCIA = ("Item faltando", "Item danificado", "Atraso",
+                    "Cliente não compareceu", "Problema na entrega",
+                    "Problema na devolução", "Outro")
+
+
+def registrar_ocorrencia(id_: int, texto: str, usuario_id=None, tipo: str = ""):
     texto = (texto or "").strip()
-    if not texto:
+    tipo = tipo if tipo in TIPOS_OCORRENCIA else ""
+    if not texto and not tipo:
         raise ValueError("Descreva a ocorrência.")
     if len(texto) > 1000:
         raise ValueError("A ocorrência deve ter no máximo 1000 caracteres.")
     with conectar() as conn:
         if not _do_tenant(conn, "pedidos", id_):
             raise ValueError("Pedido não encontrado.")
-        registrar_evento_pedido(conn, id_, "Ocorrência registrada", "Ocorrência",
-                                usuario_id, detalhe=texto)
+        registrar_evento_pedido(
+            conn, id_, f"Ocorrência: {tipo}" if tipo else "Ocorrência registrada",
+            "Ocorrência", usuario_id, detalhe=texto)
 
 
 # ---------------------------------------------------------------------------
@@ -4554,3 +4596,207 @@ def aplicar_reclassificacao(conn, usuario_id=None) -> dict:
     for cid in clientes:
         atualizar_classificacao_cliente(cid)
     return {"promovidos": promovidos, "desmarcados": desmarcados}
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — Esteira de pedidos
+#
+# A esteira é uma visão operacional dos próprios pedidos: não há tabela nem
+# status paralelos. Entram só pedidos atuais da empresa (nunca históricos
+# nem cancelados); os finalizados aparecem por alguns dias na última coluna.
+# Atraso, indicadores e agrupamento são calculados aqui e usados pela
+# esteira e pelo Dashboard.
+# ---------------------------------------------------------------------------
+
+ETAPAS_OPERACAO = (
+    ("preparacao", "Preparação", ("preparacao",)),
+    ("separado", "Separado", ("separado", "montado")),
+    ("entregue", "Entregue / Retirado", ("entregue",)),
+    ("recolhido", "Recolhido / Devolvido", ("recolhido",)),
+    ("conferencia", "Conferência", ("conferido",)),
+    ("finalizado", "Finalizado", ("finalizado",)),
+)
+COLUNA_DO_STATUS = {s: chave for chave, _, sts in ETAPAS_OPERACAO for s in sts}
+ACAO_DA_ETAPA = {
+    "preparacao": "Marcar como separado", "separado": "Registrar retirada/entrega",
+    "montado": "Registrar retirada/entrega", "entregue": "Registrar devolução",
+    "recolhido": "Conferir pedido", "conferido": "Finalizar",
+}
+DIAS_FINALIZADOS_NA_ESTEIRA = 7
+FILTROS_EVENTO = (("", "Todos os eventos"), ("hoje", "Festa hoje"),
+                  ("amanha", "Festa amanhã"), ("proximos", "Próximos eventos"))
+
+
+def destino_da_etapa(status: str) -> str | None:
+    return "finalizado" if status == "conferido" else FLUXO_OPERACIONAL.get(status)
+
+
+def prazo_da_etapa(p: dict) -> str | None:
+    """Data até a qual a ação da etapa atual deveria acontecer."""
+    so = p.get("status_operacional")
+    if so in ("preparacao", "separado", "montado"):
+        return p.get("data_retirada") or p.get("data_evento")
+    if so in ("entregue", "recolhido", "conferido"):
+        return p.get("data_devolucao") or p.get("data_evento")
+    return None
+
+
+def situacao_prazo(p: dict, dia: str) -> str:
+    """'atrasado', 'no_prazo' ou 'concluido' — regra única (esteira e Dashboard).
+
+    Atrasado: a ação da etapa atual tinha data anterior ao dia de referência
+    e não foi registrada (saída não feita, devolução não registrada,
+    conferência pendente após a devolução…).
+    """
+    if p.get("status_operacional") == "finalizado" or p.get("status_comercial") == "finalizado":
+        return "concluido"
+    limite = prazo_da_etapa(p)
+    return "atrasado" if limite and limite < dia else "no_prazo"
+
+
+def _rotulo_proxima(p: dict, situacao: str, dia: str) -> str:
+    so = p["status_operacional"]
+    if so == "preparacao":
+        return "Prioridade" if situacao == "atrasado" else "Preparar"
+    if so in ("separado", "montado"):
+        return "Pronto"
+    if so == "entregue":
+        return "Em evento" if (p.get("data_devolucao") or dia) >= dia else "Devolver"
+    return {"recolhido": "Conferir", "conferido": "Conferir itens",
+            "finalizado": "Concluído"}.get(so, "")
+
+
+def _pedidos_da_esteira(conn, dia: str) -> list:
+    """Pedidos atuais em operação + finalizados nos últimos dias (por empresa)."""
+    inicio_fin = (date.fromisoformat(dia)
+                  - timedelta(days=DIAS_FINALIZADOS_NA_ESTEIRA - 1)).isoformat()
+    finalizado_em = (
+        "(SELECT MAX(a.criado_em) FROM audit_log a WHERE a.tipo = 'pedido_evento'"
+        " AND a.entidade = 'pedido' AND a.entidade_id = p.id"
+        " AND a.descricao LIKE '%: Pedido finalizado')")
+    rows = conn.execute(
+        "SELECT p.id, p.cliente_id, p.data_evento, p.data_retirada, p.data_devolucao,"
+        " p.hora_retirada, p.status_comercial, p.status_operacional,"
+        " COALESCE(p.responsavel, '') AS responsavel, p.atualizado_em,"
+        " c.nome AS cliente_nome, c.whatsapp AS cliente_whatsapp,"
+        " c.telefone AS cliente_telefone,"
+        f" {finalizado_em} AS finalizado_em"
+        " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
+        f" WHERE {_t('p')} AND p.historico = 0 AND p.status_comercial != 'cancelado'"
+        " AND (p.status_operacional NOT IN ('finalizado', 'cancelado')"
+        "      AND p.status_comercial != 'finalizado'"
+        "   OR p.status_operacional = 'finalizado')").fetchall()
+    pedidos = []
+    for r in rows:
+        p = dict(r)
+        if p["status_operacional"] == "finalizado":
+            quando = (p["finalizado_em"] or p["atualizado_em"] or "")[:10]
+            if not (inicio_fin <= quando <= dia):
+                continue
+        pedidos.append(p)
+    if not pedidos:
+        return []
+    ids = [p["id"] for p in pedidos]
+    marcas = ",".join("?" * len(ids))
+    itens: dict = {}
+    for i in conn.execute(f"SELECT pedido_id, tipo, descricao, quantidade, preco_unitario"
+                          f" FROM itens_pedido WHERE pedido_id IN ({marcas}) ORDER BY id",
+                          ids):
+        itens.setdefault(i["pedido_id"], []).append(dict(i))
+    for p in pedidos:
+        lista = itens.get(p["id"], [])
+        fisicos = [i for i in lista if i["tipo"] != "servico"]
+        p["itens"] = sum(i["quantidade"] for i in fisicos)
+        # item principal: o kit (ou produto) de maior valor no pedido
+        principal = max(fisicos, key=lambda i: (i["tipo"] == "kit",
+                                                i["quantidade"] * i["preco_unitario"]),
+                        default=None)
+        p["principal"] = principal["descricao"] if principal else ""
+        p["servicos"] = [i["descricao"] for i in lista if i["tipo"] == "servico"]
+    return pedidos
+
+
+def _passa_filtros(p: dict, dia: str, f: dict) -> bool:
+    amanha = (date.fromisoformat(dia) + timedelta(days=1)).isoformat()
+    ev = p.get("data_evento") or ""
+    if f.get("evento") == "hoje" and ev != dia:
+        return False
+    if f.get("evento") == "amanha" and ev != amanha:
+        return False
+    if f.get("evento") == "proximos" and not ev > amanha:
+        return False
+    if f.get("servico") and normalizar_texto(f["servico"]) not in {
+            " ".join(normalizar_texto(s).split()) for s in p["servicos"]}:
+        return False
+    if f.get("responsavel") and normalizar_texto(f["responsavel"]) != " ".join(
+            normalizar_texto(p["responsavel"]).split()):
+        return False
+    if f.get("status") and COLUNA_DO_STATUS.get(p["status_operacional"]) != f["status"]:
+        return False
+    termo = (f.get("q") or "").strip()
+    if termo:
+        numero = termo.lstrip("#")
+        digitos = somente_digitos(termo)
+        achou = (numero.isdigit() and int(numero) == p["id"]) \
+            or normalizar_texto(termo) in normalizar_texto(p["cliente_nome"]) \
+            or (len(digitos) >= 4 and digitos in somente_digitos(
+                f"{p['cliente_whatsapp'] or ''} {p['cliente_telefone'] or ''}"))
+        if not achou:
+            return False
+    return True
+
+
+def indicadores_esteira(dia: str | None = None, pedidos: list | None = None) -> dict:
+    """KPIs da operação no dia (não dependem dos filtros da tela)."""
+    dia = dia or _hoje_iso()
+    with conectar() as conn:
+        if pedidos is None:
+            pedidos = _pedidos_da_esteira(conn, dia)
+        entregas = conn.execute(
+            "SELECT COUNT(*) FROM pedidos WHERE data_retirada = ? AND historico = 0"
+            f" AND status_comercial != 'cancelado' AND {_t()}", (dia,)).fetchone()[0]
+    ativos = [p for p in pedidos if p["status_operacional"] != "finalizado"]
+    atrasados = sum(1 for p in ativos if situacao_prazo(p, dia) == "atrasado")
+    return {"na_esteira": len(ativos), "atrasados": atrasados,
+            "no_prazo": len(ativos) - atrasados, "entregas_dia": entregas}
+
+
+def quadro_esteira(dia: str | None = None, filtros: dict | None = None) -> dict:
+    """Colunas da esteira com os cartões já prontos para a tela."""
+    dia = dia or _hoje_iso()
+    filtros = filtros or {}
+    with conectar() as conn:
+        pedidos = _pedidos_da_esteira(conn, dia)
+    kpis = indicadores_esteira(dia, pedidos)
+    colunas = {chave: {"chave": chave, "rotulo": rotulo, "cartoes": []}
+               for chave, rotulo, _ in ETAPAS_OPERACAO}
+    for p in pedidos:
+        if not _passa_filtros(p, dia, filtros):
+            continue
+        situacao = situacao_prazo(p, dia)
+        destino = destino_da_etapa(p["status_operacional"])
+        cartao = dict(p, situacao=situacao,
+                      proxima=_rotulo_proxima(p, situacao, dia),
+                      acao=ACAO_DA_ETAPA.get(p["status_operacional"]),
+                      destino=destino,
+                      coluna_destino=COLUNA_DO_STATUS.get(destino) if destino else None)
+        colunas[COLUNA_DO_STATUS.get(p["status_operacional"], "preparacao")][
+            "cartoes"].append(cartao)
+    for col in colunas.values():
+        # atrasados primeiro, depois pela data da próxima ação
+        col["cartoes"].sort(key=lambda c: (c["situacao"] != "atrasado",
+                                           prazo_da_etapa(c) or "9999", c["id"]))
+        if col["chave"] == "finalizado":
+            col["cartoes"].sort(key=lambda c: c["finalizado_em"] or "", reverse=True)
+    responsaveis = {normalizar_texto(u["nome"]): u["nome"] for u in listar_usuarios()}
+    for p in pedidos:
+        if p["responsavel"].strip():
+            responsaveis.setdefault(normalizar_texto(p["responsavel"]).strip(),
+                                    p["responsavel"].strip())
+    servicos = {normalizar_texto(s["nome"]): s["nome"] for s in listar_servicos()}
+    for p in pedidos:
+        for s in p["servicos"]:
+            servicos.setdefault(" ".join(normalizar_texto(s).split()), " ".join(s.split()))
+    return {"dia": dia, "kpis": kpis, "colunas": list(colunas.values()),
+            "responsaveis": sorted(responsaveis.values(), key=normalizar_texto),
+            "servicos": sorted(servicos.values(), key=normalizar_texto)}
