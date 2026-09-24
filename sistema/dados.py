@@ -604,6 +604,8 @@ _INDICES_EMPRESA = (
     ("ix_orcamentos_tenant", "orcamentos (tenant_id, status)"),
     ("ix_pedidos_tenant_status", "pedidos (tenant_id, status_comercial)"),
     ("ix_pedidos_tenant_evento", "pedidos (tenant_id, data_evento)"),
+    ("ix_pedidos_tenant_retirada", "pedidos (tenant_id, data_retirada)"),
+    ("ix_pedidos_tenant_devolucao", "pedidos (tenant_id, data_devolucao)"),
     ("ix_evt_hist_tenant_data", "eventos_historico (tenant_id, data_evento)"),
     ("ix_audit_tenant", "audit_log (tenant_id, tipo)"),
     ("ix_audit_entidade", "audit_log (tenant_id, entidade, entidade_id)"),
@@ -2992,6 +2994,18 @@ def _validar_dados_pedido(d: dict):
             and d["data_retirada"] > d["data_devolucao"]):
         raise ErroDeCampo("data_devolucao",
                           "Data de devolução deve ser posterior à retirada.")
+    # Sprint 4: datas coerentes com a festa (a Agenda aponta os casos antigos)
+    ev = d.get("data_evento")
+    if ev and d.get("data_retirada") and d["data_retirada"] > ev:
+        raise ErroDeCampo("data_retirada",
+                          "Retirada/entrega não pode ser depois do evento.")
+    if ev and d.get("data_devolucao") and d["data_devolucao"] < ev:
+        raise ErroDeCampo("data_devolucao", "Devolução não pode ser antes do evento.")
+    if (d.get("data_retirada") and d.get("data_retirada") == d.get("data_devolucao")
+            and d.get("hora_retirada") and d.get("hora_devolucao")
+            and d["hora_devolucao"] <= d["hora_retirada"]):
+        raise ErroDeCampo("hora_devolucao",
+                          "No mesmo dia, a devolução precisa ser depois da saída.")
 
 
 def _validar_itens_da_empresa(conn, itens: list):
@@ -3013,6 +3027,15 @@ def _assinatura_itens(itens: list) -> list:
 def _verificar_disponibilidade_itens(conn, itens: list, data_retirada: str,
                                      data_devolucao: str,
                                      pedido_id: int | None = None):
+    faltas = _faltas_de_estoque(conn, itens, data_retirada, data_devolucao, pedido_id)
+    if faltas:
+        raise ErroDeCampo("item_descricao_0", faltas[0])
+
+
+def _faltas_de_estoque(conn, itens: list, data_retirada: str, data_devolucao: str,
+                       pedido_id: int | None = None) -> list:
+    """Produtos do pedido sem quantidade livre no período (mensagens)."""
+    faltas = []
     for item in itens:
         if item.get("tipo") != "produto" or not item.get("item_id"):
             continue
@@ -3021,11 +3044,11 @@ def _verificar_disponibilidade_itens(conn, itens: list, data_retirada: str,
             f"SELECT quantidade_total, status, nome FROM produtos WHERE id=? AND {_t()}",
             (pid,)).fetchone()
         if not r:
-            raise ErroDeCampo("item_descricao_0", "Produto não encontrado.")
+            faltas.append("Produto não encontrado.")
+            continue
         if r["status"] == "manutencao":
-            raise ErroDeCampo(
-                "item_descricao_0",
-                f"Produto '{r['nome']}' esta em manutencao.")
+            faltas.append(f"Produto '{r['nome']}' esta em manutencao.")
+            continue
         total = r["quantidade_total"]
         sql = (
             "SELECT COALESCE(SUM(ip.quantidade), 0) FROM itens_pedido ip"
@@ -3043,10 +3066,9 @@ def _verificar_disponibilidade_itens(conn, itens: list, data_retirada: str,
         livre = total - reservado
         qtd = int(item.get("quantidade") or 1)
         if qtd > livre:
-            raise ErroDeCampo(
-                "item_descricao_0",
-                f"Quantidade insuficiente para '{r['nome']}' nesta data."
-                f" Disponivel: {livre}, solicitado: {qtd}.")
+            faltas.append(f"Quantidade insuficiente para '{r['nome']}' nesta data."
+                          f" Disponivel: {livre}, solicitado: {qtd}.")
+    return faltas
 
 
 def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
@@ -4775,14 +4797,20 @@ def _pedidos_da_esteira(conn, dia: str) -> list:
             if not (inicio_fin <= quando <= dia):
                 continue
         pedidos.append(p)
+    _resumir_itens(conn, pedidos)
+    return pedidos
+
+
+def _resumir_itens(conn, pedidos: list) -> None:
+    """Quantidade, item principal e serviços de cada pedido (uma consulta só)."""
     if not pedidos:
-        return []
+        return
     ids = [p["id"] for p in pedidos]
     marcas = ",".join("?" * len(ids))
     itens: dict = {}
-    for i in conn.execute(f"SELECT pedido_id, tipo, descricao, quantidade, preco_unitario"
-                          f" FROM itens_pedido WHERE pedido_id IN ({marcas}) ORDER BY id",
-                          ids):
+    for i in conn.execute(f"SELECT pedido_id, tipo, item_id, descricao, quantidade,"
+                          f" preco_unitario FROM itens_pedido WHERE pedido_id IN ({marcas})"
+                          " ORDER BY id", ids):
         itens.setdefault(i["pedido_id"], []).append(dict(i))
     for p in pedidos:
         lista = itens.get(p["id"], [])
@@ -4794,7 +4822,7 @@ def _pedidos_da_esteira(conn, dia: str) -> list:
                         default=None)
         p["principal"] = principal["descricao"] if principal else ""
         p["servicos"] = [i["descricao"] for i in lista if i["tipo"] == "servico"]
-    return pedidos
+        p["lista_itens"] = lista
 
 
 def _passa_filtros(p: dict, dia: str, f: dict) -> bool:
@@ -4869,15 +4897,337 @@ def quadro_esteira(dia: str | None = None, filtros: dict | None = None) -> dict:
                                            prazo_da_etapa(c) or "9999", c["id"]))
         if col["chave"] == "finalizado":
             col["cartoes"].sort(key=lambda c: c["finalizado_em"] or "", reverse=True)
+    return {"dia": dia, "kpis": kpis, "colunas": list(colunas.values()),
+            **_opcoes_de_filtro(pedidos)}
+
+
+def _opcoes_de_filtro(pedidos: list) -> dict:
+    """Responsáveis (usuários + nomes nos pedidos) e serviços para os filtros."""
     responsaveis = {normalizar_texto(u["nome"]): u["nome"] for u in listar_usuarios()}
     for p in pedidos:
-        if p["responsavel"].strip():
+        if (p.get("responsavel") or "").strip():
             responsaveis.setdefault(normalizar_texto(p["responsavel"]).strip(),
                                     p["responsavel"].strip())
     servicos = {normalizar_texto(s["nome"]): s["nome"] for s in listar_servicos()}
     for p in pedidos:
-        for s in p["servicos"]:
+        for s in p.get("servicos") or []:
             servicos.setdefault(" ".join(normalizar_texto(s).split()), " ".join(s.split()))
-    return {"dia": dia, "kpis": kpis, "colunas": list(colunas.values()),
-            "responsaveis": sorted(responsaveis.values(), key=normalizar_texto),
+    return {"responsaveis": sorted(responsaveis.values(), key=normalizar_texto),
             "servicos": sorted(servicos.values(), key=normalizar_texto)}
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4 — Agenda: projeção temporal dos pedidos (nada é gravado)
+#
+# Cada pedido gera, a partir das próprias datas, até três compromissos:
+# a festa (data_evento), a saída (data_retirada: "Entrega" quando o pedido tem
+# serviço de entrega/montagem, senão "Retirada" pelo cliente) e a devolução
+# (data_devolucao). Pedidos e registros históricos aparecem só pela data da
+# festa, para consulta: não geram tarefa, atraso nem conflito. Cancelados só
+# aparecem quando o filtro de cancelados é escolhido.
+# ---------------------------------------------------------------------------
+
+TIPOS_AGENDA = (("evento", "Evento"), ("retirada", "Retirada"), ("entrega", "Entrega"),
+                ("devolucao", "Devolução"), ("historico", "Histórico"))
+ROTULO_TIPO_AGENDA = dict(TIPOS_AGENDA)
+STATUS_AGENDA = tuple((chave, rotulo) for chave, rotulo, _ in ETAPAS_OPERACAO) + (
+    ("atrasado", "Em atraso"), ("conflito", "Conflito/atenção"),
+    ("cancelado", "Cancelados"))
+# Serviços que indicam saída feita pela equipe; sem eles, o cliente retira.
+_TRECHOS_ENTREGA = ("entreg", "montag")
+# Dois compromissos do mesmo responsável a menos disto (minutos) se chocam.
+MINUTOS_CHOQUE_RESPONSAVEL = 30
+# O compromisso ainda está por fazer enquanto o pedido está nestas etapas.
+_PENDENTE_NAS_ETAPAS = {
+    "saida": ("preparacao", "separado", "montado"),
+    "devolucao": ("preparacao", "separado", "montado", "entregue"),
+}
+
+
+def _tipo_da_saida(servicos: list) -> str:
+    nomes = " ".join(normalizar_texto(s) for s in servicos)
+    return "entrega" if any(t in nomes for t in _TRECHOS_ENTREGA) else "retirada"
+
+
+def _minutos(hora: str) -> int | None:
+    if not hora or not re.fullmatch(r"\d{2}:\d{2}", hora):
+        return None
+    return int(hora[:2]) * 60 + int(hora[3:])
+
+
+def _alertas_das_datas(p: dict) -> list:
+    """Datas faltando ou incoerentes num pedido em operação: (nível, motivo)."""
+    alertas = []
+    ev, ret, dev = p.get("data_evento"), p.get("data_retirada"), p.get("data_devolucao")
+    for valor, texto in ((ev, "Pedido sem data do evento."),
+                         (ret, "Pedido sem data de retirada/entrega."),
+                         (dev, "Pedido sem data de devolução.")):
+        if not valor:
+            alertas.append(("atencao", texto))
+    if ret and dev and ret > dev:
+        alertas.append(("conflito", "Devolução marcada antes da retirada/entrega."))
+    if ev and dev and dev < ev:
+        alertas.append(("conflito", "Devolução marcada antes do evento."))
+    if ev and ret and ret > ev:
+        alertas.append(("conflito", "Retirada/entrega marcada depois do evento."))
+    if ret and ret == dev:
+        saida, volta = _minutos(p.get("hora_retirada")), _minutos(p.get("hora_devolucao"))
+        if saida is not None and volta is not None and volta <= saida:
+            alertas.append(("conflito", "Devolução no mesmo dia, antes do horário da saída."))
+    return alertas
+
+
+def _pedidos_da_agenda(conn, inicio: str, fim: str) -> list:
+    """Pedidos com alguma data no período (cada data por índice próprio)."""
+    rows = conn.execute(
+        "SELECT p.id, p.cliente_id, p.data_evento, p.data_retirada, p.data_devolucao,"
+        " p.hora_retirada, p.hora_devolucao, p.local_evento, p.status_comercial,"
+        " p.status_operacional, p.historico, p.responsavel_id,"
+        f" {_SQL_NOME_RESPONSAVEL} AS responsavel,"
+        " c.nome AS cliente_nome, c.whatsapp AS cliente_whatsapp,"
+        " c.telefone AS cliente_telefone"
+        " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
+        " LEFT JOIN usuarios u ON u.id = p.responsavel_id"
+        f" WHERE {_t('p')} AND p.id IN ("
+        f" SELECT id FROM pedidos WHERE {_t()} AND data_evento BETWEEN ? AND ?"
+        f" UNION SELECT id FROM pedidos WHERE {_t()} AND data_retirada BETWEEN ? AND ?"
+        f" UNION SELECT id FROM pedidos WHERE {_t()} AND data_devolucao BETWEEN ? AND ?)",
+        (inicio, fim) * 3).fetchall()
+    pedidos = [dict(r) for r in rows]
+    _resumir_itens(conn, pedidos)
+    return pedidos
+
+
+def _historicos_da_agenda(conn, inicio: str, fim: str) -> list:
+    """Festas importadas (planilha) que não viraram pedido, no período."""
+    return [dict(r) for r in conn.execute(
+        "SELECT h.id, h.cliente_id, h.data_evento, h.descricao, h.status_origem,"
+        " situacao_historico(h.origem, h.status_origem, h.data_evento) AS situacao,"
+        " c.nome AS cliente_nome, c.whatsapp AS cliente_whatsapp,"
+        " c.telefone AS cliente_telefone"
+        " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
+        f" WHERE h.data_evento BETWEEN ? AND ? AND {_historico_visivel()}",
+        (inicio, fim)).fetchall()]
+
+
+def _compromissos_do_pedido(p: dict, inicio: str, fim: str, agora_: str) -> list:
+    sc, so = p["status_comercial"], p["status_operacional"]
+    cancelado = sc == "cancelado" or so == "cancelado"
+    base = {
+        "pedido_id": p["id"], "historico_id": None, "cliente_id": p["cliente_id"],
+        "cliente_nome": p.get("cliente_nome") or "",
+        "cliente_contato": f"{p.get('cliente_whatsapp') or ''} {p.get('cliente_telefone') or ''}",
+        "principal": p.get("principal") or "", "itens": p.get("itens") or 0,
+        "servicos": p.get("servicos") or [],
+        "descricoes": [i["descricao"] for i in p.get("lista_itens") or []],
+        "responsavel": (p.get("responsavel") or "").strip(),
+        "responsavel_chave": (f"u{p['responsavel_id']}" if p.get("responsavel_id")
+                              else " ".join(normalizar_texto(p.get("responsavel")).split())),
+        "local": p.get("local_evento") or "",
+        "data_evento": p.get("data_evento"), "data_retirada": p.get("data_retirada"),
+        "data_devolucao": p.get("data_devolucao"),
+        "hora_retirada": p.get("hora_retirada") or "",
+        "hora_devolucao": p.get("hora_devolucao") or "",
+        "status_comercial": sc, "status_operacional": so,
+        "etapa": None if cancelado or p["historico"] else COLUNA_DO_STATUS.get(so),
+        "cancelado": cancelado, "historico": bool(p["historico"]),
+        "operacional": not (cancelado or p["historico"] or sc in FORA_DA_OPERACAO
+                            or so == "finalizado"),
+        "atrasado": False, "alertas": [],
+    }
+    if cancelado:
+        base["situacao"], base["rotulo_status"] = "cancelado", "Cancelado"
+    elif p["historico"]:
+        base["situacao"], base["rotulo_status"] = "historico", "Histórico"
+    elif so == "finalizado" or sc == "finalizado":
+        base["situacao"], base["rotulo_status"] = "finalizado", "Finalizado"
+    else:
+        base["situacao"] = "andamento"
+        base["rotulo_status"] = ROTULOS_OPERACIONAL.get(so, so)
+
+    if p["historico"]:
+        datas = [("historico", p.get("data_evento"), "")]
+    else:
+        datas = [("evento", p.get("data_evento"), ""),
+                 (_tipo_da_saida(base["servicos"]), p.get("data_retirada"),
+                  base["hora_retirada"]),
+                 ("devolucao", p.get("data_devolucao"), base["hora_devolucao"])]
+    alertas = _alertas_das_datas(p) if base["operacional"] else []
+    lista = []
+    for tipo, data, hora in datas:
+        if not data or not (inicio <= data <= fim):
+            continue
+        c = dict(base, chave=f"p{p['id']}-{tipo}", tipo=tipo,
+                 rotulo=ROTULO_TIPO_AGENDA[tipo], data=data, hora=hora,
+                 alertas=list(alertas))
+        if base["operacional"]:
+            # a festa só vale como prazo quando o pedido não tem data de saída
+            grupo = ("devolucao" if tipo == "devolucao" else
+                     "saida" if tipo != "evento" or not p.get("data_retirada") else None)
+            limite = f"{data}T{hora or '23:59'}:59" if hora else f"{data}T23:59:59"
+            c["atrasado"] = bool(grupo and so in _PENDENTE_NAS_ETAPAS[grupo]
+                                 and limite < agora_)
+        lista.append(c)
+    return lista
+
+
+def _compromisso_importado(h: dict) -> dict:
+    situacao = h["situacao"]
+    rotulo = {"finalizado": "Histórico importado", "cancelado": "Cancelado na origem",
+              "pendente": "Importado — converter em pedido"}.get(situacao, "Histórico importado")
+    return {
+        "chave": f"h{h['id']}", "tipo": "historico", "rotulo": "Histórico",
+        "data": h["data_evento"], "hora": "", "pedido_id": None, "historico_id": h["id"],
+        "cliente_id": h["cliente_id"], "cliente_nome": h.get("cliente_nome") or "",
+        "cliente_contato": f"{h.get('cliente_whatsapp') or ''} {h.get('cliente_telefone') or ''}",
+        "principal": (h.get("descricao") or "").strip(), "itens": 0, "servicos": [],
+        "descricoes": [h.get("descricao") or ""], "responsavel": "", "responsavel_chave": "",
+        "local": "", "data_evento": h["data_evento"], "data_retirada": None,
+        "data_devolucao": None, "hora_retirada": "", "hora_devolucao": "",
+        "status_comercial": situacao, "status_operacional": None, "etapa": None,
+        "cancelado": situacao == "cancelado", "historico": True, "operacional": False,
+        "atrasado": False, "alertas": [], "importado": True,
+        "situacao": "cancelado" if situacao == "cancelado" else "historico",
+        "rotulo_status": rotulo,
+    }
+
+
+def _marcar_choques_de_responsavel(compromissos: list) -> None:
+    """Mesmo responsável com dois compromissos com horário muito próximo."""
+    grupos: dict = {}
+    for c in compromissos:
+        if (c["operacional"] and c["tipo"] != "evento" and c["responsavel_chave"]
+                and _minutos(c["hora"]) is not None):
+            grupos.setdefault((c["data"], c["responsavel_chave"]), []).append(c)
+    for lista in grupos.values():
+        lista.sort(key=lambda c: c["hora"])
+        for a, b in zip(lista, lista[1:]):
+            if (b["pedido_id"] != a["pedido_id"] and
+                    _minutos(b["hora"]) - _minutos(a["hora"]) < MINUTOS_CHOQUE_RESPONSAVEL):
+                for c, outro in ((a, b), (b, a)):
+                    c["alertas"].append((
+                        "atencao", f"{c['responsavel']} também tem {outro['rotulo'].lower()}"
+                                   f" do pedido #{outro['pedido_id']} às {outro['hora']}."))
+
+
+def _marcar_faltas_de_estoque(conn, pedidos: list, compromissos: list) -> None:
+    """Produto reservado além do estoque no período do pedido (conflito)."""
+    por_pedido: dict = {}
+    for p in pedidos:
+        if (p["historico"] or p["status_comercial"] in FORA_DA_OPERACAO
+                or not p.get("data_retirada") or not p.get("data_devolucao")
+                or p["data_retirada"] > p["data_devolucao"]):
+            continue
+        faltas = _faltas_de_estoque(conn, p.get("lista_itens") or [],
+                                    p["data_retirada"], p["data_devolucao"], p["id"])
+        if faltas:
+            por_pedido[p["id"]] = [("conflito", f.replace("esta em manutencao",
+                                                          "está em manutenção")
+                                                 .replace("Disponivel", "Disponível"))
+                                   for f in faltas]
+    for c in compromissos:
+        c["alertas"].extend(por_pedido.get(c["pedido_id"], []))
+
+
+def _nivel_alerta(c: dict) -> str | None:
+    niveis = {n for n, _ in c["alertas"]}
+    return "conflito" if "conflito" in niveis else ("atencao" if niveis else None)
+
+
+def _ordem_no_dia(c: dict) -> tuple:
+    # festa e históricos primeiro (o dia todo), depois por horário; sem horário no fim
+    dia_todo = c["tipo"] in ("evento", "historico")
+    return (not dia_todo, c["hora"] == "", c["hora"], c["pedido_id"] or 0, c["chave"])
+
+
+def _passa_filtros_agenda(c: dict, f: dict) -> bool:
+    status = f.get("status") or ""
+    if c["cancelado"] != (status == "cancelado"):
+        return False
+    tipo = f.get("tipo") or ""
+    if tipo and c["tipo"] != tipo:
+        return False
+    if f.get("servico") and normalizar_texto(f["servico"]) not in {
+            " ".join(normalizar_texto(s).split()) for s in c["servicos"]}:
+        return False
+    if f.get("responsavel") and normalizar_texto(f["responsavel"]) != " ".join(
+            normalizar_texto(c["responsavel"]).split()):
+        return False
+    if status == "atrasado" and not c["atrasado"]:
+        return False
+    if status == "conflito" and not c["alertas"]:
+        return False
+    if status in COLUNA_DO_STATUS.values() and c["etapa"] != status:
+        return False
+    termo = (f.get("q") or "").strip()
+    if termo:
+        numero = termo.lstrip("#")
+        digitos = somente_digitos(termo)
+        chave = normalizar_texto(termo)
+        achou = (numero.isdigit() and int(numero) == c["pedido_id"]) \
+            or chave in normalizar_texto(c["cliente_nome"]) \
+            or any(chave in normalizar_texto(d) for d in c["descricoes"]) \
+            or (len(digitos) >= 4 and digitos in somente_digitos(c["cliente_contato"]))
+        if not achou:
+            return False
+    return True
+
+
+def filtros_agenda(args) -> dict:
+    """Filtros aceitos pela Agenda; valores fora das listas são descartados."""
+    tipo = args.get("tipo", "")
+    status = args.get("status", "")
+    return {
+        "tipo": tipo if tipo in ROTULO_TIPO_AGENDA else "",
+        "servico": (args.get("servico") or "").strip()[:80],
+        "responsavel": (args.get("responsavel") or "").strip()[:200],
+        "status": status if status in dict(STATUS_AGENDA) else "",
+        "q": (args.get("q") or "").strip()[:100],
+    }
+
+
+def agenda_periodo(inicio: str, fim: str, filtros: dict | None = None,
+                   agora_: str | None = None) -> dict:
+    """Compromissos do período (já filtrados), indicadores e avisos.
+
+    Indicadores contam o período inteiro, sem os filtros da tela; cancelados
+    nunca entram nos números.
+    """
+    for valor in (inicio, fim):
+        date.fromisoformat(valor)  # ValueError em data inválida
+    if inicio > fim:
+        raise ValueError("Período inválido.")
+    filtros = filtros or {}
+    agora_ = agora_ or formato.agora()
+    with conectar() as conn:
+        pedidos = _pedidos_da_agenda(conn, inicio, fim)
+        importados = _historicos_da_agenda(conn, inicio, fim)
+        todos = [c for p in pedidos for c in _compromissos_do_pedido(p, inicio, fim, agora_)]
+        todos += [_compromisso_importado(h) for h in importados]
+        _marcar_choques_de_responsavel(todos)
+        _marcar_faltas_de_estoque(conn, pedidos, todos)
+        sem_data = [dict(r) for r in conn.execute(
+            "SELECT p.id, c.nome AS cliente_nome FROM pedidos p"
+            " LEFT JOIN clientes c ON c.id = p.cliente_id"
+            f" WHERE {_em_operacao('p')} AND p.historico = 0"
+            " AND p.data_evento IS NULL AND p.data_retirada IS NULL"
+            " AND p.data_devolucao IS NULL ORDER BY p.id").fetchall()]
+    for c in todos:
+        c["nivel_alerta"] = _nivel_alerta(c)
+    todos.sort(key=lambda c: (c["data"], _ordem_no_dia(c)))
+
+    validos = [c for c in todos if not c["cancelado"]]
+    kpis = {t: sum(1 for c in validos if c["tipo"] == t)
+            for t in ("evento", "retirada", "entrega", "devolucao", "historico")}
+    kpis["eventos"] = kpis["evento"] + kpis["historico"]
+    kpis["atrasados"] = sum(1 for c in validos if c["atrasado"])
+    kpis["pedidos_com_conflito"] = len({c["pedido_id"] for c in validos
+                                        if c["nivel_alerta"] == "conflito"})
+
+    lista = [c for c in todos if _passa_filtros_agenda(c, filtros)]
+    por_dia: dict = {}
+    for c in lista:
+        por_dia.setdefault(c["data"], []).append(c)
+    return {"inicio": inicio, "fim": fim, "compromissos": lista, "por_dia": por_dia,
+            "kpis": kpis, "total_periodo": len(validos), "sem_data": sem_data,
+            "filtrado": any(filtros.values()), **_opcoes_de_filtro(pedidos)}

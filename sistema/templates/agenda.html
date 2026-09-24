@@ -1,212 +1,213 @@
 {% extends "base.html" %}
+{% import "_agenda_partes.html" as partes with context %}
 {% block titulo %}Agenda — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
 {% include "_topo.html" %}
 
-<main id="conteudo" class="pagina">
-  <div class="cabecalho-lista">
-    <h2 class="secao">Agenda</h2>
-  </div>
+<main id="conteudo" class="pagina agd">
+  {% include "_erro.html" %}
 
-  <div class="agenda-controles cartao">
-    <div class="agenda-visoes">
-      <a class="botao mini {{ 'primario' if visao == 'mensal' else 'vazado' }}"
-         href="{{ url_for('agenda', visao='mensal', tipo=tipo, status=status) }}">Mensal</a>
-      <a class="botao mini {{ 'primario' if visao == 'semanal' else 'vazado' }}"
-         href="{{ url_for('agenda', visao='semanal', tipo=tipo, status=status) }}">Semanal</a>
-      <a class="botao mini {{ 'primario' if visao == 'diaria' else 'vazado' }}"
-         href="{{ url_for('agenda', visao='diaria', tipo=tipo, status=status) }}">Diária</a>
+  <div class="agd-cab">
+    <span class="agd-icone" aria-hidden="true">▣</span>
+    <div class="agd-titulos">
+      <h1 class="agd-titulo">Agenda</h1>
+      <p class="agd-sub">Visualize todos os eventos, retiradas, entregas e devoluções da {{ empresa.nome_exibicao }}.</p>
     </div>
-
-    <form class="agenda-filtros" method="GET" action="{{ url_for('agenda') }}">
-      <input type="hidden" name="visao" value="{{ visao }}">
-      {% if visao == 'mensal' %}
-        <input type="hidden" name="ano" value="{{ ano }}">
-        <input type="hidden" name="mes" value="{{ mes }}">
-      {% elif visao == 'semanal' %}
-        <input type="hidden" name="ano" value="{{ seg.year }}">
-        <input type="hidden" name="mes" value="{{ seg.month }}">
-        <input type="hidden" name="dia" value="{{ seg.day }}">
-      {% elif visao == 'diaria' %}
-        <input type="hidden" name="ano" value="{{ ref.year }}">
-        <input type="hidden" name="mes" value="{{ ref.month }}">
-        <input type="hidden" name="dia" value="{{ ref.day }}">
-      {% endif %}
-      <label class="agenda-filtro-label">
-        Tipo
-        <select name="tipo" onchange="this.form.submit()">
-          <option value="">Todos</option>
-          <option value="evento" {{ 'selected' if tipo == 'evento' }}>Evento</option>
-          <option value="retirada" {{ 'selected' if tipo == 'retirada' }}>Retirada</option>
-          <option value="devolucao" {{ 'selected' if tipo == 'devolucao' }}>Devolução</option>
-        </select>
-      </label>
-      <label class="agenda-filtro-label">
-        Status
-        <select name="status" onchange="this.form.submit()">
-          <option value="">Todos</option>
-          {% for s in status_comercial %}
-            {% if s != 'cancelado' %}
-            <option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>
-            {% endif %}
-          {% endfor %}
-        </select>
-      </label>
-    </form>
-  </div>
-
-  {# ========== VISAO MENSAL ========== #}
-  {% if visao == 'mensal' %}
-  <div class="cartao">
-    <div class="cal-nav">
-      <a href="{{ url_for('agenda', visao='mensal', ano=ano_ant, mes=mes_ant, tipo=tipo, status=status) }}"
-         class="botao mini vazado">&larr;</a>
-      <strong>{{ meses[mes - 1] }} {{ ano }}</strong>
-      <a href="{{ url_for('agenda', visao='mensal', ano=ano_prox, mes=mes_prox, tipo=tipo, status=status) }}"
-         class="botao mini vazado">&rarr;</a>
-    </div>
-
-    <div class="ag-grade-mensal">
-      <span class="cal-dia-nome">Dom</span>
-      <span class="cal-dia-nome">Seg</span>
-      <span class="cal-dia-nome">Ter</span>
-      <span class="cal-dia-nome">Qua</span>
-      <span class="cal-dia-nome">Qui</span>
-      <span class="cal-dia-nome">Sex</span>
-      <span class="cal-dia-nome">Sab</span>
-
-      {% for _ in range(offset_dia) %}
-      <span class="cal-dia vazio"></span>
-      {% endfor %}
-
-      {% for d in calendario %}
-      <a class="ag-cel {{ 'ag-hoje' if d.data == hoje.isoformat() }}"
-         href="{{ url_for('agenda', visao='diaria', ano=ano, mes=mes, dia=d.dia, tipo=tipo, status=status) }}">
-        <span class="ag-num">{{ d.dia }}</span>
-        {% if d.eventos %}
-        <span class="ag-badge">{{ d.eventos|length }}</span>
-        {% endif %}
-      </a>
-      {% endfor %}
-    </div>
-
-    <div class="cal-legenda">
-      <span class="leg-evento">Evento</span>
-      <span class="leg-retirada">Retirada</span>
-      <span class="leg-devolucao">Devolução</span>
-      <span class="leg-historico">Histórico</span>
-    </div>
-  </div>
-
-  {# ========== VISAO SEMANAL ========== #}
-  {% elif visao == 'semanal' %}
-  <div class="cartao">
-    <div class="cal-nav">
-      <a href="{{ url_for('agenda', visao='semanal', ano=sem_ant.year, mes=sem_ant.month, dia=sem_ant.day, tipo=tipo, status=status) }}"
-         class="botao mini vazado">&larr;</a>
-      <strong>{{ seg.strftime('%d/%m') }} — {{ dom.strftime('%d/%m/%Y') }}</strong>
-      <a href="{{ url_for('agenda', visao='semanal', ano=sem_prox.year, mes=sem_prox.month, dia=sem_prox.day, tipo=tipo, status=status) }}"
-         class="botao mini vazado">&rarr;</a>
-    </div>
-
-    <div class="ag-semana">
-      {% for ds in dias_semana %}
-      <div class="ag-semana-dia {{ 'ag-hoje' if ds.data == hoje }}">
-        <div class="ag-semana-cab">
-          <span class="ag-semana-nome">{{ ['Seg','Ter','Qua','Qui','Sex','Sab','Dom'][loop.index0] }}</span>
-          <a class="ag-semana-num" href="{{ url_for('agenda', visao='diaria', ano=ds.data.year, mes=ds.data.month, dia=ds.data.day, tipo=tipo, status=status) }}">{{ ds.data.day }}</a>
-        </div>
-        {% for ev in ds.eventos %}
-        {% if ev.get('historico') %}
-        <span class="ag-ev ag-ev-historico">
-          <span class="ag-ev-tipo" title="Importado de {{ rotulo_fonte(ev.fonte) }}">importado</span>
-          <span class="ag-ev-cliente">{{ ev.cliente_nome or '—' }}</span>
-          <span class="ag-ev-status etiqueta">{{ ev.status_origem or '—' }}</span>
-        </span>
-        {% else %}
-        <a class="ag-ev ag-ev-{{ ev.tipos_dia[0] }}" href="{{ url_for('ver_pedido', id_=ev.id) }}">
-          <span class="ag-ev-tipo">{{ ev.tipos_dia|join(', ') }}</span>
-          <span class="ag-ev-cliente">{{ ev.cliente_nome or '—' }}</span>
-          <span class="ag-ev-status etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_operacional }}</span>
-        </a>
-        {% endif %}
-        {% endfor %}
-        {% if not ds.eventos %}
-        <span class="ag-vazio">—</span>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-
-  {# ========== VISAO DIARIA ========== #}
-  {% elif visao == 'diaria' %}
-  <div class="cartao">
-    <div class="cal-nav">
-      <a href="{{ url_for('agenda', visao='diaria', ano=ant.year, mes=ant.month, dia=ant.day, tipo=tipo, status=status) }}"
-         class="botao mini vazado">&larr;</a>
-      <strong>{{ ref.strftime('%d/%m/%Y') }}
-        {% if ref == hoje %}<span class="etiqueta verde" style="font-size:11px;margin-left:8px">Hoje</span>{% endif %}
-      </strong>
-      <a href="{{ url_for('agenda', visao='diaria', ano=prox.year, mes=prox.month, dia=prox.day, tipo=tipo, status=status) }}"
-         class="botao mini vazado">&rarr;</a>
-    </div>
-
-    {% macro lista_pedidos_agenda(titulo, lista, classe) %}
-    <div class="ag-secao">
-      <h3 class="ag-secao-titulo {{ classe }}">{{ titulo }} <span class="ag-secao-qtd">({{ lista|length }})</span></h3>
-      {% if lista %}
-      <table class="tabela ag-tabela">
-        <thead>
-          <tr><th>Pedido</th><th>Cliente</th><th>Comercial</th><th>Operacional</th></tr>
-        </thead>
-        <tbody>
-          {% for ev in lista %}
-          {% set destacado = ev.id == (request.args.get('destaque') or 0)|int %}
-          <tr{% if destacado %} class="ag-destaque" id="pedido-{{ ev.id }}" aria-current="true"{% endif %}>
-            <td><a href="{{ url_for('ver_pedido', id_=ev.id) }}">#{{ ev.id }}</a></td>
-            <td>{{ ev.cliente_nome or '—' }}</td>
-            <td><span class="etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_comercial }}</span></td>
-            <td><span class="etiqueta">{{ ev.status_operacional }}</span></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% else %}
-      <p class="ag-vazio">Nenhum pedido</p>
-      {% endif %}
-    </div>
-    {% endmacro %}
-
-    {{ lista_pedidos_agenda("Retiradas", retiradas, "ag-cor-retirada") }}
-    {{ lista_pedidos_agenda("Devoluções", devolucoes, "ag-cor-devolucao") }}
-    {{ lista_pedidos_agenda("Eventos", eventos_dia, "ag-cor-evento") }}
-    {{ lista_pedidos_agenda("Em preparação", preparacoes, "ag-cor-preparacao") }}
-
-    {% if historicos is defined and historicos %}
-    <div class="ag-secao">
-      <h3 class="ag-secao-titulo ag-cor-historico">Histórico importado <span class="ag-secao-qtd">({{ historicos|length }})</span></h3>
-      <table class="tabela ag-tabela">
-        <thead>
-          <tr><th>Origem</th><th>Cliente</th><th>Descrição</th><th>Valor</th></tr>
-        </thead>
-        <tbody>
-          {% for h in historicos %}
-          <tr>
-            <td><span class="etiqueta" title="Fonte: {{ rotulo_fonte(h.fonte) }}">{{ h.origem }}</span></td>
-            <td>{{ h.cliente_nome or '—' }}</td>
-            <td>{{ h.descricao or h.canal or '—' }}</td>
-            <td>{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    {% if tem('orders.create') and pode('editar_pedido') %}
+    <a class="agd-novo" href="{{ url_for('editar_pedido') }}"><span aria-hidden="true">+</span> Novo pedido</a>
     {% endif %}
   </div>
-  {% endif %}
 
+  <div id="agd-topo" data-parte="topo">{{ partes.periodo() }}</div>
+
+  <div id="agd-conteudo" class="agd-layout agd-layout--{{ visao }}">
+    <div class="agd-area-kpis" data-parte="kpis">{{ partes.indicadores() }}</div>
+    <form class="agd-filtros agd-area-filtros" id="agd-filtros" method="get" action="{{ url_for('agenda') }}" role="search" aria-label="Filtrar agenda">
+      <input type="hidden" name="visao" value="{{ visao if visao != 'mensal' }}">
+      <input type="hidden" name="data" value="{{ ref }}">
+      <label class="agd-filtro">
+        <span class="sr">Tipo</span>
+        <select name="tipo">
+          <option value="">Todos os eventos</option>
+          {% for valor, rotulo in tipos %}<option value="{{ valor }}" {{ 'selected' if filtros.tipo == valor }}>{{ rotulo }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="agd-filtro">
+        <span class="sr">Serviço</span>
+        <select name="servico">
+          <option value="">Todos os serviços</option>
+          {% for s in agenda.servicos %}<option value="{{ s }}" {{ 'selected' if filtros.servico == s }}>{{ s }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="agd-filtro">
+        <span class="sr">Responsável</span>
+        <select name="responsavel">
+          <option value="">Todos os responsáveis</option>
+          {% for r in agenda.responsaveis %}<option value="{{ r }}" {{ 'selected' if filtros.responsavel == r }}>{{ r }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="agd-filtro">
+        <span class="sr">Status</span>
+        <select name="status">
+          <option value="">Todos os status</option>
+          {% for valor, rotulo in status_agenda %}<option value="{{ valor }}" {{ 'selected' if filtros.status == valor }}>{{ rotulo }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="agd-busca">
+        <span aria-hidden="true">⌕</span>
+        <span class="sr">Buscar pedido, cliente ou kit</span>
+        <input type="search" name="q" value="{{ filtros.q }}" placeholder="Buscar pedido, cliente ou kit..." autocomplete="off">
+      </label>
+      <a class="agd-limpar" id="agd-limpar" href="{{ url_agenda(tipo=None, servico=None, responsavel=None, status=None, q=None) }}">Limpar filtros</a>
+      <button type="submit" class="sr">Filtrar</button>
+    </form>
+    <div class="agd-area-cal" data-parte="cal">{{ partes.calendario() }}</div>
+    <div class="agd-area-painel" data-parte="painel">{{ partes.painel_da_visao() }}</div>
+  </div>
+
+  <p class="sr" id="agd-status" role="status" aria-live="polite"></p>
+  <p class="agd-nota">Clique em um evento para abrir o pedido. Eventos históricos ficam visíveis para consulta e não entram na operação.</p>
 </main>
+
+<script>
+(function(){
+  var form = document.getElementById('agd-filtros');
+  var conteudo = document.getElementById('agd-conteudo');
+  if (!form || !conteudo) return;
+  var celular = window.matchMedia ? window.matchMedia('(max-width: 760px)') : { matches: false };
+  var ultimo = 0, espera, url = location.pathname + location.search;
+
+  function urlDoFormulario() {
+    var p = new URLSearchParams();
+    new FormData(form).forEach(function(v, k) { if (v) p.set(k, v); });
+    return form.action + (p.toString() ? '?' + p.toString() : '');
+  }
+  function comDia(href, dia) {
+    var u = new URL(href, location.href);
+    u.searchParams.set('data', dia);
+    return u.pathname + u.search;
+  }
+  function parte(nome) { return document.querySelector('#agd-conteudo [data-parte="' + nome + '"], #agd-topo[data-parte="' + nome + '"]'); }
+  function esqueleto() {
+    var casas = '';
+    for (var i = 0; i < 35; i++) casas += '<span class="agd-skel-cel"></span>';
+    parte('cal').innerHTML = '<div class="agd-skel-grade" aria-hidden="true">' + casas + '</div>' +
+      '<p class="sr">Carregando a agenda…</p>';
+    var painel = parte('painel');
+    if (painel.firstElementChild) painel.innerHTML = '<div class="agd-skel-painel" aria-hidden="true"><span></span><span></span><span></span></div>';
+  }
+  function carregar(href, empurrar) {
+    if (!window.fetch || !window.URLSearchParams) { location.href = href; return; }
+    var u = new URL(href, location.href);
+    var p = new URLSearchParams(u.search);
+    p.set('parcial', '1');
+    var id = ++ultimo;
+    conteudo.setAttribute('aria-busy', 'true');
+    esqueleto();
+    fetch(u.pathname + '?' + p.toString(), { credentials: 'same-origin' })
+      .then(function(r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function(html) {
+        if (id !== ultimo) return;
+        var tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        var estado = tmp.querySelector('[data-estado]');
+        ['topo', 'kpis', 'cal', 'painel'].forEach(function(nome) {
+          parte(nome).innerHTML = tmp.querySelector('[data-parte="' + nome + '"]').innerHTML;
+        });
+        conteudo.className = 'agd-layout agd-layout--' + estado.getAttribute('data-visao');
+        form.elements.visao.value = estado.getAttribute('data-visao') === 'mensal' ? '' : estado.getAttribute('data-visao');
+        form.elements.data.value = estado.getAttribute('data-ref');
+        p.delete('parcial');
+        url = u.pathname + (p.toString() ? '?' + p.toString() : '');
+        if (empurrar) history.pushState(null, '', url + u.hash);
+        document.getElementById('agd-status').textContent = 'Agenda atualizada.';
+        if (u.hash) { var alvo = document.getElementById(u.hash.slice(1)); if (alvo) alvo.scrollIntoView({ block: 'center' }); }
+      })
+      .catch(function() {
+        if (id !== ultimo) return;
+        var corpo = parte('cal');
+        parte('painel').innerHTML = '';
+        corpo.innerHTML = '<div class="agd-erro" role="alert"><p>Não foi possível carregar a agenda.</p>'
+          + '<button type="button" class="agd-botao" data-tentar>Tentar novamente</button></div>';
+        corpo.querySelector('[data-tentar]').addEventListener('click', function() { carregar(href, empurrar); });
+      })
+      .then(function() { if (id === ultimo) conteudo.removeAttribute('aria-busy'); });
+  }
+
+  // Dia selecionado: destaca a casa e mostra a lista no painel (gaveta no celular).
+  function abrirGaveta(abrir) {
+    var painel = conteudo.querySelector('.agd-painel');
+    var fundo = conteudo.querySelector('.agd-fundo');
+    if (!painel) return;
+    painel.classList.toggle('agd-painel--aberto', abrir);
+    if (fundo) fundo.hidden = !abrir;
+    document.body.classList.toggle('agd-gaveta-aberta', abrir);
+    if (abrir) { var f = painel.querySelector('.agd-dia-lista:not([hidden]) [data-fechar]'); if (f) f.focus(); }
+  }
+  function selecionar(dia, chave) {
+    var painel = conteudo.querySelector('.agd-painel');
+    if (!painel) return false;
+    conteudo.querySelectorAll('[data-cel]').forEach(function(c) {
+      var sel = c.getAttribute('data-cel') === dia;
+      c.classList.toggle('agd-cel--sel', sel);
+      var b = c.querySelector('[data-dia-botao]');
+      if (b) b.setAttribute('aria-pressed', sel ? 'true' : 'false');
+    });
+    painel.querySelectorAll('.agd-dia-lista').forEach(function(l) { l.hidden = l.getAttribute('data-dia') !== dia; });
+    form.elements.data.value = dia;
+    url = comDia(url, dia);
+    history.replaceState(null, '', url);
+    painel.querySelectorAll('.agd-card--ativo').forEach(function(c) { c.classList.remove('agd-card--ativo'); });
+    if (chave) {
+      var card = document.getElementById('c-' + chave);
+      if (card) {
+        card.open = true;
+        card.classList.add('agd-card--ativo');
+        if (!celular.matches) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+    if (celular.matches) abrirGaveta(true);
+    return true;
+  }
+
+  form.addEventListener('submit', function(e) { e.preventDefault(); carregar(urlDoFormulario(), true); });
+  form.addEventListener('change', function(e) { if (e.target.name !== 'q') carregar(urlDoFormulario(), true); });
+  form.elements.q.addEventListener('input', function() {
+    clearTimeout(espera);
+    espera = setTimeout(function() { carregar(urlDoFormulario(), true); }, 350);
+  });
+  document.getElementById('agd-limpar').addEventListener('click', function(e) {
+    e.preventDefault();
+    ['tipo', 'servico', 'responsavel', 'status', 'q'].forEach(function(k) { form.elements[k].value = ''; });
+    carregar(urlDoFormulario(), true);
+  });
+  conteudo.addEventListener('click', function(e) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+    var chip = e.target.closest('[data-chip]');
+    if (chip && selecionar(chip.getAttribute('data-dia'), chip.getAttribute('data-chip'))) { e.preventDefault(); return; }
+    var link = e.target.closest('a[data-parcial]');
+    if (link) { e.preventDefault(); abrirGaveta(false); carregar(link.href, true); return; }
+    if (e.target.closest('[data-fechar]')) { abrirGaveta(false); return; }
+    var botao = e.target.closest('[data-dia-botao]');
+    var cel = botao || (!e.target.closest('a, button, details') && e.target.closest('[data-cel]'));
+    if (cel) selecionar(botao ? botao.getAttribute('data-dia-botao') : cel.getAttribute('data-cel'));
+  });
+  var topo = document.getElementById('agd-topo');
+  topo.addEventListener('change', function(e) {
+    if (e.target.type === 'date' && e.target.value) { form.elements.data.value = e.target.value; carregar(urlDoFormulario(), true); }
+  });
+  topo.addEventListener('click', function(e) {
+    var d = e.target.closest('input[type="date"]');
+    if (d && d.showPicker) { try { d.showPicker(); } catch (_) {} return; }
+    var link = e.target.closest('a[data-parcial]');
+    if (link && !(e.ctrlKey || e.metaKey || e.shiftKey)) { e.preventDefault(); carregar(link.href, true); }
+  });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') abrirGaveta(false); });
+  window.addEventListener('popstate', function() { location.reload(); });
+  var alvo = location.hash && document.getElementById(location.hash.slice(1));
+  if (alvo) alvo.scrollIntoView({ block: 'center' });
+})();
+</script>
 {% endblock %}

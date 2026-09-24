@@ -1,0 +1,281 @@
+{# Agenda (Sprint 4) — partes usadas pela página e pela atualização parcial. #}
+{% macro periodo() %}
+<div class="agd-controles">
+  <nav class="agd-visoes" aria-label="Visualização">
+    {% for chave, rotulo in visoes.items() %}
+    <a data-parcial class="agd-visao{{ ' ativo' if visao == chave }}" href="{{ url_agenda(visao=chave) }}"
+       {% if visao == chave %}aria-current="page"{% endif %}>{{ rotulo }}</a>
+    {% endfor %}
+  </nav>
+  <div class="agd-datas">
+    <a data-parcial class="agd-botao agd-seta" href="{{ url_agenda(data=anterior) }}" aria-label="Período anterior">‹</a>
+    <label class="agd-botao agd-data">
+      <span aria-hidden="true" class="agd-data-icone">▣</span>
+      <span>{{ titulo_periodo }}</span>
+      <input type="date" value="{{ ref }}" aria-label="Escolher data">
+    </label>
+    <a data-parcial class="agd-botao agd-seta" href="{{ url_agenda(data=seguinte) }}" aria-label="Próximo período">›</a>
+    <a data-parcial class="agd-botao agd-hoje{{ ' ativo' if inicio <= hoje <= fim }}" href="{{ url_agenda(data=hoje) }}">Hoje</a>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro indicadores() %}
+{% set k = agenda.kpis %}
+{% set sufixo = {'mensal': 'no mês', 'semanal': 'na semana', 'diaria': 'no dia'}[visao] %}
+<div class="agd-kpis" role="group" aria-label="Indicadores do período">
+  {% for chave, valor, rotulo, filtro in (
+      ('evento', k.eventos, 'Eventos ' ~ sufixo, {'tipo': 'evento'}),
+      ('retirada', k.retirada, 'Retiradas', {'tipo': 'retirada'}),
+      ('entrega', k.entrega, 'Entregas', {'tipo': 'entrega'}),
+      ('devolucao', k.devolucao, 'Devoluções', {'tipo': 'devolucao'}),
+      ('atrasado', k.atrasados, 'Em atraso', {'status': 'atrasado'})) %}
+  <a data-parcial class="agd-kpi agd-kpi--{{ chave }}" href="{{ url_agenda(**filtro) }}"
+     aria-label="{{ valor }} {{ rotulo }} — filtrar">
+    <span class="agd-kpi-icone" aria-hidden="true">•</span>
+    <span class="agd-kpi-textos">
+      <strong class="agd-kpi-valor">{{ valor }}</strong>
+      <span class="agd-kpi-rotulo">{{ rotulo }}{% if chave == 'evento' and k.historico %} <small>(inclui {{ k.historico }} histórico{{ 's' if k.historico != 1 }})</small>{% endif %}</span>
+    </span>
+  </a>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro avisos() %}
+{% set k = agenda.kpis %}
+{% if k.pedidos_com_conflito %}
+<p class="agd-alerta agd-alerta--conflito" role="status">
+  <span aria-hidden="true">●</span>
+  {{ k.pedidos_com_conflito }} pedido{{ 's' if k.pedidos_com_conflito != 1 }} com conflito neste período.
+  <a data-parcial href="{{ url_agenda(status='conflito') }}">Ver conflitos</a>
+</p>
+{% endif %}
+{% if agenda.sem_data %}
+<p class="agd-alerta agd-alerta--atencao" role="status">
+  <span aria-hidden="true">▲</span>
+  {{ agenda.sem_data|length }} pedido{{ 's' if agenda.sem_data|length != 1 }} em andamento sem nenhuma data (não aparece{{ 'm' if agenda.sem_data|length != 1 }} na agenda):
+  {% for p in agenda.sem_data[:5] %}<a href="{{ url_for('ver_pedido', id_=p.id) }}">#{{ p.id }}</a>{{ ', ' if not loop.last }}{% endfor %}{{ '…' if agenda.sem_data|length > 5 }}
+</p>
+{% endif %}
+{% endmacro %}
+
+{% macro chip(c, curto=false) -%}
+{% set texto %}{% if c.tipo == 'historico' %}Histórico{% if c.pedido_id %} #{{ c.pedido_id }}{% else %} · {{ (c.cliente_nome or 'sem cliente').split(' ')[0] }}{% endif %}{% else %}{{ c.rotulo }} #{{ c.pedido_id }}{% endif %}{% endset %}
+<a class="agd-chip agd-chip--{{ c.tipo }}{{ ' agd-chip--com-hora' if c.hora }}{{ ' agd-chip--atrasado' if c.atrasado }}{{ ' agd-chip--cancelado' if c.cancelado }}"
+   href="{{ url_agenda(visao='diaria', data=c.data, destaque=c.pedido_id) }}#c-{{ c.chave }}"
+   data-chip="{{ c.chave }}" data-dia="{{ c.data }}"
+   title="{{ c.hora ~ ' ' if c.hora }}{{ texto|trim }} — {{ c.cliente_nome or 'sem cliente' }}{{ ' (em atraso)' if c.atrasado }}{% for n, m in c.alertas %} — {{ m }}{% endfor %}">
+  {%- if c.hora %}<span class="agd-chip-hora">{{ c.hora }}</span> {% endif -%}
+  <span class="agd-chip-texto">{% if c.tipo != 'historico' %}<span class="agd-chip-tipo">{{ c.rotulo }} </span>#{{ c.pedido_id }}{% else %}{{ texto|trim }}{% endif %}</span>
+  {%- if c.nivel_alerta %}<span class="agd-marca agd-marca--{{ c.nivel_alerta }}" aria-label="{{ 'Conflito' if c.nivel_alerta == 'conflito' else 'Atenção' }}"></span>{% endif -%}
+</a>
+{%- endmacro %}
+
+{% macro selo_status(c) -%}
+{% if c.atrasado %}<span class="agd-selo agd-selo--atrasado">Em atraso</span>{% endif %}
+<span class="agd-selo agd-selo--{{ c.situacao }}">{{ c.rotulo_status }}</span>
+{% if c.nivel_alerta == 'conflito' %}<span class="agd-selo agd-selo--conflito">Conflito</span>
+{% elif c.nivel_alerta == 'atencao' %}<span class="agd-selo agd-selo--atencao">Atenção</span>{% endif %}
+{%- endmacro %}
+
+{% macro cartao(c, aberto=false) %}
+{% set pid = c.pedido_id %}
+<details class="agd-card agd-card--{{ c.tipo }}{{ ' agd-card--atrasado' if c.atrasado }}{{ ' agd-card--destaque' if destaque and pid == destaque }}"
+         id="c-{{ c.chave }}" {{ 'open' if aberto or (destaque and pid == destaque) }}>
+  <summary class="agd-card-resumo">
+    <span class="agd-card-topo">
+      <span class="agd-card-quando">
+        <strong class="agd-card-hora">{{ c.hora or ('Dia todo' if c.tipo in ('evento', 'historico') else 'Sem horário') }}</strong>
+        <span class="agd-card-tipo">{{ c.rotulo }}</span>
+      </span>
+      <span class="agd-card-pedido">{% if pid %}Pedido #{{ pid }}{% else %}Importado{% endif %}</span>
+      <span class="agd-card-mais" aria-hidden="true">⋮</span>
+    </span>
+    <span class="agd-card-cliente">{{ c.cliente_nome or 'Cliente não vinculado' }}</span>
+    {% if c.principal %}<span class="agd-card-linha">{{ c.principal }}</span>{% endif %}
+    <span class="agd-card-linha agd-card-meta">
+      <span>{% if c.itens %}{{ c.itens }} {{ 'item' if c.itens == 1 else 'itens' }}{% elif not c.importado %}Sem itens{% endif %}</span>
+      <span class="agd-card-resp">{{ c.responsavel or ('' if c.historico or c.cancelado else 'Sem responsável') }}</span>
+    </span>
+    <span class="agd-card-selos">{{ selo_status(c) }}</span>
+  </summary>
+  <div class="agd-card-detalhe">
+    {% if c.alertas %}
+    <ul class="agd-card-alertas">
+      {% for nivel, motivo in c.alertas %}<li class="agd-alerta-item agd-alerta-item--{{ nivel }}">{{ motivo }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% if c.historico %}
+    <p class="agd-card-nota">{{ 'Festa importada da planilha, para consulta.' if c.importado else 'Pedido histórico, para consulta.' }} Não gera tarefa de operação.</p>
+    {% elif c.cancelado %}
+    <p class="agd-card-nota">Pedido cancelado: não gera tarefa de operação.</p>
+    {% endif %}
+    <dl class="agd-card-dados">
+      {% if c.data_evento %}<div><dt>Evento</dt><dd>{{ c.data_evento|data }}{% if c.local %} • {{ c.local }}{% endif %}</dd></div>{% endif %}
+      {% if not c.historico %}
+      <div><dt>Retirada / entrega</dt><dd>{{ c.data_retirada|data if c.data_retirada else '—' }}{% if c.hora_retirada %} • {{ c.hora_retirada }}{% endif %}</dd></div>
+      <div><dt>Devolução</dt><dd>{{ c.data_devolucao|data if c.data_devolucao else '—' }}{% if c.hora_devolucao %} • {{ c.hora_devolucao }}{% endif %}</dd></div>
+      {% if c.servicos %}<div><dt>Serviços</dt><dd>{{ c.servicos|join(', ') }}</dd></div>{% endif %}
+      {% endif %}
+    </dl>
+    <div class="agd-card-acoes">
+      {% if pid and pode('ver_pedido') %}<a class="agd-acao agd-acao--principal" href="{{ url_for('ver_pedido', id_=pid) }}">Ver pedido</a>
+      {% elif c.historico_id and pode('ver_pedido_historico') %}<a class="agd-acao agd-acao--principal" href="{{ url_for('ver_pedido_historico', id_=c.historico_id) }}">Ver detalhes</a>{% endif %}
+      {% if c.cliente_id and pode('editar_cliente') %}<a class="agd-acao" href="{{ url_for('editar_cliente', id_=c.cliente_id) }}">Ver cliente</a>{% endif %}
+      {% if c.operacional and pode('painel_operacional') %}<a class="agd-acao" href="{{ url_for('painel_operacional', q='#' ~ pid, destaque=pid) }}">Ver na esteira</a>{% endif %}
+      {% if c.operacional and pode('ocorrencia_pedido') %}<a class="agd-acao" href="{{ url_for('ver_pedido', id_=pid) }}#ocorrencia">Registrar ocorrência</a>{% endif %}
+    </div>
+  </div>
+</details>
+{% endmacro %}
+
+{% macro lista_do_dia(dia, oculto=false) %}
+{% set itens = agenda.por_dia.get(dia, []) %}
+<section class="agd-dia-lista" data-dia="{{ dia }}" aria-label="{{ rotulo_dia(dia) }}" {{ 'hidden' if oculto }}>
+  <header class="agd-painel-cab">
+    <h2 class="agd-painel-titulo">{{ rotulo_dia(dia) }}</h2>
+    <span class="agd-contador" aria-label="{{ itens|length }} compromissos">{{ itens|length }}</span>
+    <button type="button" class="agd-fechar" data-fechar aria-label="Fechar">×</button>
+  </header>
+  {% for c in itens %}{{ cartao(c) }}{% else %}
+  <p class="agd-vazio">Nenhum compromisso para este dia.</p>
+  {% endfor %}
+  <div class="agd-painel-rodape">
+    {% if itens %}<p class="agd-painel-dica"><span aria-hidden="true">▣</span> Selecione um evento para ver os detalhes completos do pedido.</p>{% endif %}
+    <a data-parcial class="agd-link" href="{{ url_agenda(visao='diaria', data=dia) }}">Abrir o dia</a>
+  </div>
+</section>
+{% endmacro %}
+
+{% macro painel(dias_painel) %}
+<aside class="agd-painel" id="agd-painel" aria-label="Compromissos do dia selecionado">
+  {% for d in dias_painel %}{{ lista_do_dia(d, oculto=(d != ref)) }}{% endfor %}
+</aside>
+<div class="agd-fundo" data-fechar hidden></div>
+{% endmacro %}
+
+{% macro vazio_periodo() %}
+{% if not agenda.compromissos %}
+<p class="agd-sem-resultado" role="status">
+  {% if agenda.filtrado %}Nenhum evento encontrado para os filtros selecionados.
+  <a data-parcial href="{{ url_agenda(tipo=None, servico=None, responsavel=None, status=None, q=None) }}">Limpar filtros</a>
+  {% else %}Nenhum compromisso neste período.{% endif %}
+</p>
+{% endif %}
+{% endmacro %}
+
+{% macro legenda() %}
+<ul class="agd-legenda" aria-label="Legenda">
+  {% for chave, rotulo in (('evento', 'Evento (Festa)'), ('retirada', 'Retirada'), ('entrega', 'Entrega'), ('devolucao', 'Devolução'), ('historico', 'Histórico'), ('atrasado', 'Atrasado')) %}
+  <li><span class="agd-legenda-cor agd-legenda-cor--{{ chave }}" aria-hidden="true"></span>{{ rotulo }}</li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro mensal() %}
+<section class="agd-calendario" aria-label="Calendário de {{ titulo_periodo }}">
+    {{ vazio_periodo() }}
+    <div class="agd-grade" role="grid">
+      <div class="agd-semana-cab" role="row">
+        {% for i in (6, 0, 1, 2, 3, 4, 5) %}<span role="columnheader" class="agd-dia-semana">{{ semana_curta[i] }}</span>{% endfor %}
+      </div>
+      {% for semana in semanas %}
+      <div class="agd-linha" role="row">
+        {% for dia in semana %}
+        {% if dia %}
+        {% set itens = agenda.por_dia.get(dia, []) %}
+        <div role="gridcell" class="agd-cel{{ ' agd-cel--hoje' if dia == hoje }}{{ ' agd-cel--sel' if dia == ref }}{{ ' agd-cel--passado' if dia < hoje }}" data-cel="{{ dia }}">
+          <button type="button" class="agd-cel-num" data-dia-botao="{{ dia }}"
+                  aria-label="{{ rotulo_dia(dia) }}: {{ itens|length }} compromisso{{ 's' if itens|length != 1 }}"
+                  {% if dia == ref %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>{{ dia[8:10]|int }}</button>
+          <div class="agd-chips">
+            {% for c in itens[:max_no_dia] %}{{ chip(c) }}{% endfor %}
+            {% if itens|length > max_no_dia %}
+            <a data-parcial class="agd-chip agd-chip--mais" href="{{ url_agenda(visao='diaria', data=dia) }}">+ {{ itens|length - max_no_dia }} mais</a>
+            {% endif %}
+          </div>
+          {% if itens %}
+          <span class="agd-pontos" aria-hidden="true">
+            {% for c in itens[:4] %}<i class="agd-ponto agd-ponto--{{ 'atrasado' if c.atrasado else c.tipo }}"></i>{% endfor %}{% if itens|length > 4 %}<b>+{{ itens|length - 4 }}</b>{% endif %}
+          </span>
+          {% endif %}
+        </div>
+        {% else %}
+        <div role="gridcell" class="agd-cel agd-cel--fora" aria-hidden="true"></div>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    {{ legenda() }}
+  </section>
+{% endmacro %}
+
+{% macro semanal() %}
+<section class="agd-calendario" aria-label="Semana {{ titulo_periodo }}">
+    {{ vazio_periodo() }}
+    <div class="agd-semana">
+      {% for dia in dias %}
+      {% set itens = agenda.por_dia.get(dia, []) %}
+      <section class="agd-sem-dia{{ ' agd-cel--hoje' if dia == hoje }}{{ ' agd-cel--sel' if dia == ref }}" data-cel="{{ dia }}" aria-label="{{ rotulo_dia(dia) }}">
+        <button type="button" class="agd-sem-cab" data-dia-botao="{{ dia }}" aria-pressed="{{ 'true' if dia == ref else 'false' }}">
+          <span class="agd-sem-nome">{{ rotulo_dia(dia).split(',')[0] }}</span>
+          <span class="agd-sem-num">{{ dia[8:10]|int }}</span>
+          <span class="agd-sem-qtd">{{ itens|length or '' }}</span>
+        </button>
+        {% for c in itens %}
+        <a class="agd-sem-item agd-sem-item--{{ c.tipo }}{{ ' agd-sem-item--atrasado' if c.atrasado }}{{ ' agd-chip--cancelado' if c.cancelado }}"
+           href="{{ url_agenda(visao='diaria', data=dia, destaque=c.pedido_id) }}#c-{{ c.chave }}" data-chip="{{ c.chave }}" data-dia="{{ dia }}">
+          <span class="agd-sem-item-topo">
+            {% if c.hora %}<strong>{{ c.hora }}</strong>{% endif %}
+            <span>{{ c.rotulo }}{% if c.pedido_id %} #{{ c.pedido_id }}{% endif %}</span>
+            {% if c.nivel_alerta %}<span class="agd-marca agd-marca--{{ c.nivel_alerta }}" aria-label="{{ 'Conflito' if c.nivel_alerta == 'conflito' else 'Atenção' }}"></span>{% endif %}
+          </span>
+          <span class="agd-sem-item-cliente">{{ c.cliente_nome or 'Cliente não vinculado' }}</span>
+          {% if c.responsavel %}<span class="agd-sem-item-resp">{{ c.responsavel }}</span>{% endif %}
+          {% if c.atrasado %}<span class="agd-sem-item-atraso">Em atraso</span>{% endif %}
+        </a>
+        {% else %}
+        <p class="agd-sem-vazio">—</p>
+        {% endfor %}
+      </section>
+      {% endfor %}
+    </div>
+    {{ legenda() }}
+  </section>
+{% endmacro %}
+
+{% macro diaria() %}
+{% set itens = agenda.por_dia.get(ref, []) %}
+{% set dia_todo = itens|selectattr('tipo', 'in', ['evento', 'historico'])|list %}
+{% set com_hora = itens|rejectattr('tipo', 'in', ['evento', 'historico'])|selectattr('hora')|list %}
+{% set sem_hora = itens|rejectattr('tipo', 'in', ['evento', 'historico'])|rejectattr('hora')|list %}
+<section class="agd-dia" aria-label="{{ titulo_periodo }}">
+    {{ vazio_periodo() }}
+    {% set ns = namespace(grupos=[('Festas do dia', dia_todo)], ancora=false) %}
+    {% for hora, lista in com_hora|groupby('hora') %}{% set ns.grupos = ns.grupos + [(hora, lista)] %}{% endfor %}
+    {% set ns.grupos = ns.grupos + [('Sem horário definido', sem_hora)] %}
+    {% for titulo, lista in ns.grupos if lista %}
+    <div class="agd-dia-grupo">
+      <h2 class="agd-dia-hora">{{ titulo }}</h2>
+      <div class="agd-dia-cartoes">
+        {% for c in lista %}
+        {% if destaque and c.pedido_id == destaque and not ns.ancora %}<span class="agd-ancora" id="pedido-{{ destaque }}"></span>{% set ns.ancora = true %}{% endif %}
+        {{ cartao(c) }}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+    {{ legenda() }}
+  </section>
+{% endmacro %}
+
+{% macro calendario() %}
+{{ avisos() }}
+{% if visao == 'semanal' %}{{ semanal() }}{% elif visao == 'diaria' %}{{ diaria() }}{% else %}{{ mensal() }}{% endif %}
+{% endmacro %}
+
+{% macro painel_da_visao() %}
+{% if visao != 'diaria' %}{{ painel(dias) }}{% endif %}
+{% endmacro %}

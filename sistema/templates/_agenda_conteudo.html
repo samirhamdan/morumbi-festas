@@ -1,0 +1,7 @@
+{% import "_agenda_partes.html" as partes with context %}
+<div data-estado data-visao="{{ visao }}" data-ref="{{ ref }}">
+  <div data-parte="topo">{{ partes.periodo() }}</div>
+  <div data-parte="kpis">{{ partes.indicadores() }}</div>
+  <div data-parte="cal">{{ partes.calendario() }}</div>
+  <div data-parte="painel">{{ partes.painel_da_visao() }}</div>
+</div>

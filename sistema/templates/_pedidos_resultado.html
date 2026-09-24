@@ -75,7 +75,7 @@
               <a href="{{ url_for('editar_cliente', id_=r.cliente_id) }}">Ver cliente</a>
               {% endif %}
               {% if r.tipo == 'pedido' and r.data_evento and pode('agenda') %}
-              <a href="{{ url_for('agenda', visao='diaria', ano=r.data_evento[:4]|int, mes=r.data_evento[5:7]|int, dia=r.data_evento[8:10]|int, destaque=r.id) }}#pedido-{{ r.id }}">Ver na agenda</a>
+              <a href="{{ url_for('agenda', visao='diaria', data=r.data_evento, destaque=r.id) }}#pedido-{{ r.id }}">Ver na agenda</a>
               {% endif %}
               {% if 'finalizar' in r.acoes and pode('finalizar_pedido_rota') %}
               <form method="post" action="{{ url_for('finalizar_pedido_rota', id_=r.id) }}">

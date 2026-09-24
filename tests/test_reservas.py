@@ -24,7 +24,9 @@ def _pedido_via_form(admin, cliente_id, itens=None, data_ret="2026-10-01",
                      data_dev="2026-10-03", **extra):
     form = {
         "cliente_id": str(cliente_id),
-        "data_evento": extra.get("data_evento", "2026-10-02"),
+        # evento dentro do período da reserva (a Agenda exige datas coerentes)
+        "data_evento": extra.get("data_evento", "2026-10-02"
+                                 if data_ret <= "2026-10-02" <= data_dev else data_ret),
         "data_retirada": data_ret,
         "data_devolucao": data_dev,
         "status_comercial": extra.get("status_comercial", "confirmado"),

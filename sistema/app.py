@@ -70,26 +70,6 @@ def _erro(exc):
     return {"erro": str(exc), "campo_erro": campo}
 
 
-def _eventos_do_dia(eventos: list, data_str: str,
-                    historico: list | None = None) -> list:
-    resultado = []
-    for e in eventos:
-        tipos = []
-        if e.get("data_evento") == data_str:
-            tipos.append("evento")
-        if e.get("data_retirada") == data_str:
-            tipos.append("retirada")
-        if e.get("data_devolucao") == data_str:
-            tipos.append("devolucao")
-        if tipos:
-            resultado.append({**e, "tipos_dia": tipos})
-    for h in (historico or []):
-        if h.get("data_evento") == data_str:
-            resultado.append({**h, "tipos_dia": ["historico"],
-                              "historico": True})
-    return resultado
-
-
 def criar_app() -> Flask:
     app = Flask(__name__,
                 template_folder="templates",
@@ -1526,116 +1506,92 @@ def criar_app() -> Flask:
         "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
     ]
 
-    DIAS_SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
+    VISOES_AGENDA = {"mensal": "Mensal", "semanal": "Semanal", "diaria": "Diária"}
+    SEMANA_CURTA = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")  # por weekday()
+    MAX_NO_DIA_MENSAL = 3  # compromissos visíveis por casa; o resto vira "+N mais"
 
     @app.route("/agenda")
     @auth.exige_permissao("agenda.view")
     def agenda():
+        """Agenda (Sprint 4): projeção dos pedidos no tempo; nada é gravado aqui."""
         import calendar as cal_mod
         from datetime import date, timedelta
-
+        a = request.args
         hoje = date.fromisoformat(formato.agora()[:10])
-        visao = request.args.get("visao", "mensal")
-        tipo = request.args.get("tipo") or None
-        status = request.args.get("status") or None
-
-        ano = request.args.get("ano", type=int) or hoje.year
-        mes = request.args.get("mes", type=int) or hoje.month
-        dia = request.args.get("dia", type=int) or hoje.day
-
-        if mes < 1 or mes > 12:
-            mes = hoje.month
-
-        if visao == "semanal":
-            ref = date(ano, mes, min(dia, cal_mod.monthrange(ano, mes)[1]))
-            seg = ref - timedelta(days=ref.weekday())
-            dom = seg + timedelta(days=6)
-            data_inicio = seg.isoformat()
-            data_fim = dom.isoformat()
-            eventos = dados.eventos_agenda(data_inicio, data_fim, tipo, status)
-            hist = dados.eventos_historico(data_inicio, data_fim)
-            dias_semana = []
-            for i in range(7):
-                d = seg + timedelta(days=i)
-                evts_dia = _eventos_do_dia(eventos, d.isoformat(), hist)
-                dias_semana.append({"data": d, "eventos": evts_dia})
-            sem_ant = seg - timedelta(days=7)
-            sem_prox = seg + timedelta(days=7)
-            return render_template("agenda.html",
-                                   visao=visao, tipo=tipo or "",
-                                   status=status or "",
-                                   dias_semana=dias_semana,
-                                   seg=seg, dom=dom,
-                                   sem_ant=sem_ant, sem_prox=sem_prox,
-                                   meses=MESES_PT, hoje=hoje,
-                                   status_comercial=dados.STATUS_PEDIDO_COMERCIAL)
-
-        if visao == "diaria":
+        visao = a.get("visao") if a.get("visao") in VISOES_AGENDA else "mensal"
+        try:
+            ref = date.fromisoformat(a.get("data", ""))
+        except ValueError:
+            # links antigos: ano/mes/dia
             try:
-                ref = date(ano, mes, dia)
+                ref = date(a.get("ano", type=int) or hoje.year,
+                           a.get("mes", type=int) or hoje.month,
+                           a.get("dia", type=int) or (1 if a.get("mes") else hoje.day))
             except ValueError:
                 ref = hoje
-            data_str = ref.isoformat()
-            eventos = dados.eventos_agenda(data_str, data_str, tipo, status)
-            hist = dados.eventos_historico(data_str, data_str)
-            retiradas = [e for e in eventos if e.get("data_retirada") == data_str]
-            devolucoes = [e for e in eventos if e.get("data_devolucao") == data_str]
-            eventos_dia = [e for e in eventos if e.get("data_evento") == data_str]
-            historicos = [h for h in hist if h.get("data_evento") == data_str]
-            preparacoes = [e for e in eventos
-                           if e.get("status_operacional") == "preparacao"
-                           and e.get("data_retirada")
-                           and e["data_retirada"] >= data_str]
-            ant = ref - timedelta(days=1)
-            prox = ref + timedelta(days=1)
-            return render_template("agenda.html",
-                                   visao=visao, tipo=tipo or "",
-                                   status=status or "",
-                                   ref=ref,
-                                   retiradas=retiradas,
-                                   devolucoes=devolucoes,
-                                   eventos_dia=eventos_dia,
-                                   historicos=historicos,
-                                   preparacoes=preparacoes,
-                                   ant=ant, prox=prox,
-                                   meses=MESES_PT, hoje=hoje,
-                                   status_comercial=dados.STATUS_PEDIDO_COMERCIAL)
+        if not 2000 <= ref.year <= 2100:
+            ref = hoje
+        filtros = dados.filtros_agenda(a)
 
-        # mensal (default)
-        _, ultimo_dia = cal_mod.monthrange(ano, mes)
-        data_inicio = f"{ano}-{mes:02d}-01"
-        data_fim = f"{ano}-{mes:02d}-{ultimo_dia:02d}"
-        eventos = dados.eventos_agenda(data_inicio, data_fim, tipo, status)
-        hist = dados.eventos_historico(data_inicio, data_fim)
-
-        primeiro_dia_semana = cal_mod.weekday(ano, mes, 1)
-        offset_dia = (primeiro_dia_semana + 1) % 7
-
-        calendario = []
-        for d in range(1, ultimo_dia + 1):
-            data_str = f"{ano}-{mes:02d}-{d:02d}"
-            evts = _eventos_do_dia(eventos, data_str, hist)
-            calendario.append({"dia": d, "data": data_str, "eventos": evts})
-
-        if mes == 1:
-            ano_ant, mes_ant = ano - 1, 12
+        if visao == "mensal":
+            inicio = ref.replace(day=1)
+            fim = ref.replace(day=cal_mod.monthrange(ref.year, ref.month)[1])
+            # mês vizinho, no mesmo dia (ou no último dia, se o mês for menor)
+            anterior, seguinte = (
+                d.replace(day=min(ref.day, cal_mod.monthrange(d.year, d.month)[1]))
+                for d in (inicio - timedelta(days=1), fim + timedelta(days=1)))
+        elif visao == "semanal":
+            inicio = ref - timedelta(days=(ref.weekday() + 1) % 7)  # domingo
+            fim = inicio + timedelta(days=6)
+            anterior, seguinte = ref - timedelta(days=7), ref + timedelta(days=7)
         else:
-            ano_ant, mes_ant = ano, mes - 1
-        if mes == 12:
-            ano_prox, mes_prox = ano + 1, 1
-        else:
-            ano_prox, mes_prox = ano, mes + 1
+            inicio = fim = ref
+            anterior, seguinte = ref - timedelta(days=1), ref + timedelta(days=1)
 
-        return render_template("agenda.html",
-                               visao=visao, tipo=tipo or "",
-                               status=status or "",
-                               calendario=calendario,
-                               offset_dia=offset_dia,
-                               ano=ano, mes=mes,
-                               ano_ant=ano_ant, mes_ant=mes_ant,
-                               ano_prox=ano_prox, mes_prox=mes_prox,
-                               meses=MESES_PT, hoje=hoje,
-                               status_comercial=dados.STATUS_PEDIDO_COMERCIAL)
+        agenda_ = dados.agenda_periodo(inicio.isoformat(), fim.isoformat(), filtros)
+        dias = [(inicio + timedelta(days=i)).isoformat()
+                for i in range((fim - inicio).days + 1)]
+        # grade mensal de domingo a sábado, com casas vazias fora do mês
+        vazias = (inicio.weekday() + 1) % 7
+        casas = [None] * vazias + dias
+        casas += [None] * (-len(casas) % 7)
+        semanas = [casas[i:i + 7] for i in range(0, len(casas), 7)]
+
+        def url_agenda(**mudancas):
+            args = {k: v for k, v in a.items()
+                    if k not in ("parcial", "destaque", "ano", "mes", "dia")}
+            args.setdefault("data", ref.isoformat())
+            args.update(mudancas)
+            if args.get("visao") == "mensal":
+                args.pop("visao")
+            return url_for("agenda", **{k: v for k, v in args.items() if v not in (None, "")})
+
+        def rotulo_dia(iso, ano=False):
+            d = date.fromisoformat(iso)
+            texto = f"{SEMANA_CURTA[d.weekday()]}, {d.day} de {MESES_PT[d.month - 1]}"
+            return f"{texto} de {d.year}" if ano else texto
+
+        if visao == "mensal":
+            titulo = f"{MESES_PT[ref.month - 1]} {ref.year}"
+        elif visao == "semanal":
+            mes_i, mes_f = MESES_PT[inicio.month - 1][:3].lower(), MESES_PT[fim.month - 1][:3].lower()
+            titulo = (f"{inicio.day} – {fim.day} {mes_f} {fim.year}" if mes_i == mes_f
+                      else f"{inicio.day} {mes_i} – {fim.day} {mes_f} {fim.year}")
+        else:
+            titulo = rotulo_dia(ref.isoformat(), ano=True)
+
+        contexto = dict(
+            titulo_periodo=titulo, rotulo_dia=rotulo_dia, semana_curta=SEMANA_CURTA,
+            agenda=agenda_, visao=visao, visoes=VISOES_AGENDA, filtros=filtros,
+            ref=ref.isoformat(), hoje=hoje.isoformat(), dias=dias, semanas=semanas,
+            inicio=inicio.isoformat(), fim=fim.isoformat(),
+            anterior=anterior.isoformat(), seguinte=seguinte.isoformat(),
+            tipos=dados.TIPOS_AGENDA, status_agenda=dados.STATUS_AGENDA,
+            destaque=a.get("destaque", type=int), url_agenda=url_agenda,
+            max_no_dia=MAX_NO_DIA_MENSAL)
+        if a.get("parcial") == "1":
+            return render_template("_agenda_conteudo.html", **contexto)
+        return render_template("agenda.html", **contexto)
 
     @app.route("/disponibilidade/<int:id_>")
     @auth.exige_permissao("inventory.view")

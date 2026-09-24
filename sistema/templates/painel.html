@@ -44,7 +44,7 @@
       <h1 class="dash-saudacao-titulo">Olá, {{ usuario_nome }}!</h1>
       <p class="dash-saudacao-sub">Aqui está o resumo da sua operação.</p>
     </div>
-    <a class="dash-saudacao-data" href="{{ url_for('agenda', visao='diaria', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">
+    <a class="dash-saudacao-data" href="{{ url_for('agenda', visao='diaria', data=hoje.isoformat()) }}">
       {{ hoje.day }} de {{ meses[hoje.month - 1]|lower }} de {{ hoje.year }}
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
@@ -134,12 +134,12 @@
           <h2 id="titulo-agenda" class="dash-bloco-titulo">Agenda</h2>
           <div class="dash-abas" role="tablist" aria-label="Período da agenda">
             <button type="button" role="tab" id="aba-hoje" aria-controls="agenda-hoje"
-                    aria-selected="true" data-link="{{ url_for('agenda', visao='diaria', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">Hoje</button>
+                    aria-selected="true" data-link="{{ url_for('agenda', visao='diaria', data=hoje.isoformat()) }}">Hoje</button>
             <button type="button" role="tab" id="aba-semana" aria-controls="agenda-semana"
-                    aria-selected="false" tabindex="-1" data-link="{{ url_for('agenda', visao='semanal', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">7 dias</button>
+                    aria-selected="false" tabindex="-1" data-link="{{ url_for('agenda', visao='semanal', data=hoje.isoformat()) }}">7 dias</button>
           </div>
         </div>
-        <a class="dash-link" id="agenda-ver" href="{{ url_for('agenda', visao='diaria', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">Ver agenda</a>
+        <a class="dash-link" id="agenda-ver" href="{{ url_for('agenda', visao='diaria', data=hoje.isoformat()) }}">Ver agenda</a>
       </div>
 
       <div role="tabpanel" id="agenda-semana" aria-labelledby="aba-semana" hidden>
@@ -155,7 +155,7 @@
           {% for d in agenda_semana %}
           <li>
             <a class="dash-semana-dia{{ ' dash-semana-dia--hoje' if loop.first }}"
-               href="{{ url_for('agenda', visao='diaria', ano=d.data[:4]|int, mes=d.data[5:7]|int, dia=d.data[8:10]|int) }}"
+               href="{{ url_for('agenda', visao='diaria', data=d.data) }}"
                aria-label="{{ 'Hoje' if loop.first else dias_extenso[d.dia_semana] }}, {{ d.data[8:10] }}/{{ d.data[5:7] }}: {{ d.retiradas }} {{ 'retirada' if d.retiradas == 1 else 'retiradas' }}, {{ d.eventos }} {{ 'evento' if d.eventos == 1 else 'eventos' }}, {{ d.devolucoes }} {{ 'devolução' if d.devolucoes == 1 else 'devoluções' }}">
               <span class="dash-semana-data">{{ 'Hoje' if loop.first else dias_nome[d.dia_semana] }} <span>{{ d.data[8:10] }}/{{ d.data[5:7] }}</span></span>
               <span class="dash-semana-n dash-tipo--retirada{{ ' dash-semana-zero' if not d.retiradas }}">{{ d.retiradas or '—' }}</span>
@@ -177,7 +177,7 @@
         <ul class="dash-agenda-lista">
           {% for a in agenda_hoje[:5] %}
           <li>
-            <a href="{{ url_for('ver_pedido', id_=a.pedido_id) }}">
+            <a href="{% if pode('agenda') %}{{ url_for('agenda', visao='diaria', data=hoje.isoformat(), destaque=a.pedido_id) }}#pedido-{{ a.pedido_id }}{% else %}{{ url_for('ver_pedido', id_=a.pedido_id) }}{% endif %}">
               <span class="dash-agenda-num">#{{ a.pedido_id }}</span>
               <span class="dash-agenda-cliente">{{ a.cliente_nome or '—' }}</span>
               <span class="dash-agenda-tipo dash-tipo--{{ a.tipo }}">{{ rotulo_tipo[a.tipo] }}</span>
@@ -187,7 +187,7 @@
         </ul>
         {% if agenda_hoje|length > 5 %}
         <a class="dash-link dash-agenda-mais"
-           href="{{ url_for('agenda', visao='diaria', ano=hoje.year, mes=hoje.month, dia=hoje.day) }}">
+           href="{{ url_for('agenda', visao='diaria', data=hoje.isoformat()) }}">
           + {{ agenda_hoje|length - 5 }} atividade{{ 's' if agenda_hoje|length - 5 != 1 }} hoje
         </a>
         {% endif %}

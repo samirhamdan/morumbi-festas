@@ -40,7 +40,7 @@
       <a class="ped-botao-sec" href="{{ url_for('editar_pedido', id_=p.id) }}">Correção administrativa</a>
       {% endif %}
       {% if eh_pedido and data_agenda and pode('agenda') %}
-      <a class="ped-botao-sec" href="{{ url_for('agenda', visao='diaria', ano=data_agenda[:4]|int, mes=data_agenda[5:7]|int, dia=data_agenda[8:10]|int, destaque=p.id) }}#pedido-{{ p.id }}">Ver na agenda</a>
+      <a class="ped-botao-sec" href="{{ url_for('agenda', visao='diaria', data=data_agenda, destaque=p.id) }}#pedido-{{ p.id }}">Ver na agenda</a>
       {% endif %}
       {% if 'finalizar' in p.acoes and pode('finalizar_pedido_rota') %}
       <form method="post" action="{{ url_for('finalizar_pedido_rota', id_=p.id) }}">

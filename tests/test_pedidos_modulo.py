@@ -362,8 +362,8 @@ class TesteDetalhe:
         pid = _pedido(_cliente(), evento="2026-10-10")
         r = admin.get(f"/pedido/{pid}")
         assert f"destaque={pid}" in r.text and "visao=diaria" in r.text
-        agenda = admin.get(f"/agenda?visao=diaria&ano=2026&mes=10&dia=10&destaque={pid}")
-        assert f'class="ag-destaque" id="pedido-{pid}"' in agenda.text
+        agenda = admin.get(f"/agenda?visao=diaria&data=2026-10-10&destaque={pid}")
+        assert f'id="pedido-{pid}"' in agenda.text and "agd-card--destaque" in agenda.text
 
     def test_pedido_vinculado_ao_cliente_correto(self, app):
         a, b = _cliente("Ana"), _cliente("Bia")
