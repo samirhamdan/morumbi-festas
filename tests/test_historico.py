@@ -114,9 +114,10 @@ class TesteMigracaoEventosHistorico:
     def test_indice_unico_origem(self, app):
         with dados.conectar() as conn:
             r = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='index'"
-                " AND name='ix_evt_hist_origem'").fetchone()
-            assert r is not None
+                "SELECT sql FROM sqlite_master WHERE type='index'"
+                " AND name='ux_evt_hist_tenant_origem'").fetchone()
+            # Sprint 2.2: a chave de importação é única dentro de cada empresa
+            assert r is not None and "tenant_id, origem, origem_id" in r[0]
 
     def test_colunas_classificacao_no_cliente(self, app):
         with dados.conectar() as conn:

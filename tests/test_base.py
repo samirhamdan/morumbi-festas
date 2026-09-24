@@ -87,7 +87,7 @@ class TesteUsuarios:
             senha_hash=generate_password_hash("123"))
         r = client.post("/entrar", data={"login": "inativo", "senha": "123"},
                         follow_redirects=True)
-        assert "incorretos" in r.text
+        assert "desativado" in r.text  # senha certa, vínculo inativo
 
     def test_lista_usuarios_filtra_ativos(self, app, admin):
         r = admin.get("/usuarios")

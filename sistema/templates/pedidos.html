@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}Pedidos — Morumbi Festas{% endblock %}
+{% block titulo %}Pedidos — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -11,7 +11,7 @@
   <div class="ped-cab">
     <div>
       <h1 class="ped-titulo">Pedidos</h1>
-      <p class="ped-sub">Gerencie todos os pedidos da Morumbi Festas.</p>
+      <p class="ped-sub">Gerencie todos os pedidos da {{ empresa.nome_exibicao }}.</p>
     </div>
     {% if pode('editar_pedido') %}
     <a class="ped-botao" href="{{ url_for('editar_pedido') }}">+&nbsp;&nbsp;Novo pedido</a>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}Produtos — Morumbi Festas{% endblock %}
+{% block titulo %}Produtos — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -14,7 +14,7 @@
       <a href="{{ url_for('lista_produtos', ver='inativos') }}" class="{{ 'aqui' if ver == 'inativos' }}">Inativos</a>
       <a href="{{ url_for('lista_produtos', ver='todos') }}" class="{{ 'aqui' if ver == 'todos' }}">Todos</a>
     </span>
-    {% if perfil == 'admin' %}
+    {% if tem('catalog.edit') %}
     <a class="botao" href="{{ url_for('editar_produto') }}">Novo produto</a>
     {% endif %}
   </div>
@@ -94,7 +94,7 @@
   {% else %}
   <div class="cartao cartao-vazio">
     <b>Nenhum produto {{ ver if ver != 'disponiveis' else 'disponível' }}.</b>
-    {% if perfil == 'admin' and ver == 'disponiveis' %}
+    {% if tem('catalog.edit') and ver == 'disponiveis' %}
     <span><a href="{{ url_for('editar_produto') }}">Cadastrar o primeiro produto</a></span>
     {% endif %}
   </div>

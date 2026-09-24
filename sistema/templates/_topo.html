@@ -31,8 +31,14 @@
 
 <nav id="nav" class="lateral" aria-label="Menu principal">
   <a class="lateral-marca" href="{{ url_for('painel') }}">
+    {% if empresa.logo %}
+    <img src="{{ url_for('static', filename=empresa.logo) }}" alt="{{ empresa.nome_exibicao }}" class="lateral-marca-logo">
+    {% elif empresa.nome_exibicao == 'Morumbi Festas' %}
     <span class="lateral-marca-nome">MORUMBI</span>
     <span class="lateral-marca-festas">FESTAS</span>
+    {% else %}
+    <span class="lateral-marca-nome">{{ empresa.nome_exibicao }}</span>
+    {% endif %}
   </a>
   {% for grupo, itens in menu %}
     {% set links = [] %}

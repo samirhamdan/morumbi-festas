@@ -1,11 +1,16 @@
 {% extends "base.html" %}
-{% block titulo %}Usuários — Morumbi Festas{% endblock %}
+{% block titulo %}Usuários — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
 {% include "_topo.html" %}
 
 <main id="conteudo" class="pagina">
+  <nav class="abas cfg-abas-topo" aria-label="Configurações">
+    {% for ep, rotulo in abas_config %}{% if pode(ep) %}
+    <a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}">{{ rotulo }}</a>
+    {% endif %}{% endfor %}
+  </nav>
   <div class="cabecalho-lista">
     <h2 class="secao">Usuários</h2>
     <span class="abas">
@@ -13,7 +18,7 @@
       <a href="{{ url_for('lista_usuarios', ver='inativos') }}" class="{{ 'aqui' if ver == 'inativos' }}">Inativos</a>
       <a href="{{ url_for('lista_usuarios', ver='todos') }}" class="{{ 'aqui' if ver == 'todos' }}">Todos</a>
     </span>
-    <a class="botao" href="{{ url_for('editar_usuario') }}">Novo usuário</a>
+    {% if tem('users.manage') %}<a class="botao" href="{{ url_for('editar_usuario') }}">Novo usuário</a>{% endif %}
   </div>
 
   {% include "_erro.html" %}
@@ -32,28 +37,42 @@
   <div class="cartao cartao-tabela"><div class="rolagem">
     <table class="tabela">
       <thead><tr>
-        <th>Nome</th>
-        <th>Login</th>
+        <th>Usuário</th>
+        <th>E-mail</th>
         <th>Perfil</th>
+        <th>Status</th>
+        <th>Último acesso</th>
         <th></th>
       </tr></thead>
       <tbody>
         {% for u in usuarios %}
         <tr class="{{ 'inativo' if not u.ativo }}">
-          <td data-rotulo="Nome" class="chave">
+          <td data-rotulo="Usuário" class="chave">
             <a href="{{ url_for('editar_usuario', id_=u.id) }}">{{ u.nome }}</a>
-            {% if not u.ativo %}<span class="etiqueta cinza">inativo</span>{% endif %}
+            <span class="mono" style="display:block;font-weight:400;color:var(--suave)">{{ u.login }}</span>
           </td>
-          <td data-rotulo="Login" class="mono">{{ u.login }}</td>
+          <td data-rotulo="E-mail">{{ u.email or '—' }}</td>
           <td data-rotulo="Perfil" class="estado">
-            <span class="etiqueta {{ 'roxo' if u.perfil == 'admin' else 'azul' if u.perfil == 'comercial' else 'verde' if u.perfil == 'operacional' else 'ambar' }}">{{ u.perfil|capitalize }}</span>
+            <span class="etiqueta {{ 'roxo' if u.perfil == 'admin' else 'azul' if u.perfil == 'comercial' else 'verde' if u.perfil == 'operacional' else 'ambar' }}">{{ rotulos_perfil.get(u.perfil, u.perfil) }}</span>
           </td>
-          <td class="num acao"><a href="{{ url_for('editar_usuario', id_=u.id) }}">editar</a></td>
+          <td data-rotulo="Status"><span class="etiqueta {{ '' if u.ativo else 'cinza' }}">{{ 'Ativo' if u.ativo else 'Inativo' }}</span></td>
+          <td data-rotulo="Último acesso">{{ u.ultimo_acesso|datahora if u.ultimo_acesso else 'Nunca' }}</td>
+          <td class="num acao">
+            {% if tem('users.manage') %}
+            <a href="{{ url_for('editar_usuario', id_=u.id) }}">editar</a>
+            {% if u.id != usuario_id %}
+            <form method="post" action="{{ url_for('alternar_usuario', id_=u.id) }}" style="display:inline">
+              <input type="hidden" name="ver" value="{{ ver if ver != 'ativos' }}">
+              <button type="submit" class="link-botao">{{ 'desativar' if u.membro_ativo else 'ativar' }}</button>
+            </form>
+            {% endif %}
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
-        <tr><td colspan="4" class="num">{{ usuarios|length }} usuário(s)</td></tr>
+        <tr><td colspan="6" class="num">{{ usuarios|length }} usuário(s)</td></tr>
       </tfoot>
     </table>
   </div></div>

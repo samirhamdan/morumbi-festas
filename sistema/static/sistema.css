@@ -574,6 +574,7 @@ body.bancada { background: var(--fundo); }
 .lateral-marca:hover { text-decoration: none; }
 .lateral-marca-nome { font-size: 22px; line-height: 25px; }
 .lateral-marca-festas { font-size: 13px; line-height: 18px; color: var(--marca-laranja); }
+.lateral-marca-logo { display: block; max-width: 150px; max-height: 56px; object-fit: contain; }
 
 .lateral .grupo { border-bottom: none; }
 
@@ -3283,3 +3284,22 @@ a.ped-pagina:hover { background: var(--ped-chip); text-decoration: none; }
   .ped-menu summary { width: 44px; height: 44px; line-height: 44px; }
   .ped-pagina { width: 36px; height: 36px; }
 }
+
+/* === Configurações (Sprint 2.2) === */
+.cfg-cartao { padding: 20px; margin-bottom: 16px; }
+.cfg-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; }
+.cfg-logo { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.cfg-logo img { max-width: 160px; max-height: 72px; object-fit: contain; border: 1px solid var(--borda, #e5e0f2); border-radius: 8px; padding: 6px; background: #fff; }
+.cfg-logo-vazio { display: inline-flex; align-items: center; justify-content: center; width: 120px; height: 56px; border: 1px dashed var(--borda, #e5e0f2); border-radius: 8px; color: var(--suave); font-size: 12px; }
+.cfg-nota { font-size: 12px; color: var(--suave); margin: 4px 0 12px; }
+.cfg-matriz th, .cfg-matriz td { white-space: nowrap; }
+.cfg-matriz .cfg-grupo th { background: var(--roxo-ultra, #f7f5ff); text-align: left; font-size: 12px; }
+.cfg-marca { text-align: center; color: var(--roxo, #6f1c85); font-weight: 700; }
+.cfg-nao { color: var(--suave); font-weight: 400; }
+.cfg-novo { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.cfg-novo input { flex: 1 1 200px; min-width: 0; }
+.link-botao { background: none; border: none; padding: 0 4px; font: inherit; color: var(--roxo, #6f1c85); cursor: pointer; text-decoration: underline; }
+.campo-ajuda { display: block; font-size: 11px; color: var(--suave); margin-top: 2px; }
+.cfg-abas-topo { display: flex; margin-bottom: 12px; }
+.cfg-abas, .cfg-abas-topo { flex-wrap: wrap; max-width: 100%; }
+.cfg-matriz th, .cfg-matriz td { padding: 8px 10px; font-size: 13px; }

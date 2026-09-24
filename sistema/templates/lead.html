@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}{{ 'Editar Lead' if atual.get('id') else 'Novo Lead' }} — Morumbi Festas{% endblock %}
+{% block titulo %}{{ 'Editar Lead' if atual.get('id') else 'Novo Lead' }} — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 

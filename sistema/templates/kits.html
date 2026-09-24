@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}Kits — Morumbi Festas{% endblock %}
+{% block titulo %}Kits — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -13,7 +13,7 @@
       <a href="{{ url_for('lista_kits', ver='inativos') }}" class="{{ 'aqui' if ver == 'inativos' }}">Inativos</a>
       <a href="{{ url_for('lista_kits', ver='todos') }}" class="{{ 'aqui' if ver == 'todos' }}">Todos</a>
     </span>
-    {% if perfil == 'admin' %}
+    {% if tem('catalog.edit') %}
     <a class="botao" href="{{ url_for('editar_kit') }}">Novo kit</a>
     {% endif %}
   </div>
@@ -81,7 +81,7 @@
   {% else %}
   <div class="cartao cartao-vazio">
     <b>Nenhum kit {{ 'inativo' if ver == 'inativos' else 'cadastrado' }}.</b>
-    {% if perfil == 'admin' and ver != 'inativos' %}
+    {% if tem('catalog.edit') and ver != 'inativos' %}
     <span><a href="{{ url_for('editar_kit') }}">Criar o primeiro kit</a></span>
     {% endif %}
   </div>

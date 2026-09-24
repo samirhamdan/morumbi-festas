@@ -1,15 +1,25 @@
 """Camada de dados — SQLite."""
 
+import contextvars
 import json
 import os
 import re
 import sqlite3
 import unicodedata
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
 from sistema import formato
 
-PERFIS = ("admin", "comercial", "operacional", "gestor")
+# Perfis por empresa (membros.perfil). Os valores gravados não mudam:
+# "gestor" é o Gerente e "operacional" é a Operação na interface.
+PERFIS = ("admin", "comercial", "operacional", "gestor", "financeiro",
+          "visualizacao")
+ROTULOS_PERFIL = {
+    "admin": "Administrador", "gestor": "Gerente", "comercial": "Comercial",
+    "operacional": "Operação", "financeiro": "Financeiro",
+    "visualizacao": "Visualização",
+}
 
 ETAPAS_LEAD = (
     "novo", "atendimento", "orcamento", "negociacao",
@@ -51,6 +61,8 @@ CAMPOS_TEXTO_PEDIDO = (
 # Sprint 2.1 — operação, canal e fonte são conceitos separados.
 # Operação: o negócio a que o pedido pertence. A planilha "Formulario Festas"
 # é só a fonte técnica da importação; os pedidos dela são da Morumbi Festas.
+# Nome usado quando a empresa ainda não tem nome cadastrado. A operação de
+# cada pedido é a própria empresa (nome_empresa()).
 OPERACAO_PRINCIPAL = "Morumbi Festas"
 # Fontes que são outra operação (as demais pertencem à operação principal).
 OPERACAO_PROPRIA_DA_FONTE = {"Morumbi 3D": "Morumbi 3D"}
@@ -67,6 +79,91 @@ _CANAL_POR_TRECHO = (
 CAMINHO_BD = os.environ.get("FESTAS_DADOS", "morumbi_festas.db")
 
 
+# ---------------------------------------------------------------------------
+# Sprint 2.2 — empresa (tenant) atual
+#
+# Toda leitura e escrita dos dados de negócio acontece dentro de uma empresa.
+# A empresa atual vem do contexto (definido pelo sistema a partir do membro
+# autenticado, nunca de um valor enviado pela tela). Fora de uma requisição
+# (ferramentas, testes) vale a empresa principal: a primeira cadastrada.
+# ---------------------------------------------------------------------------
+
+STATUS_EMPRESA = ("ativo", "suspenso", "inativo")
+ROTULOS_STATUS_EMPRESA = {"ativo": "Ativa", "suspenso": "Suspensa",
+                          "inativo": "Inativa"}
+ORIGENS_LEAD_PADRAO = ("Instagram", "Facebook", "WhatsApp", "Google",
+                       "Indicacao", "Site", "Recorrente")
+# Tabelas com dados próprios de cada empresa. As tabelas filhas (itens,
+# fotos, tags) pertencem à empresa do registro pai e só são alcançadas por ele.
+TABELAS_DA_EMPRESA = (
+    "clientes", "categorias", "produtos", "kits", "origens_lead", "leads",
+    "orcamentos", "pedidos", "eventos_historico", "audit_log",
+)
+_tenant_ctx: contextvars.ContextVar = contextvars.ContextVar("tenant", default=None)
+_tenant_padrao_cache: dict = {}
+
+
+def tenant_padrao() -> int:
+    """Empresa principal (a mais antiga): usada fora de requisições."""
+    tid = _tenant_padrao_cache.get(CAMINHO_BD)
+    if tid is None:
+        with conectar() as conn:
+            r = conn.execute("SELECT MIN(id) FROM organizacoes").fetchone()
+        tid = r[0] or 1
+        _tenant_padrao_cache[CAMINHO_BD] = tid
+    return tid
+
+
+def tenant_atual() -> int:
+    tid = _tenant_ctx.get()
+    return int(tid) if tid else tenant_padrao()
+
+
+def definir_tenant(tenant_id):
+    """Define a empresa do contexto atual; devolve o token para restaurar."""
+    return _tenant_ctx.set(int(tenant_id) if tenant_id else None)
+
+
+def restaurar_tenant(token):
+    _tenant_ctx.reset(token)
+
+
+@contextmanager
+def usando_tenant(tenant_id):
+    token = definir_tenant(tenant_id)
+    try:
+        yield
+    finally:
+        restaurar_tenant(token)
+
+
+def _do_tenant(conn, tabela: str, id_) -> bool:
+    """O registro existe e pertence à empresa atual?"""
+    if not id_:
+        return False
+    return conn.execute(f"SELECT 1 FROM {tabela} WHERE id = ? AND {_t()}",
+                        (id_,)).fetchone() is not None
+
+
+def _validar_referencias(conn, dados_: dict):
+    """Cliente, lead, origem e responsável citados precisam ser da empresa."""
+    for campo, tabela, rotulo in (("cliente_id", "clientes", "Cliente"),
+                                  ("lead_id", "leads", "Lead"),
+                                  ("origem_id", "origens_lead", "Origem")):
+        if dados_.get(campo) and not _do_tenant(conn, tabela, dados_[campo]):
+            raise ErroDeCampo(campo, f"{rotulo} não encontrado.")
+    if dados_.get("responsavel_id") and not conn.execute(
+            f"SELECT 1 FROM membros WHERE usuario_id = ? AND {_t()}",
+            (dados_["responsavel_id"],)).fetchone():
+        raise ErroDeCampo("responsavel_id", "Responsável não encontrado.")
+
+
+def _t(alias: str = "") -> str:
+    """Filtro SQL da empresa atual (o id vem do contexto, nunca da tela)."""
+    campo = f"{alias}.tenant_id" if alias else "tenant_id"
+    return f"{campo} = {tenant_atual()}"
+
+
 def situacao_historico(origem, status_origem, data_evento) -> str:
     """Situação de um registro de eventos_historico; a origem nunca é alterada."""
     status = (status_origem or "").strip().lower()
@@ -80,11 +177,12 @@ def situacao_historico(origem, status_origem, data_evento) -> str:
 
 
 def _origem_visivel(alias: str = "h") -> str:
+    """Importados da empresa atual, sem as origens ocultas."""
     if not ORIGENS_OCULTAS:
-        return "1 = 1"
+        return _t(alias)
     campo = f"{alias}.origem" if alias else "origem"
     lista = ",".join(f"'{o}'" for o in ORIGENS_OCULTAS)
-    return f"COALESCE({campo}, '') NOT IN ({lista})"
+    return f"COALESCE({campo}, '') NOT IN ({lista}) AND {_t(alias)}"
 
 
 def _historico_visivel(alias: str = "h") -> str:
@@ -99,8 +197,9 @@ def _historico_visivel(alias: str = "h") -> str:
 
 
 def _em_operacao(alias: str = "p") -> str:
+    """Pedidos da empresa atual que ainda geram operação."""
     campo = f"{alias}.status_comercial" if alias else "status_comercial"
-    return f"{campo} NOT IN ('cancelado', 'finalizado')"
+    return f"{campo} NOT IN ('cancelado', 'finalizado') AND {_t(alias)}"
 
 
 def normalizar_texto(texto) -> str:
@@ -125,7 +224,7 @@ def canal_canonico(texto) -> str:
 
 
 def operacao_da_fonte(fonte) -> str:
-    return OPERACAO_PROPRIA_DA_FONTE.get(fonte or "", OPERACAO_PRINCIPAL)
+    return OPERACAO_PROPRIA_DA_FONTE.get(fonte or "", nome_empresa())
 
 
 def rotulo_fonte(fonte) -> str:
@@ -135,7 +234,8 @@ def rotulo_fonte(fonte) -> str:
 def _operacao_sql(campo: str) -> str:
     casos = " ".join(f"WHEN '{f}' THEN '{o}'"
                      for f, o in OPERACAO_PROPRIA_DA_FONTE.items())
-    return f"CASE COALESCE({campo}, '') {casos} ELSE '{OPERACAO_PRINCIPAL}' END"
+    nome = nome_empresa().replace("'", "''")
+    return f"CASE COALESCE({campo}, '') {casos} ELSE '{nome}' END"
 
 
 def preparar_conexao(conn):
@@ -368,8 +468,7 @@ def inicializar():
         # Semente: origens de lead padrao
         origens = conn.execute("SELECT COUNT(*) FROM origens_lead").fetchone()[0]
         if origens == 0:
-            for nome in ("Instagram", "Facebook", "WhatsApp", "Google",
-                         "Indicacao", "Site", "Recorrente"):
+            for nome in ORIGENS_LEAD_PADRAO:
                 conn.execute("INSERT INTO origens_lead (nome) VALUES (?)",
                              (nome,))
 
@@ -467,6 +566,461 @@ def inicializar():
             "UPDATE clientes SET classificacao = 'Cliente VIP histórico'"
             " WHERE classificacao = 'Cliente VIP historico'")
 
+        _migrar_empresa(conn)
+    # caches montados durante a migração podem estar incompletos
+    _tenant_padrao_cache.pop(CAMINHO_BD, None)
+    for cache in (_config_cache, _nome_cache):
+        for chave in [k for k in cache if k[0] == CAMINHO_BD]:
+            cache.pop(chave, None)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2.2 — migração para empresa (tenant). Só adiciona: nenhum registro é
+# apagado, nenhum id muda, nenhum valor, data ou status é alterado.
+# ---------------------------------------------------------------------------
+
+_COLUNAS_EMPRESA = (
+    ("nome_fantasia", "TEXT DEFAULT ''"), ("razao_social", "TEXT DEFAULT ''"),
+    ("logo", "TEXT DEFAULT ''"), ("status", "TEXT NOT NULL DEFAULT 'ativo'"),
+    # assinatura futura: vazios não afetam o funcionamento atual
+    ("plano_id", "INTEGER"), ("status_assinatura", "TEXT"),
+    ("atualizado_em", "TEXT"),
+)
+
+# Índices pensados nas consultas reais (listas, agenda, BI e busca).
+_INDICES_EMPRESA = (
+    ("ix_clientes_tenant", "clientes (tenant_id, status, nome)"),
+    ("ix_categorias_tenant", "categorias (tenant_id)"),
+    ("ix_produtos_tenant", "produtos (tenant_id, status)"),
+    ("ix_kits_tenant", "kits (tenant_id, status)"),
+    ("ix_origens_tenant", "origens_lead (tenant_id)"),
+    ("ix_leads_tenant", "leads (tenant_id, status)"),
+    ("ix_orcamentos_tenant", "orcamentos (tenant_id, status)"),
+    ("ix_pedidos_tenant_status", "pedidos (tenant_id, status_comercial)"),
+    ("ix_pedidos_tenant_evento", "pedidos (tenant_id, data_evento)"),
+    ("ix_evt_hist_tenant_data", "eventos_historico (tenant_id, data_evento)"),
+    ("ix_audit_tenant", "audit_log (tenant_id, tipo)"),
+    ("ix_audit_entidade", "audit_log (tenant_id, entidade, entidade_id)"),
+)
+
+
+def _migrar_empresa(conn):
+    agora_ = formato.agora()
+    cols = _colunas(conn, "organizacoes")
+    for coluna, tipo in _COLUNAS_EMPRESA:
+        if coluna not in cols:
+            conn.execute(f"ALTER TABLE organizacoes ADD COLUMN {coluna} {tipo}")
+
+    tid = conn.execute("SELECT MIN(id) FROM organizacoes").fetchone()[0]
+    if tid is None:
+        tid = conn.execute(
+            "INSERT INTO organizacoes (nome, cidade, status, criado_em, atualizado_em)"
+            " VALUES ('Morumbi Festas', 'Campo Grande', 'ativo', ?, ?)",
+            (agora_, agora_)).lastrowid
+
+    cols = _colunas(conn, "usuarios")
+    if "email" not in cols:
+        conn.execute("ALTER TABLE usuarios ADD COLUMN email TEXT DEFAULT ''")
+    if "plataforma_admin" not in cols:
+        # futuro dono da plataforma; distinto do administrador da empresa
+        conn.execute("ALTER TABLE usuarios ADD COLUMN plataforma_admin"
+                     " INTEGER NOT NULL DEFAULT 0")
+
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS membros (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+            tenant_id INTEGER NOT NULL REFERENCES organizacoes(id),
+            perfil TEXT NOT NULL DEFAULT 'comercial',
+            ativo INTEGER NOT NULL DEFAULT 1,
+            ultimo_acesso TEXT,
+            criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+            atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (usuario_id, tenant_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_membros_tenant ON membros (tenant_id, ativo);
+
+        CREATE TABLE IF NOT EXISTS configuracoes (
+            tenant_id INTEGER NOT NULL REFERENCES organizacoes(id),
+            chave TEXT NOT NULL,
+            valor TEXT,
+            tipo TEXT NOT NULL DEFAULT 'texto',
+            atualizado_em TEXT,
+            PRIMARY KEY (tenant_id, chave)
+        );
+
+        CREATE TABLE IF NOT EXISTS servicos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES organizacoes(id),
+            nome TEXT NOT NULL,
+            ativo INTEGER NOT NULL DEFAULT 1,
+            ordem INTEGER NOT NULL DEFAULT 0,
+            criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+            atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (tenant_id, nome)
+        );
+    """)
+
+    # Todos os dados existentes pertencem à empresa principal.
+    for tabela in TABELAS_DA_EMPRESA:
+        if "tenant_id" not in _colunas(conn, tabela):
+            conn.execute(f"ALTER TABLE {tabela} ADD COLUMN tenant_id"
+                         f" INTEGER NOT NULL DEFAULT {int(tid)}")
+    _origens_unicas_por_empresa(conn, tid)
+
+    cols = _colunas(conn, "audit_log")
+    for coluna, tipo in (("entidade", "TEXT"), ("entidade_id", "INTEGER")):
+        if coluna not in cols:
+            conn.execute(f"ALTER TABLE audit_log ADD COLUMN {coluna} {tipo}")
+
+    # Usuários sem vínculo (sistema anterior) viram membros da principal,
+    # com o mesmo perfil e situação. Quem já tem vínculo não é tocado.
+    conn.execute(
+        "INSERT INTO membros (usuario_id, tenant_id, perfil, ativo, criado_em,"
+        " atualizado_em) SELECT u.id, ?, u.perfil, u.ativo, u.criado_em, ?"
+        " FROM usuarios u WHERE NOT EXISTS"
+        " (SELECT 1 FROM membros m WHERE m.usuario_id = u.id)", (tid, agora_))
+
+    # Parâmetros globais passam a ser configurações da principal.
+    conn.execute(
+        "INSERT OR IGNORE INTO configuracoes (tenant_id, chave, valor, atualizado_em)"
+        " SELECT ?, chave, valor, ? FROM parametros", (tid, agora_))
+
+    if not conn.execute("SELECT 1 FROM servicos WHERE tenant_id = ?",
+                        (tid,)).fetchone():
+        nomes: dict = {}
+        for r in conn.execute("SELECT descricao FROM itens_pedido"
+                              " WHERE tipo = 'servico' ORDER BY id"):
+            nome = " ".join((r[0] or "").split())
+            if nome:
+                nomes.setdefault(normalizar_texto(nome), nome)
+        for ordem, nome in enumerate(nomes.values() or SERVICOS_PADRAO):
+            conn.execute("INSERT OR IGNORE INTO servicos (tenant_id, nome, ordem,"
+                         " criado_em, atualizado_em) VALUES (?, ?, ?, ?, ?)",
+                         (tid, nome, ordem, agora_, agora_))
+
+    # Chave de importação única dentro da empresa.
+    conn.execute("DROP INDEX IF EXISTS ix_evt_hist_origem")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_evt_hist_tenant_origem"
+                 " ON eventos_historico (tenant_id, origem, origem_id)")
+    for nome, alvo in _INDICES_EMPRESA:
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {nome} ON {alvo}")
+
+    # Auditoria antiga de pedidos: preenche entidade a partir do próprio texto.
+    for r in conn.execute("SELECT id, tipo, descricao FROM audit_log"
+                          " WHERE entidade IS NULL AND tipo IN"
+                          " ('pedido_evento', 'pedido', 'operacao')").fetchall():
+        m = _RE_PEDIDO_LEGADO.search(r["descricao"] or "")
+        if m:
+            conn.execute("UPDATE audit_log SET entidade = 'pedido',"
+                         " entidade_id = ? WHERE id = ?", (int(m.group(1)), r["id"]))
+
+
+def _origens_unicas_por_empresa(conn, tid: int):
+    """origens_lead.nome era único no banco todo; passa a ser por empresa.
+
+    O SQLite não altera restrições: a tabela é recriada com os mesmos ids e
+    registros (receita oficial: chaves estrangeiras desligadas durante a troca).
+    """
+    sql = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table'"
+                       " AND name = 'origens_lead'").fetchone()[0]
+    if "UNIQUE (tenant_id, nome)" in sql:
+        return
+    antes = conn.execute("SELECT COUNT(*) FROM origens_lead").fetchone()[0]
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute(
+            "CREATE TABLE origens_lead_nova ("
+            " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " nome TEXT NOT NULL,"
+            " criado_em TEXT NOT NULL DEFAULT (datetime('now')),"
+            f" tenant_id INTEGER NOT NULL DEFAULT {int(tid)},"
+            " UNIQUE (tenant_id, nome))")
+        conn.execute("INSERT INTO origens_lead_nova (id, nome, criado_em, tenant_id)"
+                     " SELECT id, nome, criado_em, tenant_id FROM origens_lead")
+        depois = conn.execute("SELECT COUNT(*) FROM origens_lead_nova").fetchone()[0]
+        if depois != antes:
+            raise RuntimeError("Cópia de origens_lead incompleta.")
+        conn.execute("DROP TABLE origens_lead")
+        conn.execute("ALTER TABLE origens_lead_nova RENAME TO origens_lead")
+        if conn.execute("PRAGMA foreign_key_check").fetchall():
+            raise RuntimeError("Referências inválidas após recriar origens_lead.")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_origens_tenant ON origens_lead (tenant_id)")
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2.2 — empresa, configurações e membros
+# ---------------------------------------------------------------------------
+
+SERVICOS_PADRAO = ("Entrega", "Retirada", "Montagem", "Desmontagem",
+                   "Recolhimento", "Devolução")
+
+# Configurações por empresa (tabela configuracoes). Sem registro, vale o
+# padrão abaixo. Status e transições críticas seguem no código.
+CONFIG_PADRAO = {
+    # Sistema
+    "idioma": "pt-BR", "moeda": "BRL", "fuso_horario": "America/Campo_Grande",
+    "formato_data": "DD/MM/YYYY",
+    # Identidade visual (white label futuro)
+    "cor_primaria": "#6F1C85", "cor_secundaria": "#FF8C00",
+    # Empresa
+    "horario_funcionamento": "", "facebook": "", "site": "",
+    # Operação
+    "dias_orcamento_sem_retorno": "3", "prazo_preparacao_dias": "",
+    "prazo_devolucao_dias": "", "duracao_evento_padrao_horas": "",
+    "regras_retirada": "", "regras_entrega": "", "regras_conferencia": "",
+    # Financeiro (sem módulo financeiro ainda)
+    "formas_pagamento": "Pix\nDinheiro\nCartão de crédito\nCartão de débito"
+                        "\nTransferência\nBoleto",
+    # Notificações futuras
+    "notificacao_email": "0", "notificacao_whatsapp": "0",
+    # Limites futuros (vazio = sem limite; nada é bloqueado ainda)
+    "limite_usuarios": "", "limite_clientes": "", "limite_pedidos": "",
+    "limite_produtos": "", "limite_armazenamento_mb": "",
+}
+ROTULOS_IDIOMA = {"pt-BR": "Português (Brasil)"}
+ROTULOS_MOEDA = {"BRL": "Real (BRL)"}
+FUSOS_HORARIOS = ("America/Campo_Grande", "America/Cuiaba", "America/Sao_Paulo",
+                  "America/Manaus", "America/Porto_Velho", "America/Rio_Branco",
+                  "America/Belem", "America/Fortaleza", "America/Recife",
+                  "America/Noronha")
+ROTULOS_FORMATO_DATA = {"DD/MM/YYYY": "DD/MM/AAAA"}
+_config_cache: dict = {}
+_fusos_cache: dict = {}
+
+
+def config(chave: str, padrao: str | None = None) -> str:
+    """Configuração da empresa atual (ou o padrão do sistema)."""
+    tid = tenant_atual()
+    cache = _config_cache.get((CAMINHO_BD, tid))
+    if cache is None:
+        with conectar() as conn:
+            cache = {r["chave"]: r["valor"] for r in conn.execute(
+                "SELECT chave, valor FROM configuracoes WHERE tenant_id = ?", (tid,))}
+        _config_cache[(CAMINHO_BD, tid)] = cache
+    if chave in cache and cache[chave] is not None:
+        return cache[chave]
+    return CONFIG_PADRAO.get(chave, "") if padrao is None else padrao
+
+
+def salvar_config(valores: dict, usuario_id=None):
+    tid = tenant_atual()
+    agora_ = formato.agora()
+    mudancas = {}
+    with conectar() as conn:
+        for chave, valor in valores.items():
+            antes = config(chave)
+            valor = "" if valor is None else str(valor)
+            if antes == valor:
+                continue
+            conn.execute(
+                "INSERT INTO configuracoes (tenant_id, chave, valor, atualizado_em)"
+                " VALUES (?, ?, ?, ?) ON CONFLICT (tenant_id, chave) DO UPDATE"
+                " SET valor = excluded.valor, atualizado_em = excluded.atualizado_em",
+                (tid, chave, valor, agora_))
+            mudancas[chave] = [antes, valor]
+        if mudancas:
+            auditar(conn, "configuracao", tid, "alterar",
+                    "Configurações alteradas: " + ", ".join(sorted(mudancas)),
+                    usuario_id, mudancas)
+    _config_cache.pop((CAMINHO_BD, tid), None)
+    return mudancas
+
+
+def lista_config(chave: str) -> list:
+    return [v.strip() for v in config(chave).splitlines() if v.strip()]
+
+
+def fuso_horario_atual():
+    from zoneinfo import ZoneInfo
+    nome = config("fuso_horario")
+    if nome not in _fusos_cache:
+        try:
+            _fusos_cache[nome] = ZoneInfo(nome)
+        except Exception:  # base de fusos ausente: mantém o horário de Campo Grande
+            _fusos_cache[nome] = formato.FUSO
+    return _fusos_cache[nome]
+
+
+formato.definir_provedor_fuso(fuso_horario_atual)
+
+
+def auditar(conn, entidade: str, entidade_id, acao: str, descricao: str,
+            usuario_id=None, mudancas: dict | None = None, tipo: str | None = None,
+            dados: dict | None = None):
+    """Registro central de auditoria: empresa, usuário, entidade, registro,
+    ação, data/hora e valores antes/depois (mudancas = {campo: [antes, depois]})."""
+    corpo = dict(dados or {})
+    corpo.setdefault("acao", acao)
+    if mudancas:
+        corpo["mudancas"] = mudancas
+    conn.execute(
+        "INSERT INTO audit_log (tenant_id, usuario_id, tipo, entidade, entidade_id,"
+        " descricao, dados, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (tenant_atual(), usuario_id, tipo or entidade, entidade, entidade_id,
+         descricao, json.dumps(corpo, ensure_ascii=False), formato.agora()))
+
+
+def empresa_atual() -> dict:
+    with conectar() as conn:
+        r = conn.execute("SELECT * FROM organizacoes WHERE id = ?",
+                         (tenant_atual(),)).fetchone()
+    e = dict(r) if r else {"id": tenant_atual(), "nome": "", "status": "ativo"}
+    e["nome_exibicao"] = e.get("nome_fantasia") or e.get("nome") or ""
+    return e
+
+
+_nome_cache: dict = {}
+
+
+def nome_empresa() -> str:
+    """Nome de exibição da empresa atual (é também a operação dos pedidos)."""
+    chave = (CAMINHO_BD, tenant_atual())
+    if chave not in _nome_cache:
+        _nome_cache[chave] = empresa_atual()["nome_exibicao"] or OPERACAO_PRINCIPAL
+    return _nome_cache[chave]
+
+
+def buscar_empresa(tenant_id: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute("SELECT * FROM organizacoes WHERE id = ?",
+                         (tenant_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def criar_empresa(nome: str, status: str = "ativo") -> int:
+    """Nova empresa com as configurações padrão do sistema (base do onboarding
+    futuro). Não copia nada de outra empresa."""
+    nome = (nome or "").strip()
+    if not nome:
+        raise ErroDeCampo("nome", "Nome da empresa é obrigatório.")
+    if status not in STATUS_EMPRESA:
+        raise ErroDeCampo("status", "Situação inválida.")
+    agora_ = formato.agora()
+    with conectar() as conn:
+        tid = conn.execute(
+            "INSERT INTO organizacoes (nome, cidade, status, criado_em, atualizado_em)"
+            " VALUES (?, '', ?, ?, ?)", (nome, status, agora_, agora_)).lastrowid
+        for ordem, s in enumerate(SERVICOS_PADRAO):
+            conn.execute("INSERT INTO servicos (tenant_id, nome, ordem, criado_em,"
+                         " atualizado_em) VALUES (?, ?, ?, ?, ?)",
+                         (tid, s, ordem, agora_, agora_))
+        for o in ORIGENS_LEAD_PADRAO:
+            conn.execute("INSERT INTO origens_lead (nome, tenant_id) VALUES (?, ?)",
+                         (o, tid))
+    return tid
+
+
+CAMPOS_EMPRESA = ("nome", "nome_fantasia", "razao_social", "cnpj", "telefone",
+                  "whatsapp", "email", "endereco", "bairro", "cidade", "cep",
+                  "instagram")
+
+
+def salvar_empresa(valores: dict, usuario_id=None) -> dict:
+    """Dados cadastrais da empresa atual; só os campos conhecidos."""
+    atual = empresa_atual()
+    novos = {c: (valores.get(c) or "").strip() for c in CAMPOS_EMPRESA if c in valores}
+    if "nome" in novos and not novos["nome"]:
+        raise ErroDeCampo("nome", "Nome da empresa é obrigatório.")
+    for c, v in novos.items():
+        if len(v) > 200:
+            raise ErroDeCampo(c, "Texto muito longo (máximo 200 caracteres).")
+    if novos.get("email") and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", novos["email"]):
+        raise ErroDeCampo("email", "E-mail inválido.")
+    mudancas = {c: [atual.get(c) or "", v] for c, v in novos.items()
+                if (atual.get(c) or "") != v}
+    if mudancas:
+        with conectar() as conn:
+            conn.execute(
+                "UPDATE organizacoes SET "
+                + ", ".join(f"{c} = ?" for c in mudancas) + ", atualizado_em = ?"
+                " WHERE id = ?",
+                [novos[c] for c in mudancas] + [formato.agora(), tenant_atual()])
+            auditar(conn, "empresa", tenant_atual(), "alterar",
+                    "Dados da empresa alterados", usuario_id, mudancas)
+        _nome_cache.pop((CAMINHO_BD, tenant_atual()), None)
+    return mudancas
+
+
+def salvar_logo_empresa(arquivo: str, usuario_id=None):
+    antes = empresa_atual().get("logo") or ""
+    with conectar() as conn:
+        conn.execute("UPDATE organizacoes SET logo = ?, atualizado_em = ?"
+                     " WHERE id = ?", (arquivo, formato.agora(), tenant_atual()))
+        auditar(conn, "empresa", tenant_atual(), "alterar", "Logo da empresa alterado",
+                usuario_id, {"logo": [antes, arquivo]})
+    return antes
+
+
+# --- Serviços da empresa ----------------------------------------------------
+
+def listar_servicos(somente_ativos: bool = False) -> list:
+    with conectar() as conn:
+        return [dict(r) for r in conn.execute(
+            f"SELECT * FROM servicos WHERE {_t()}"
+            + (" AND ativo = 1" if somente_ativos else "")
+            + " ORDER BY ordem, nome")]
+
+
+def salvar_servico(nome: str, usuario_id=None) -> int:
+    nome = " ".join((nome or "").split())
+    if not nome:
+        raise ErroDeCampo("nome", "Nome do serviço é obrigatório.")
+    if len(nome) > 80:
+        raise ErroDeCampo("nome", "Nome muito longo (máximo 80 caracteres).")
+    with conectar() as conn:
+        for r in conn.execute(f"SELECT id, nome FROM servicos WHERE {_t()}"):
+            if normalizar_texto(r["nome"]) == normalizar_texto(nome):
+                raise ErroDeCampo("nome", f"O serviço {r['nome']} já existe.")
+        ordem = conn.execute(f"SELECT COALESCE(MAX(ordem), -1) + 1 FROM servicos"
+                             f" WHERE {_t()}").fetchone()[0]
+        agora_ = formato.agora()
+        sid = conn.execute(
+            "INSERT INTO servicos (tenant_id, nome, ordem, criado_em, atualizado_em)"
+            " VALUES (?, ?, ?, ?, ?)", (tenant_atual(), nome, ordem, agora_, agora_)
+        ).lastrowid
+        auditar(conn, "servico", sid, "criar", f"Serviço {nome} criado", usuario_id)
+    return sid
+
+
+def alternar_servico(servico_id: int, usuario_id=None) -> bool:
+    with conectar() as conn:
+        r = conn.execute(f"SELECT * FROM servicos WHERE id = ? AND {_t()}",
+                         (servico_id,)).fetchone()
+        if not r:
+            raise ValueError("Serviço não encontrado.")
+        novo = 0 if r["ativo"] else 1
+        conn.execute("UPDATE servicos SET ativo = ?, atualizado_em = ?"
+                     f" WHERE id = ? AND {_t()}", (novo, formato.agora(), servico_id))
+        auditar(conn, "servico", servico_id, "ativar" if novo else "desativar",
+                f"Serviço {r['nome']} {'ativado' if novo else 'desativado'}",
+                usuario_id, {"ativo": [r["ativo"], novo]})
+    return bool(novo)
+
+
+def mover_servico(servico_id: int, direcao: int, usuario_id=None):
+    servicos = listar_servicos()
+    ids = [s["id"] for s in servicos]
+    if servico_id not in ids:
+        raise ValueError("Serviço não encontrado.")
+    i = ids.index(servico_id)
+    j = i + (1 if direcao > 0 else -1)
+    if not 0 <= j < len(ids):
+        return
+    ids[i], ids[j] = ids[j], ids[i]
+    with conectar() as conn:
+        for ordem, sid in enumerate(ids):
+            conn.execute(f"UPDATE servicos SET ordem = ? WHERE id = ? AND {_t()}",
+                         (ordem, sid))
+
 
 CLASSIFICACOES_FESTA = (
     (0, "Sem histórico"),
@@ -492,9 +1046,9 @@ def registrar_acao(usuario_id, tipo: str, descricao: str, dados=None):
     d = json.dumps(dados, ensure_ascii=False) if dados else None
     with conectar() as conn:
         conn.execute(
-            "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (usuario_id, tipo, descricao, d, formato.agora()))
+            "INSERT INTO audit_log (tenant_id, usuario_id, tipo, descricao, dados,"
+            " criado_em) VALUES (?, ?, ?, ?, ?, ?)",
+            (tenant_atual(), usuario_id, tipo, descricao, d, formato.agora()))
 
 
 def listar_audit(limite=100) -> list:
@@ -502,25 +1056,45 @@ def listar_audit(limite=100) -> list:
         return [dict(r) for r in conn.execute(
             "SELECT a.*, u.nome AS usuario_nome FROM audit_log a"
             " LEFT JOIN usuarios u ON u.id = a.usuario_id"
-            " ORDER BY a.id DESC LIMIT ?", (limite,)).fetchall()]
+            f" WHERE {_t('a')} ORDER BY a.id DESC LIMIT ?", (limite,)).fetchall()]
 
 
 # ---------------------------------------------------------------------------
-# Usuarios
+# Usuarios e membros (Sprint 2.2)
+#
+# usuarios = identidade (nome, login, senha), única na plataforma.
+# membros  = vínculo do usuário com uma empresa: perfil, situação e último
+#            acesso naquela empresa. Um usuário pode, no futuro, ter vários.
 # ---------------------------------------------------------------------------
+
+_SQL_MEMBRO = (
+    "SELECT u.id, u.nome, u.login, u.email, u.senha_hash, u.criado_em,"
+    " u.plataforma_admin, u.ativo AS usuario_ativo, m.id AS membro_id,"
+    " m.tenant_id, m.perfil, m.ativo AS membro_ativo, m.ultimo_acesso,"
+    " CASE WHEN u.ativo = 1 AND m.ativo = 1 THEN 1 ELSE 0 END AS ativo"
+    " FROM membros m JOIN usuarios u ON u.id = m.usuario_id")
+
+
+def existe_usuario() -> bool:
+    with conectar() as conn:
+        return conn.execute("SELECT 1 FROM usuarios LIMIT 1").fetchone() is not None
+
 
 def listar_usuarios(somente_ativos=True) -> list:
-    sql = "SELECT * FROM usuarios"
+    """Membros da empresa atual."""
+    sql = f"{_SQL_MEMBRO} WHERE {_t('m')}"
     if somente_ativos:
-        sql += " WHERE ativo = 1"
-    sql += " ORDER BY nome"
+        sql += " AND u.ativo = 1 AND m.ativo = 1"
+    sql += " ORDER BY u.nome"
     with conectar() as conn:
         return [dict(r) for r in conn.execute(sql).fetchall()]
 
 
 def buscar_usuario(id_: int) -> dict | None:
+    """Usuário como membro da empresa atual (None se não pertence a ela)."""
     with conectar() as conn:
-        r = conn.execute("SELECT * FROM usuarios WHERE id = ?", (id_,)).fetchone()
+        r = conn.execute(f"{_SQL_MEMBRO} WHERE u.id = ? AND {_t('m')}",
+                         (id_,)).fetchone()
         return dict(r) if r else None
 
 
@@ -531,10 +1105,47 @@ def buscar_usuario_por_login(login: str) -> dict | None:
         return dict(r) if r else None
 
 
+def membros_do_usuario(usuario_id: int) -> list:
+    """Empresas em que o usuário pode entrar (vínculo ativo, empresa ativa)."""
+    with conectar() as conn:
+        return [dict(r) for r in conn.execute(
+            f"{_SQL_MEMBRO} JOIN organizacoes o ON o.id = m.tenant_id"
+            " WHERE u.id = ? AND u.ativo = 1 AND m.ativo = 1 AND o.status = 'ativo'"
+            " ORDER BY m.tenant_id", (usuario_id,)).fetchall()]
+
+
+def membro(usuario_id: int, tenant_id: int) -> dict | None:
+    """Vínculo válido para uso: usuário e vínculo ativos e empresa ativa."""
+    with conectar() as conn:
+        r = conn.execute(
+            f"{_SQL_MEMBRO} JOIN organizacoes o ON o.id = m.tenant_id"
+            " WHERE u.id = ? AND m.tenant_id = ? AND u.ativo = 1 AND m.ativo = 1"
+            " AND o.status = 'ativo'", (usuario_id, tenant_id)).fetchone()
+        return dict(r) if r else None
+
+
+def registrar_acesso(usuario_id: int, tenant_id: int):
+    with conectar() as conn:
+        conn.execute("UPDATE membros SET ultimo_acesso = ? WHERE usuario_id = ?"
+                     " AND tenant_id = ?", (formato.agora(), usuario_id, tenant_id))
+
+
+def adicionar_membro(usuario_id: int, tenant_id: int, perfil: str) -> int:
+    if perfil not in PERFIS:
+        raise ErroDeCampo("perfil", "Perfil inválido.")
+    agora_ = formato.agora()
+    with conectar() as conn:
+        return conn.execute(
+            "INSERT INTO membros (usuario_id, tenant_id, perfil, ativo, criado_em,"
+            " atualizado_em) VALUES (?, ?, ?, 1, ?, ?)",
+            (usuario_id, tenant_id, perfil, agora_, agora_)).lastrowid
+
+
 def campos_usuario(form) -> dict:
     return {
         "nome": (form.get("nome") or "").strip(),
         "login": (form.get("login") or "").strip().lower(),
+        "email": (form.get("email") or "").strip().lower(),
         "perfil": form.get("perfil", "comercial"),
         "ativo": int(form.get("ativo", 1)),
     }
@@ -546,10 +1157,23 @@ class ErroDeCampo(ValueError):
         super().__init__(mensagem)
 
 
+def _admins_ativos(conn, exceto: int | None = None) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM membros m JOIN usuarios u ON u.id = m.usuario_id"
+        f" WHERE {_t('m')} AND m.perfil = 'admin' AND m.ativo = 1 AND u.ativo = 1"
+        " AND u.id != ?", (exceto or 0,)).fetchone()[0]
+
+
 def salvar_usuario(dados: dict, senha_hash: str | None = None,
-                   id_: int | None = None) -> int:
+                   id_: int | None = None, usuario_id=None) -> int:
+    """Cria ou edita um membro da empresa atual.
+
+    Identidade (nome, login, e-mail, senha) é do usuário; perfil e situação
+    são do vínculo com esta empresa. Só edita quem é membro dela.
+    """
     nome = dados.get("nome", "").strip()
     login = dados.get("login", "").strip().lower()
+    email = (dados.get("email") or "").strip().lower()
     perfil = dados.get("perfil", "comercial")
     ativo = int(dados.get("ativo", 1))
 
@@ -559,7 +1183,11 @@ def salvar_usuario(dados: dict, senha_hash: str | None = None,
         raise ErroDeCampo("login", "Login é obrigatório.")
     if perfil not in PERFIS:
         raise ErroDeCampo("perfil", "Perfil inválido.")
+    if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise ErroDeCampo("email", "E-mail inválido.")
 
+    tid = tenant_atual()
+    agora = formato.agora()
     with conectar() as conn:
         existente = conn.execute(
             "SELECT id FROM usuarios WHERE login = ? AND id != ?",
@@ -567,23 +1195,66 @@ def salvar_usuario(dados: dict, senha_hash: str | None = None,
         if existente:
             raise ErroDeCampo("login", "Já existe um usuário com esse login.")
 
-        agora = formato.agora()
         if id_:
-            campos = "nome=?, login=?, perfil=?, ativo=?, atualizado_em=?"
-            params = [nome, login, perfil, ativo, agora, id_]
+            atual = conn.execute(f"{_SQL_MEMBRO} WHERE u.id = ? AND {_t('m')}",
+                                 (id_,)).fetchone()
+            if not atual:
+                raise ValueError("Usuário não encontrado.")
+            deixa_admin = atual["perfil"] == "admin" and (perfil != "admin" or not ativo)
+            if deixa_admin and atual["ativo"] and not _admins_ativos(conn, exceto=id_):
+                raise ErroDeCampo("perfil", "A empresa precisa de pelo menos um"
+                                            " administrador ativo.")
+            campos = "nome=?, login=?, email=?, perfil=?, atualizado_em=?"
+            params = [nome, login, email, perfil, agora]
             if senha_hash:
-                campos = "nome=?, login=?, perfil=?, ativo=?, senha_hash=?, atualizado_em=?"
-                params = [nome, login, perfil, ativo, senha_hash, agora, id_]
-            conn.execute(f"UPDATE usuarios SET {campos} WHERE id = ?", params)
+                campos += ", senha_hash=?"
+                params.append(senha_hash)
+            conn.execute(f"UPDATE usuarios SET {campos} WHERE id = ?", params + [id_])
+            conn.execute("UPDATE membros SET perfil = ?, ativo = ?, atualizado_em = ?"
+                         " WHERE usuario_id = ? AND tenant_id = ?",
+                         (perfil, ativo, agora, id_, tid))
+            mudancas = {c: [atual[c] or "", v] for c, v in (
+                ("nome", nome), ("login", login), ("email", email),
+                ("perfil", perfil), ("ativo", ativo)) if str(atual[c] or "") != str(v)}
+            if senha_hash:
+                mudancas["senha"] = ["", "alterada"]
+            if mudancas:
+                auditar(conn, "usuario", id_, "alterar", f"Usuário {nome} alterado",
+                        usuario_id, mudancas)
             return id_
-        else:
-            if not senha_hash:
-                raise ErroDeCampo("senha", "Senha é obrigatória para novo usuário.")
-            r = conn.execute(
-                "INSERT INTO usuarios (nome, login, senha_hash, perfil, ativo, criado_em, atualizado_em)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (nome, login, senha_hash, perfil, ativo, agora, agora))
-            return r.lastrowid
+        if not senha_hash:
+            raise ErroDeCampo("senha", "Senha é obrigatória para novo usuário.")
+        novo = conn.execute(
+            "INSERT INTO usuarios (nome, login, email, senha_hash, perfil, ativo,"
+            " criado_em, atualizado_em) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+            (nome, login, email, senha_hash, perfil, agora, agora)).lastrowid
+        conn.execute(
+            "INSERT INTO membros (usuario_id, tenant_id, perfil, ativo, criado_em,"
+            " atualizado_em) VALUES (?, ?, ?, ?, ?, ?)",
+            (novo, tid, perfil, ativo, agora, agora))
+        auditar(conn, "usuario", novo, "criar", f"Usuário {nome} criado", usuario_id,
+                {"perfil": ["", perfil]})
+        return novo
+
+
+def alternar_usuario(id_: int, usuario_id=None) -> bool:
+    """Ativa/desativa o vínculo do usuário com a empresa atual."""
+    u = buscar_usuario(id_)
+    if not u:
+        raise ValueError("Usuário não encontrado.")
+    if id_ == usuario_id:
+        raise ValueError("Você não pode desativar o próprio acesso.")
+    novo = 0 if u["membro_ativo"] else 1
+    with conectar() as conn:
+        if not novo and u["perfil"] == "admin" and not _admins_ativos(conn, exceto=id_):
+            raise ValueError("A empresa precisa de pelo menos um administrador ativo.")
+        conn.execute("UPDATE membros SET ativo = ?, atualizado_em = ?"
+                     " WHERE usuario_id = ? AND tenant_id = ?",
+                     (novo, formato.agora(), id_, tenant_atual()))
+        auditar(conn, "usuario", id_, "ativar" if novo else "desativar",
+                f"Usuário {u['nome']} {'ativado' if novo else 'desativado'}",
+                usuario_id, {"ativo": [u["membro_ativo"], novo]})
+    return bool(novo)
 
 
 # ---------------------------------------------------------------------------
@@ -591,17 +1262,13 @@ def salvar_usuario(dados: dict, senha_hash: str | None = None,
 # ---------------------------------------------------------------------------
 
 def parametro(chave: str, padrao: str = "") -> str:
-    with conectar() as conn:
-        r = conn.execute("SELECT valor FROM parametros WHERE chave = ?", (chave,)).fetchone()
-        return r["valor"] if r else padrao
+    """Compatibilidade: parâmetros agora são configurações da empresa."""
+    valor = config(chave, "")
+    return valor if valor != "" else (CONFIG_PADRAO.get(chave) or padrao)
 
 
 def salvar_parametro(chave: str, valor: str):
-    with conectar() as conn:
-        conn.execute(
-            "INSERT INTO parametros (chave, valor) VALUES (?, ?)"
-            " ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor",
-            (chave, valor))
+    salvar_config({chave: valor})
 
 
 # ---------------------------------------------------------------------------
@@ -609,38 +1276,13 @@ def salvar_parametro(chave: str, valor: str):
 # ---------------------------------------------------------------------------
 
 def organizacao() -> dict:
-    with conectar() as conn:
-        r = conn.execute("SELECT * FROM organizacoes LIMIT 1").fetchone()
-        return dict(r) if r else {}
+    """Compatibilidade: a organização é a empresa atual."""
+    return empresa_atual()
 
 
 def salvar_organizacao(dados: dict) -> int:
-    org = organizacao()
-    agora = formato.agora()
-    with conectar() as conn:
-        if org:
-            conn.execute(
-                "UPDATE organizacoes SET nome=?, cnpj=?, telefone=?, whatsapp=?,"
-                " email=?, endereco=?, bairro=?, cidade=?, cep=?, instagram=?"
-                " WHERE id = ?",
-                (dados.get("nome", ""), dados.get("cnpj", ""),
-                 dados.get("telefone", ""), dados.get("whatsapp", ""),
-                 dados.get("email", ""), dados.get("endereco", ""),
-                 dados.get("bairro", ""), dados.get("cidade", "Campo Grande"),
-                 dados.get("cep", ""), dados.get("instagram", ""),
-                 org["id"]))
-            return org["id"]
-        else:
-            r = conn.execute(
-                "INSERT INTO organizacoes (nome, cnpj, telefone, whatsapp,"
-                " email, endereco, bairro, cidade, cep, instagram, criado_em)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (dados.get("nome", "Morumbi Festas"), dados.get("cnpj", ""),
-                 dados.get("telefone", ""), dados.get("whatsapp", ""),
-                 dados.get("email", ""), dados.get("endereco", ""),
-                 dados.get("bairro", ""), dados.get("cidade", "Campo Grande"),
-                 dados.get("cep", ""), dados.get("instagram", ""), agora))
-            return r.lastrowid
+    salvar_empresa({c: v for c, v in dados.items() if c in CAMPOS_EMPRESA})
+    return tenant_atual()
 
 
 # ---------------------------------------------------------------------------
@@ -654,9 +1296,9 @@ ORIGENS_CLIENTE = (
 
 
 def listar_clientes(somente_ativos=True) -> list:
-    sql = "SELECT * FROM clientes"
+    sql = f"SELECT * FROM clientes WHERE {_t()}"
     if somente_ativos:
-        sql += " WHERE status = 'ativo'"
+        sql += " AND status = 'ativo'"
     sql += " ORDER BY nome"
     with conectar() as conn:
         clientes = [dict(r) for r in conn.execute(sql).fetchall()]
@@ -667,7 +1309,8 @@ def listar_clientes(somente_ativos=True) -> list:
 
 def buscar_cliente(id_: int) -> dict | None:
     with conectar() as conn:
-        r = conn.execute("SELECT * FROM clientes WHERE id = ?", (id_,)).fetchone()
+        r = conn.execute(f"SELECT * FROM clientes WHERE id = ? AND {_t()}",
+                         (id_,)).fetchone()
         if not r:
             return None
         c = dict(r)
@@ -713,7 +1356,8 @@ def verificar_duplicidade(campo: str, valor: str, id_excluir: int | None = None)
     if not valor:
         return None
     with conectar() as conn:
-        sql = f"SELECT id, nome, {campo} FROM clientes WHERE {campo} = ? AND id != ?"
+        sql = (f"SELECT id, nome, {campo} FROM clientes WHERE {campo} = ?"
+               f" AND id != ? AND {_t()}")
         r = conn.execute(sql, (valor, id_excluir or 0)).fetchone()
         return dict(r) if r else None
 
@@ -746,11 +1390,14 @@ def salvar_cliente(dados_: dict, id_: int | None = None, tags: list | None = Non
     agora_ = formato.agora()
     with conectar() as conn:
         if id_:
+            if not conn.execute(f"SELECT 1 FROM clientes WHERE id = ? AND {_t()}",
+                                (id_,)).fetchone():
+                raise ValueError("Cliente não encontrado.")
             conn.execute(
                 "UPDATE clientes SET nome=?, cpf_cnpj=?, whatsapp=?, telefone=?,"
                 " email=?, data_nascimento=?, endereco=?, bairro=?, cidade=?,"
                 " cep=?, instagram=?, observacoes=?, origem=?, status=?,"
-                " cliente_3d_id=?, atualizado_em=? WHERE id = ?",
+                f" cliente_3d_id=?, atualizado_em=? WHERE id = ? AND {_t()}",
                 (nome, cpf, whatsapp, dados_.get("telefone", ""),
                  email, dados_.get("data_nascimento", ""),
                  dados_.get("endereco", ""), dados_.get("bairro", ""),
@@ -761,12 +1408,12 @@ def salvar_cliente(dados_: dict, id_: int | None = None, tags: list | None = Non
             novo_id = id_
         else:
             r = conn.execute(
-                "INSERT INTO clientes (nome, cpf_cnpj, whatsapp, telefone,"
+                "INSERT INTO clientes (tenant_id, nome, cpf_cnpj, whatsapp, telefone,"
                 " email, data_nascimento, endereco, bairro, cidade, cep,"
                 " instagram, observacoes, origem, status, cliente_3d_id,"
                 " criado_em, atualizado_em)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (nome, cpf, whatsapp, dados_.get("telefone", ""),
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (tenant_atual(), nome, cpf, whatsapp, dados_.get("telefone", ""),
                  email, dados_.get("data_nascimento", ""),
                  dados_.get("endereco", ""), dados_.get("bairro", ""),
                  dados_.get("cidade", "Campo Grande"), dados_.get("cep", ""),
@@ -785,6 +1432,16 @@ def salvar_cliente(dados_: dict, id_: int | None = None, tags: list | None = Non
                         " VALUES (?, ?)", (novo_id, tag))
 
         return novo_id
+
+
+def tags_em_uso(tabela: str) -> list:
+    """Tags usadas pelos clientes ou produtos da empresa atual."""
+    filha, chave = {"clientes": ("tags_cliente", "cliente_id"),
+                    "produtos": ("tags_produto", "produto_id")}[tabela]
+    with conectar() as conn:
+        return [r["tag"] for r in conn.execute(
+            f"SELECT DISTINCT t.tag FROM {filha} t JOIN {tabela} x ON x.id = t.{chave}"
+            f" WHERE {_t('x')} ORDER BY t.tag")]
 
 
 def link_whatsapp(numero: str) -> str:
@@ -824,12 +1481,13 @@ def exportar_clientes_csv(clientes: list) -> str:
 def listar_categorias() -> list:
     with conectar() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT * FROM categorias ORDER BY ordem, nome").fetchall()]
+            f"SELECT * FROM categorias WHERE {_t()} ORDER BY ordem, nome").fetchall()]
 
 
 def buscar_categoria(id_: int) -> dict | None:
     with conectar() as conn:
-        r = conn.execute("SELECT * FROM categorias WHERE id = ?", (id_,)).fetchone()
+        r = conn.execute(f"SELECT * FROM categorias WHERE id = ? AND {_t()}",
+                         (id_,)).fetchone()
         return dict(r) if r else None
 
 
@@ -847,18 +1505,27 @@ def salvar_categoria(nome: str, pai_id: int | None = None,
     if not nome:
         raise ErroDeCampo("nome", "Nome da categoria é obrigatório.")
     with conectar() as conn:
+        if pai_id and not conn.execute(
+                f"SELECT 1 FROM categorias WHERE id = ? AND {_t()}", (pai_id,)).fetchone():
+            raise ErroDeCampo("pai_id", "Categoria principal não encontrada.")
         if id_:
-            conn.execute("UPDATE categorias SET nome=?, pai_id=? WHERE id=?",
+            if not conn.execute(f"SELECT 1 FROM categorias WHERE id = ? AND {_t()}",
+                                (id_,)).fetchone():
+                raise ErroDeCampo("nome", "Categoria não encontrada.")
+            conn.execute(f"UPDATE categorias SET nome=?, pai_id=? WHERE id=? AND {_t()}",
                          (nome, pai_id, id_))
             return id_
         r = conn.execute(
-            "INSERT INTO categorias (nome, pai_id, criado_em) VALUES (?, ?, ?)",
-            (nome, pai_id, formato.agora()))
+            "INSERT INTO categorias (tenant_id, nome, pai_id, criado_em)"
+            " VALUES (?, ?, ?, ?)", (tenant_atual(), nome, pai_id, formato.agora()))
         return r.lastrowid
 
 
 def excluir_categoria(id_: int):
     with conectar() as conn:
+        if not conn.execute(f"SELECT 1 FROM categorias WHERE id = ? AND {_t()}",
+                            (id_,)).fetchone():
+            raise ErroDeCampo("nome", "Categoria não encontrada.")
         em_uso = conn.execute(
             "SELECT COUNT(*) FROM produtos WHERE categoria_id = ?", (id_,)
         ).fetchone()[0]
@@ -869,13 +1536,13 @@ def excluir_categoria(id_: int):
         ).fetchone()[0]
         if filhos:
             raise ErroDeCampo("nome", "Categoria possui subcategorias.")
-        conn.execute("DELETE FROM categorias WHERE id = ?", (id_,))
+        conn.execute(f"DELETE FROM categorias WHERE id = ? AND {_t()}", (id_,))
 
 
 def _prefixo_categoria(conn, categoria_id: int | None) -> str:
     if not categoria_id:
         return "GER"
-    r = conn.execute("SELECT nome FROM categorias WHERE id = ?",
+    r = conn.execute(f"SELECT nome FROM categorias WHERE id = ? AND {_t()}",
                      (categoria_id,)).fetchone()
     if not r:
         return "GER"
@@ -886,10 +1553,15 @@ def _prefixo_categoria(conn, categoria_id: int | None) -> str:
 def gerar_sku(categoria_id: int | None = None) -> str:
     with conectar() as conn:
         prefixo = _prefixo_categoria(conn, categoria_id)
+        # o código é único na plataforma (restrição do banco): a sequência
+        # olha todas as empresas e pula códigos já usados
         r = conn.execute(
             "SELECT COUNT(*) FROM produtos WHERE codigo_sku LIKE ?",
             (f"{prefixo}-%",)).fetchone()[0]
         seq = r + 1
+        while conn.execute("SELECT 1 FROM produtos WHERE codigo_sku = ?",
+                           (f"{prefixo}-{seq:04d}",)).fetchone():
+            seq += 1
         return f"{prefixo}-{seq:04d}"
 
 
@@ -902,10 +1574,11 @@ STATUS_PRODUTO = ("disponivel", "manutencao", "inativo")
 
 def listar_produtos(status: str | None = None) -> list:
     sql = ("SELECT p.*, c.nome AS categoria_nome"
-           " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id")
+           " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id"
+           f" WHERE {_t('p')}")
     params = []
     if status:
-        sql += " WHERE p.status = ?"
+        sql += " AND p.status = ?"
         params.append(status)
     sql += " ORDER BY p.nome"
     with conectar() as conn:
@@ -921,7 +1594,7 @@ def buscar_produto(id_: int) -> dict | None:
         r = conn.execute(
             "SELECT p.*, c.nome AS categoria_nome"
             " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id"
-            " WHERE p.id = ?", (id_,)).fetchone()
+            f" WHERE p.id = ? AND {_t('p')}", (id_,)).fetchone()
         if not r:
             return None
         p = dict(r)
@@ -996,15 +1669,19 @@ def salvar_produto(dados_: dict, id_: int | None = None,
 
     agora_ = formato.agora()
     with conectar() as conn:
+        if dados_.get("categoria_id") and not _do_tenant(
+                conn, "categorias", dados_["categoria_id"]):
+            raise ErroDeCampo("categoria_id", "Categoria não encontrada.")
         if id_:
-            prod = conn.execute("SELECT codigo_sku FROM produtos WHERE id=?",
+            prod = conn.execute(f"SELECT codigo_sku FROM produtos WHERE id=? AND {_t()}",
                                 (id_,)).fetchone()
-            sku = prod["codigo_sku"] if prod else gerar_sku(dados_.get("categoria_id"))
+            if not prod:
+                raise ValueError("Produto não encontrado.")
             conn.execute(
                 "UPDATE produtos SET nome=?, categoria_id=?, descricao=?,"
                 " preco_locacao=?, valor_referencia=?, quantidade_total=?,"
                 " status=?, publicado=?, localizacao=?, observacoes=?,"
-                " atualizado_em=? WHERE id = ?",
+                f" atualizado_em=? WHERE id = ? AND {_t()}",
                 (nome, dados_.get("categoria_id"),
                  dados_.get("descricao", ""),
                  dados_.get("preco_locacao", 0),
@@ -1017,11 +1694,11 @@ def salvar_produto(dados_: dict, id_: int | None = None,
         else:
             sku = gerar_sku(dados_.get("categoria_id"))
             r = conn.execute(
-                "INSERT INTO produtos (codigo_sku, nome, categoria_id, descricao,"
-                " preco_locacao, valor_referencia, quantidade_total, status,"
-                " publicado, localizacao, observacoes, criado_em, atualizado_em)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (sku, nome, dados_.get("categoria_id"),
+                "INSERT INTO produtos (tenant_id, codigo_sku, nome, categoria_id,"
+                " descricao, preco_locacao, valor_referencia, quantidade_total,"
+                " status, publicado, localizacao, observacoes, criado_em,"
+                " atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (tenant_atual(), sku, nome, dados_.get("categoria_id"),
                  dados_.get("descricao", ""),
                  dados_.get("preco_locacao", 0),
                  dados_.get("valor_referencia", 0),
@@ -1046,8 +1723,8 @@ def salvar_produto(dados_: dict, id_: int | None = None,
 def disponibilidade(produto_id: int, data_inicio: str | None = None,
                     data_fim: str | None = None) -> int:
     with conectar() as conn:
-        r = conn.execute("SELECT quantidade_total, status FROM produtos WHERE id=?",
-                         (produto_id,)).fetchone()
+        r = conn.execute("SELECT quantidade_total, status FROM produtos"
+                         f" WHERE id=? AND {_t()}", (produto_id,)).fetchone()
         if not r:
             return 0
         if r["status"] == "manutencao":
@@ -1059,7 +1736,7 @@ def disponibilidade(produto_id: int, data_inicio: str | None = None,
             "SELECT COALESCE(SUM(ip.quantidade), 0) FROM itens_pedido ip"
             " JOIN pedidos p ON p.id = ip.pedido_id"
             " WHERE ip.tipo = 'produto' AND ip.item_id = ?"
-            f" AND {_em_operacao()}"
+            f" AND {_em_operacao()} AND {_t('p')}"
             " AND p.data_retirada IS NOT NULL"
             " AND p.data_devolucao IS NOT NULL"
             " AND p.data_retirada <= ? AND p.data_devolucao >= ?",
@@ -1073,6 +1750,8 @@ def disponibilidade(produto_id: int, data_inicio: str | None = None,
 
 def salvar_foto_produto(produto_id: int, arquivo: str, principal: bool = False) -> int:
     with conectar() as conn:
+        if not _do_tenant(conn, "produtos", produto_id):
+            raise ValueError("Produto não encontrado.")
         if principal:
             conn.execute("UPDATE fotos_produto SET principal=0 WHERE produto_id=?",
                          (produto_id,))
@@ -1089,6 +1768,10 @@ def salvar_foto_produto(produto_id: int, arquivo: str, principal: bool = False) 
 
 def definir_foto_principal(foto_id: int, produto_id: int):
     with conectar() as conn:
+        if not _do_tenant(conn, "produtos", produto_id) or not conn.execute(
+                "SELECT 1 FROM fotos_produto WHERE id=? AND produto_id=?",
+                (foto_id, produto_id)).fetchone():
+            return
         conn.execute("UPDATE fotos_produto SET principal=0 WHERE produto_id=?",
                      (produto_id,))
         conn.execute("UPDATE fotos_produto SET principal=1 WHERE id=?", (foto_id,))
@@ -1096,8 +1779,9 @@ def definir_foto_principal(foto_id: int, produto_id: int):
 
 def excluir_foto_produto(foto_id: int) -> dict | None:
     with conectar() as conn:
-        foto = conn.execute("SELECT * FROM fotos_produto WHERE id=?",
-                            (foto_id,)).fetchone()
+        foto = conn.execute(
+            "SELECT f.* FROM fotos_produto f JOIN produtos p ON p.id = f.produto_id"
+            f" WHERE f.id=? AND {_t('p')}", (foto_id,)).fetchone()
         if not foto:
             return None
         foto = dict(foto)
@@ -1120,10 +1804,10 @@ STATUS_KIT = ("ativo", "inativo")
 
 
 def listar_kits(status: str | None = None) -> list:
-    sql = "SELECT * FROM kits"
+    sql = f"SELECT * FROM kits WHERE {_t()}"
     params = []
     if status:
-        sql += " WHERE status = ?"
+        sql += " AND status = ?"
         params.append(status)
     sql += " ORDER BY nome"
     with conectar() as conn:
@@ -1139,7 +1823,8 @@ def listar_kits(status: str | None = None) -> list:
 
 def buscar_kit(id_: int) -> dict | None:
     with conectar() as conn:
-        r = conn.execute("SELECT * FROM kits WHERE id = ?", (id_,)).fetchone()
+        r = conn.execute(f"SELECT * FROM kits WHERE id = ? AND {_t()}",
+                         (id_,)).fetchone()
         if not r:
             return None
         k = dict(r)
@@ -1203,17 +1888,19 @@ def salvar_kit(dados_: dict, id_: int | None = None) -> int:
     agora_ = formato.agora()
     with conectar() as conn:
         if id_:
+            if not _do_tenant(conn, "kits", id_):
+                raise ValueError("Kit não encontrado.")
             conn.execute(
                 "UPDATE kits SET nome=?, descricao=?, preco=?,"
-                " status=?, publicado=?, atualizado_em=? WHERE id = ?",
+                f" status=?, publicado=?, atualizado_em=? WHERE id = ? AND {_t()}",
                 (nome, dados_.get("descricao", ""),
                  dados_.get("preco", 0), status,
                  dados_.get("publicado", 0), agora_, id_))
             return id_
         r = conn.execute(
-            "INSERT INTO kits (nome, descricao, preco, status,"
-            " publicado, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?)",
-            (nome, dados_.get("descricao", ""),
+            "INSERT INTO kits (tenant_id, nome, descricao, preco, status,"
+            " publicado, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?,?)",
+            (tenant_atual(), nome, dados_.get("descricao", ""),
              dados_.get("preco", 0), status,
              dados_.get("publicado", 0), agora_, agora_))
         return r.lastrowid
@@ -1223,6 +1910,10 @@ def adicionar_item_kit(kit_id: int, produto_id: int, quantidade: int = 1) -> int
     if quantidade < 1:
         raise ErroDeCampo("quantidade", "Quantidade mínima é 1.")
     with conectar() as conn:
+        if not _do_tenant(conn, "kits", kit_id):
+            raise ErroDeCampo("kit_id", "Kit não encontrado.")
+        if not _do_tenant(conn, "produtos", produto_id):
+            raise ErroDeCampo("produto_id", "Produto não encontrado.")
         existente = conn.execute(
             "SELECT id FROM itens_kit WHERE kit_id = ? AND produto_id = ?",
             (kit_id, produto_id)).fetchone()
@@ -1237,9 +1928,13 @@ def adicionar_item_kit(kit_id: int, produto_id: int, quantidade: int = 1) -> int
         return r.lastrowid
 
 
-def remover_item_kit(item_id: int):
+def remover_item_kit(item_id: int, kit_id: int | None = None):
     with conectar() as conn:
-        conn.execute("DELETE FROM itens_kit WHERE id = ?", (item_id,))
+        conn.execute(
+            "DELETE FROM itens_kit WHERE id = ? AND kit_id IN"
+            f" (SELECT id FROM kits WHERE {_t()})"
+            + (" AND kit_id = ?" if kit_id else ""),
+            (item_id, kit_id) if kit_id else (item_id,))
 
 
 def disponibilidade_kit(kit_id: int, data_inicio: str | None = None,
@@ -1266,6 +1961,8 @@ def disponibilidade_kit(kit_id: int, data_inicio: str | None = None,
 
 def salvar_foto_kit(kit_id: int, arquivo: str, principal: bool = False) -> int:
     with conectar() as conn:
+        if not _do_tenant(conn, "kits", kit_id):
+            raise ValueError("Kit não encontrado.")
         if principal:
             conn.execute("UPDATE fotos_kit SET principal=0 WHERE kit_id=?",
                          (kit_id,))
@@ -1282,6 +1979,10 @@ def salvar_foto_kit(kit_id: int, arquivo: str, principal: bool = False) -> int:
 
 def definir_foto_principal_kit(foto_id: int, kit_id: int):
     with conectar() as conn:
+        if not _do_tenant(conn, "kits", kit_id) or not conn.execute(
+                "SELECT 1 FROM fotos_kit WHERE id=? AND kit_id=?",
+                (foto_id, kit_id)).fetchone():
+            return
         conn.execute("UPDATE fotos_kit SET principal=0 WHERE kit_id=?",
                      (kit_id,))
         conn.execute("UPDATE fotos_kit SET principal=1 WHERE id=?", (foto_id,))
@@ -1289,8 +1990,9 @@ def definir_foto_principal_kit(foto_id: int, kit_id: int):
 
 def excluir_foto_kit(foto_id: int) -> dict | None:
     with conectar() as conn:
-        foto = conn.execute("SELECT * FROM fotos_kit WHERE id=?",
-                            (foto_id,)).fetchone()
+        foto = conn.execute(
+            "SELECT f.* FROM fotos_kit f JOIN kits k ON k.id = f.kit_id"
+            f" WHERE f.id=? AND {_t('k')}", (foto_id,)).fetchone()
         if not foto:
             return None
         foto = dict(foto)
@@ -1311,23 +2013,26 @@ def excluir_foto_kit(foto_id: int) -> dict | None:
 
 def resumo_painel() -> dict:
     from datetime import date, timedelta
-    hoje = date.today().isoformat()
-    amanha = (date.today() + timedelta(days=1)).isoformat()
-    proximos_7 = (date.today() + timedelta(days=7)).isoformat()
+    dia = date.fromisoformat(_hoje_iso())
+    hoje = dia.isoformat()
+    amanha = (dia + timedelta(days=1)).isoformat()
+    proximos_7 = (dia + timedelta(days=7)).isoformat()
 
     with conectar() as conn:
         total_clientes = conn.execute(
-            "SELECT COUNT(*) FROM clientes WHERE status='ativo'").fetchone()[0]
-        total_produtos = conn.execute(
-            "SELECT COUNT(*) FROM produtos WHERE status != 'inativo'").fetchone()[0]
-        total_kits = conn.execute(
-            "SELECT COUNT(*) FROM kits WHERE status = 'ativo'").fetchone()[0]
-        total_leads = conn.execute(
-            "SELECT COUNT(*) FROM leads WHERE status NOT IN ('perdido','cancelado','concluido')"
+            f"SELECT COUNT(*) FROM clientes WHERE status='ativo' AND {_t()}"
         ).fetchone()[0]
+        total_produtos = conn.execute(
+            f"SELECT COUNT(*) FROM produtos WHERE status != 'inativo' AND {_t()}"
+        ).fetchone()[0]
+        total_kits = conn.execute(
+            f"SELECT COUNT(*) FROM kits WHERE status = 'ativo' AND {_t()}").fetchone()[0]
+        total_leads = conn.execute(
+            "SELECT COUNT(*) FROM leads WHERE status NOT IN"
+            f" ('perdido','cancelado','concluido') AND {_t()}").fetchone()[0]
         total_orcamentos = conn.execute(
             "SELECT COUNT(*) FROM orcamentos WHERE status IN ('rascunho','enviado')"
-        ).fetchone()[0]
+            f" AND {_t()}").fetchone()[0]
         total_pedidos = conn.execute(
             f"SELECT COUNT(*) FROM pedidos WHERE {_em_operacao('')}"
         ).fetchone()[0]
@@ -1362,7 +2067,7 @@ def resumo_painel() -> dict:
         orcamentos_sem_retorno = [dict(r) for r in conn.execute(
             "SELECT o.id, o.criado_em, c.nome AS cliente_nome"
             " FROM orcamentos o LEFT JOIN clientes c ON c.id=o.cliente_id"
-            " WHERE o.status='enviado'"
+            f" WHERE o.status='enviado' AND {_t('o')}"
             " ORDER BY o.criado_em", ).fetchall()]
 
         proximos_eventos = [dict(r) for r in conn.execute(
@@ -1428,7 +2133,7 @@ def faturamento_periodo(inicio: str, fim: str) -> dict:
             f"  {_data_pedido_sql()} AS data, p.fonte, p.fonte_id,"
             f"  {_total_pedido_sql()} AS valor"
             " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
-            f" WHERE p.status_comercial IN ({faturados})"
+            f" WHERE p.status_comercial IN ({faturados}) AND {_t('p')}"
             ") WHERE data BETWEEN ? AND ? ORDER BY data, id",
             (inicio, fim)).fetchall()
         hists = conn.execute(
@@ -1440,9 +2145,10 @@ def faturamento_periodo(inicio: str, fim: str) -> dict:
             " AND h.data_evento BETWEEN ? AND ? ORDER BY h.data_evento, h.id",
             (inicio, fim)).fetchall()
 
-    # origem = operação (Morumbi Festas); fonte = de onde o registro veio.
+    # origem = operação (a empresa); fonte = de onde o registro veio.
+    operacao = nome_empresa()
     registros = [{"tipo": "pedido", "id": r["id"], "numero": r["id"],
-                  "origem": OPERACAO_PRINCIPAL, "fonte": r["fonte"] or "",
+                  "origem": operacao, "fonte": r["fonte"] or "",
                   "numero_origem": r["fonte_id"],
                   "historico": bool(r["historico"]),
                   "cliente_id": r["cliente_id"], "cliente_nome": r["cliente_nome"],
@@ -1552,16 +2258,17 @@ def indicadores_dashboard() -> dict:
             f" AND status_operacional IN ({em_prep})").fetchone()[0]
         eventos_hoje = conn.execute(
             "SELECT COUNT(*) FROM pedidos WHERE status_comercial != 'cancelado'"
-            " AND data_evento = ?", (hoje,)).fetchone()[0]
+            f" AND data_evento = ? AND {_t()}", (hoje,)).fetchone()[0]
         eventos_mes = conn.execute(
             "SELECT COUNT(*) FROM pedidos WHERE status_comercial != 'cancelado'"
-            " AND data_evento >= ? AND data_evento <= ?",
+            f" AND data_evento >= ? AND data_evento <= ? AND {_t()}",
             (inicio_mes, hoje[:8] + "31")).fetchone()[0]
         clientes_total = conn.execute(
-            "SELECT COUNT(*) FROM clientes WHERE status='ativo'").fetchone()[0]
+            f"SELECT COUNT(*) FROM clientes WHERE status='ativo' AND {_t()}"
+        ).fetchone()[0]
         clientes_novos_mes = conn.execute(
             "SELECT COUNT(*) FROM clientes WHERE status='ativo'"
-            " AND criado_em >= ?", (inicio_mes,)).fetchone()[0]
+            f" AND criado_em >= ? AND {_t()}", (inicio_mes,)).fetchone()[0]
     return {
         "pedidos_ativos": pedidos_ativos,
         "pedidos_em_preparacao": pedidos_em_preparacao,
@@ -1679,7 +2386,7 @@ def alertas_dashboard() -> list:
             (hoje,)).fetchone()[0]
         orcamentos_sem_retorno = conn.execute(
             "SELECT COUNT(*) FROM orcamentos"
-            " WHERE status='enviado' AND atualizado_em < ?",
+            f" WHERE status='enviado' AND atualizado_em < ? AND {_t()}",
             (limite,)).fetchone()[0]
     alertas = []
     if devolucoes_atrasadas:
@@ -1701,7 +2408,7 @@ def catalogo_produtos(categoria_id: int | None = None,
                       busca: str | None = None) -> list:
     sql = ("SELECT p.*, c.nome AS categoria_nome"
            " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id"
-           " WHERE p.status = 'disponivel' AND p.publicado = 1")
+           f" WHERE p.status = 'disponivel' AND p.publicado = 1 AND {_t('p')}")
     params: list = []
     if categoria_id:
         sql += " AND p.categoria_id = ?"
@@ -1719,7 +2426,8 @@ def catalogo_produtos(categoria_id: int | None = None,
 
 
 def catalogo_kits(busca: str | None = None) -> list:
-    sql = "SELECT * FROM kits WHERE status = 'ativo' AND publicado = 1 ORDER BY nome"
+    sql = (f"SELECT * FROM kits WHERE status = 'ativo' AND publicado = 1"
+           f" AND {_t()} ORDER BY nome")
     with conectar() as conn:
         kits = [dict(r) for r in conn.execute(sql).fetchall()]
         for k in kits:
@@ -1739,7 +2447,8 @@ def produto_publico(id_: int) -> dict | None:
         r = conn.execute(
             "SELECT p.*, c.nome AS categoria_nome"
             " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id"
-            " WHERE p.id = ? AND p.status = 'disponivel' AND p.publicado = 1",
+            " WHERE p.id = ? AND p.status = 'disponivel' AND p.publicado = 1"
+            f" AND {_t('p')}",
             (id_,)).fetchone()
         if not r:
             return None
@@ -1754,7 +2463,8 @@ def produto_publico(id_: int) -> dict | None:
 def kit_publico(id_: int) -> dict | None:
     with conectar() as conn:
         r = conn.execute(
-            "SELECT * FROM kits WHERE id = ? AND status = 'ativo' AND publicado = 1",
+            "SELECT * FROM kits WHERE id = ? AND status = 'ativo' AND publicado = 1"
+            f" AND {_t()}",
             (id_,)).fetchone()
         if not r:
             return None
@@ -1775,7 +2485,7 @@ def kit_publico(id_: int) -> dict | None:
 def listar_origens() -> list:
     with conectar() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT * FROM origens_lead ORDER BY nome").fetchall()]
+            f"SELECT * FROM origens_lead WHERE {_t()} ORDER BY nome").fetchall()]
 
 
 def salvar_origem(nome: str, id_: int | None = None) -> int:
@@ -1784,26 +2494,31 @@ def salvar_origem(nome: str, id_: int | None = None) -> int:
         raise ErroDeCampo("nome", "Nome da origem é obrigatório.")
     with conectar() as conn:
         dup = conn.execute(
-            "SELECT id FROM origens_lead WHERE nome = ? AND id != ?",
+            f"SELECT id FROM origens_lead WHERE nome = ? AND id != ? AND {_t()}",
             (nome, id_ or 0)).fetchone()
         if dup:
             raise ErroDeCampo("nome", "Já existe uma origem com este nome.")
         if id_:
-            conn.execute("UPDATE origens_lead SET nome=? WHERE id=?",
+            if not _do_tenant(conn, "origens_lead", id_):
+                raise ErroDeCampo("nome", "Origem não encontrada.")
+            conn.execute(f"UPDATE origens_lead SET nome=? WHERE id=? AND {_t()}",
                          (nome, id_))
             return id_
-        r = conn.execute("INSERT INTO origens_lead (nome) VALUES (?)", (nome,))
+        r = conn.execute("INSERT INTO origens_lead (nome, tenant_id) VALUES (?, ?)",
+                         (nome, tenant_atual()))
         return r.lastrowid
 
 
 def excluir_origem(id_: int):
     with conectar() as conn:
+        if not _do_tenant(conn, "origens_lead", id_):
+            raise ValueError("Origem não encontrada.")
         em_uso = conn.execute(
             "SELECT COUNT(*) FROM leads WHERE origem_id = ?",
             (id_,)).fetchone()[0]
         if em_uso:
             raise ValueError("Origem em uso por leads, não pode ser excluída.")
-        conn.execute("DELETE FROM origens_lead WHERE id = ?", (id_,))
+        conn.execute(f"DELETE FROM origens_lead WHERE id = ? AND {_t()}", (id_,))
 
 
 # ---------------------------------------------------------------------------
@@ -1812,13 +2527,13 @@ def excluir_origem(id_: int):
 
 def _enriquecer_lead(conn, lead: dict) -> dict:
     if lead.get("cliente_id"):
-        cli = conn.execute("SELECT nome FROM clientes WHERE id=?",
+        cli = conn.execute(f"SELECT nome FROM clientes WHERE id=? AND {_t()}",
                            (lead["cliente_id"],)).fetchone()
         lead["cliente_nome"] = cli["nome"] if cli else ""
     else:
         lead["cliente_nome"] = ""
     if lead.get("origem_id"):
-        ori = conn.execute("SELECT nome FROM origens_lead WHERE id=?",
+        ori = conn.execute(f"SELECT nome FROM origens_lead WHERE id=? AND {_t()}",
                            (lead["origem_id"],)).fetchone()
         lead["origem_nome"] = ori["nome"] if ori else ""
     else:
@@ -1833,10 +2548,10 @@ def _enriquecer_lead(conn, lead: dict) -> dict:
 
 
 def listar_leads(status: str | None = None) -> list:
-    sql = "SELECT * FROM leads"
+    sql = f"SELECT * FROM leads WHERE {_t()}"
     params: list = []
     if status:
-        sql += " WHERE status = ?"
+        sql += " AND status = ?"
         params.append(status)
     sql += " ORDER BY atualizado_em DESC"
     with conectar() as conn:
@@ -1852,7 +2567,7 @@ def leads_por_etapa() -> dict:
     resultado["cancelado"] = []
     with conectar() as conn:
         rows = conn.execute(
-            "SELECT * FROM leads ORDER BY atualizado_em DESC").fetchall()
+            f"SELECT * FROM leads WHERE {_t()} ORDER BY atualizado_em DESC").fetchall()
         for r in rows:
             ld = dict(r)
             _enriquecer_lead(conn, ld)
@@ -1863,7 +2578,8 @@ def leads_por_etapa() -> dict:
 
 def buscar_lead(id_: int) -> dict | None:
     with conectar() as conn:
-        r = conn.execute("SELECT * FROM leads WHERE id = ?", (id_,)).fetchone()
+        r = conn.execute(f"SELECT * FROM leads WHERE id = ? AND {_t()}",
+                         (id_,)).fetchone()
         if not r:
             return None
         ld = dict(r)
@@ -1895,12 +2611,15 @@ def salvar_lead(dados_: dict, id_: int | None = None) -> int:
 
     agora_ = formato.agora()
     with conectar() as conn:
+        _validar_referencias(conn, dados_)
         if id_:
+            if not _do_tenant(conn, "leads", id_):
+                raise ValueError("Lead não encontrado.")
             conn.execute(
                 "UPDATE leads SET cliente_id=?, origem_id=?, interesse=?,"
                 " valor_estimado=?, responsavel_id=?, status=?,"
                 " data_evento=?, observacoes=?, atualizado_em=?"
-                " WHERE id=?",
+                f" WHERE id=? AND {_t()}",
                 (dados_["cliente_id"], dados_.get("origem_id"),
                  dados_.get("interesse", ""), dados_.get("valor_estimado", 0),
                  dados_.get("responsavel_id"), status,
@@ -1908,11 +2627,11 @@ def salvar_lead(dados_: dict, id_: int | None = None) -> int:
                  agora_, id_))
             return id_
         r = conn.execute(
-            "INSERT INTO leads (cliente_id, origem_id, interesse,"
+            "INSERT INTO leads (tenant_id, cliente_id, origem_id, interesse,"
             " valor_estimado, responsavel_id, status, data_evento,"
             " observacoes, criado_em, atualizado_em)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (dados_["cliente_id"], dados_.get("origem_id"),
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (tenant_atual(), dados_["cliente_id"], dados_.get("origem_id"),
              dados_.get("interesse", ""), dados_.get("valor_estimado", 0),
              dados_.get("responsavel_id"), status,
              dados_.get("data_evento"), dados_.get("observacoes", ""),
@@ -1926,15 +2645,17 @@ def mover_lead(id_: int, novo_status: str):
         raise ValueError("Status inválido.")
     agora_ = formato.agora()
     with conectar() as conn:
-        conn.execute(
-            "UPDATE leads SET status=?, atualizado_em=? WHERE id=?",
+        cur = conn.execute(
+            f"UPDATE leads SET status=?, atualizado_em=? WHERE id=? AND {_t()}",
             (novo_status, agora_, id_))
+        if not cur.rowcount:
+            raise ValueError("Lead não encontrado.")
 
 
 def contadores_lead() -> dict:
     with conectar() as conn:
         rows = conn.execute(
-            "SELECT status, COUNT(*) as qtd FROM leads GROUP BY status"
+            f"SELECT status, COUNT(*) as qtd FROM leads WHERE {_t()} GROUP BY status"
         ).fetchall()
         return {r["status"]: r["qtd"] for r in rows}
 
@@ -1945,10 +2666,10 @@ def contadores_lead() -> dict:
 
 def listar_orcamentos(status: str | None = None) -> list:
     sql = ("SELECT o.*, c.nome AS cliente_nome FROM orcamentos o"
-           " LEFT JOIN clientes c ON c.id = o.cliente_id")
+           f" LEFT JOIN clientes c ON c.id = o.cliente_id WHERE {_t('o')}")
     params: list = []
     if status:
-        sql += " WHERE o.status = ?"
+        sql += " AND o.status = ?"
         params.append(status)
     sql += " ORDER BY o.atualizado_em DESC"
     with conectar() as conn:
@@ -1972,7 +2693,7 @@ def buscar_orcamento(id_: int) -> dict | None:
         r = conn.execute(
             "SELECT o.*, c.nome AS cliente_nome FROM orcamentos o"
             " LEFT JOIN clientes c ON c.id = o.cliente_id"
-            " WHERE o.id = ?", (id_,)).fetchone()
+            f" WHERE o.id = ? AND {_t('o')}", (id_,)).fetchone()
         if not r:
             return None
         orc = dict(r)
@@ -1981,7 +2702,7 @@ def buscar_orcamento(id_: int) -> dict | None:
             i["quantidade"] * i["preco_unitario"] for i in orc["itens"])
         orc["total"] = max(orc["subtotal"] - (orc["desconto"] or 0), 0)
         if orc.get("lead_id"):
-            ld = conn.execute("SELECT interesse FROM leads WHERE id=?",
+            ld = conn.execute(f"SELECT interesse FROM leads WHERE id=? AND {_t()}",
                               (orc["lead_id"],)).fetchone()
             orc["lead_interesse"] = ld["interesse"] if ld else ""
         return orc
@@ -2002,10 +2723,14 @@ def salvar_orcamento(dados_: dict, itens: list,
 
     agora_ = formato.agora()
     with conectar() as conn:
+        _validar_referencias(conn, dados_)
+        _validar_itens_da_empresa(conn, itens)
         if id_:
+            if not _do_tenant(conn, "orcamentos", id_):
+                raise ValueError("Orçamento não encontrado.")
             conn.execute(
                 "UPDATE orcamentos SET lead_id=?, cliente_id=?, desconto=?,"
-                " observacoes=?, status=?, atualizado_em=? WHERE id=?",
+                f" observacoes=?, status=?, atualizado_em=? WHERE id=? AND {_t()}",
                 (dados_.get("lead_id"), dados_["cliente_id"], desconto,
                  dados_.get("observacoes", ""), status, agora_, id_))
             conn.execute("DELETE FROM itens_orcamento WHERE orcamento_id=?",
@@ -2013,10 +2738,10 @@ def salvar_orcamento(dados_: dict, itens: list,
             novo_id = id_
         else:
             r = conn.execute(
-                "INSERT INTO orcamentos (lead_id, cliente_id, desconto,"
+                "INSERT INTO orcamentos (tenant_id, lead_id, cliente_id, desconto,"
                 " observacoes, status, criado_em, atualizado_em)"
-                " VALUES (?,?,?,?,?,?,?)",
-                (dados_.get("lead_id"), dados_["cliente_id"], desconto,
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (tenant_atual(), dados_.get("lead_id"), dados_["cliente_id"], desconto,
                  dados_.get("observacoes", ""), status, agora_, agora_))
             novo_id = r.lastrowid
         for item in itens:
@@ -2050,7 +2775,7 @@ def listar_pedidos(status_comercial: str | None = None,
                    data_fim: str | None = None) -> list:
     sql = ("SELECT p.*, c.nome AS cliente_nome FROM pedidos p"
            " LEFT JOIN clientes c ON c.id = p.cliente_id")
-    conds: list[str] = []
+    conds: list[str] = [_t("p")]
     params: list = []
     if status_comercial:
         conds.append("p.status_comercial = ?")
@@ -2082,7 +2807,7 @@ def buscar_pedido_festas(id_: int) -> dict | None:
         r = conn.execute(
             "SELECT p.*, c.nome AS cliente_nome FROM pedidos p"
             " LEFT JOIN clientes c ON c.id = p.cliente_id"
-            " WHERE p.id = ?", (id_,)).fetchone()
+            f" WHERE p.id = ? AND {_t('p')}", (id_,)).fetchone()
         if not r:
             return None
         ped = dict(r)
@@ -2103,9 +2828,9 @@ def converter_orcamento_em_pedido(orcamento_id: int, usuario_id=None) -> int:
     agora_ = formato.agora()
     with conectar() as conn:
         r = conn.execute(
-            "INSERT INTO pedidos (orcamento_id, cliente_id, data_evento,"
-            " observacoes, criado_em, atualizado_em) VALUES (?,?,?,?,?,?)",
-            (orcamento_id, orc["cliente_id"], None,
+            "INSERT INTO pedidos (tenant_id, orcamento_id, cliente_id, data_evento,"
+            " observacoes, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?)",
+            (tenant_atual(), orcamento_id, orc["cliente_id"], None,
              orc.get("observacoes", ""), agora_, agora_))
         pedido_id = r.lastrowid
         for item in orc["itens"]:
@@ -2118,11 +2843,11 @@ def converter_orcamento_em_pedido(orcamento_id: int, usuario_id=None) -> int:
                  item["preco_unitario"]))
         conn.execute(
             "UPDATE orcamentos SET status='aceito', atualizado_em=?"
-            " WHERE id=?", (agora_, orcamento_id))
+            f" WHERE id=? AND {_t()}", (agora_, orcamento_id))
         if orc.get("lead_id"):
             conn.execute(
                 "UPDATE leads SET status='contratado', atualizado_em=?"
-                " WHERE id=?", (agora_, orc["lead_id"]))
+                f" WHERE id=? AND {_t()}", (agora_, orc["lead_id"]))
         registrar_evento_pedido(
             conn, pedido_id, "Pedido criado", "Comercial", usuario_id,
             detalhe=f"Convertido do orçamento #{orcamento_id}.")
@@ -2197,6 +2922,16 @@ def _validar_dados_pedido(d: dict):
                           "Data de devolução deve ser posterior à retirada.")
 
 
+def _validar_itens_da_empresa(conn, itens: list):
+    """Produto ou kit citado num item precisa ser da empresa atual."""
+    for item in itens:
+        tabela = {"produto": "produtos", "kit": "kits"}.get(item.get("tipo"))
+        if tabela and item.get("item_id") and not _do_tenant(
+                conn, tabela, item["item_id"]):
+            raise ErroDeCampo("item_descricao_0",
+                              f"Item não encontrado: {item.get('descricao', '')}.")
+
+
 def _assinatura_itens(itens: list) -> list:
     return sorted(f"{i['tipo']}:{i['descricao']} x{int(i['quantidade'])}"
                   f" @ {float(i['preco_unitario']):.2f}" for i in itens)
@@ -2211,10 +2946,10 @@ def _verificar_disponibilidade_itens(conn, itens: list, data_retirada: str,
             continue
         pid = item["item_id"]
         r = conn.execute(
-            "SELECT quantidade_total, status, nome FROM produtos WHERE id=?",
+            f"SELECT quantidade_total, status, nome FROM produtos WHERE id=? AND {_t()}",
             (pid,)).fetchone()
         if not r:
-            continue
+            raise ErroDeCampo("item_descricao_0", "Produto não encontrado.")
         if r["status"] == "manutencao":
             raise ErroDeCampo(
                 "item_descricao_0",
@@ -2224,7 +2959,7 @@ def _verificar_disponibilidade_itens(conn, itens: list, data_retirada: str,
             "SELECT COALESCE(SUM(ip.quantidade), 0) FROM itens_pedido ip"
             " JOIN pedidos p ON p.id = ip.pedido_id"
             " WHERE ip.tipo = 'produto' AND ip.item_id = ?"
-            f" AND {_em_operacao()}"
+            f" AND {_em_operacao()} AND {_t('p')}"
             " AND p.data_retirada IS NOT NULL"
             " AND p.data_devolucao IS NOT NULL"
             " AND p.data_retirada <= ? AND p.data_devolucao >= ?")
@@ -2256,11 +2991,12 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
 
     atual = None
     with conectar() as conn:
-        if not conn.execute("SELECT 1 FROM clientes WHERE id = ?",
-                            (dados_["cliente_id"],)).fetchone():
+        if not _do_tenant(conn, "clientes", dados_["cliente_id"]):
             raise ErroDeCampo("cliente_id", "Cliente não encontrado.")
+        _validar_itens_da_empresa(conn, itens)
         if id_:
-            r = conn.execute("SELECT * FROM pedidos WHERE id = ?", (id_,)).fetchone()
+            r = conn.execute(f"SELECT * FROM pedidos WHERE id = ? AND {_t()}",
+                             (id_,)).fetchone()
             if not r:
                 raise ValueError("Pedido não encontrado.")
             atual = dict(r)
@@ -2309,7 +3045,7 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
                 " data_retirada=?, data_devolucao=?,"
                 " status_comercial=?, status_operacional=?, observacoes=?,"
                 + "".join(f" {c}=?," for c in CAMPOS_TEXTO_PEDIDO) +
-                " historico=?, atualizado_em=? WHERE id=?",
+                f" historico=?, atualizado_em=? WHERE id=? AND {_t()}",
                 (dados_["cliente_id"], dados_.get("data_evento"), data_ret,
                  data_dev, sc, so, dados_.get("observacoes", ""),
                  *extras, historico, agora_, id_))
@@ -2317,13 +3053,13 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
             novo_id = id_
         else:
             r = conn.execute(
-                "INSERT INTO pedidos (cliente_id, data_evento, data_retirada,"
+                "INSERT INTO pedidos (tenant_id, cliente_id, data_evento, data_retirada,"
                 " data_devolucao, status_comercial, status_operacional,"
                 " observacoes, "
                 + "".join(f"{c}, " for c in CAMPOS_TEXTO_PEDIDO) +
                 "criado_em, atualizado_em) VALUES ("
-                + ",".join("?" * (9 + len(CAMPOS_TEXTO_PEDIDO))) + ")",
-                (dados_["cliente_id"], dados_.get("data_evento"), data_ret,
+                + ",".join("?" * (10 + len(CAMPOS_TEXTO_PEDIDO))) + ")",
+                (tenant_atual(), dados_["cliente_id"], dados_.get("data_evento"), data_ret,
                  data_dev, sc, so, dados_.get("observacoes", ""),
                  *extras, agora_, agora_))
             novo_id = r.lastrowid
@@ -2407,8 +3143,7 @@ def listar_pedidos_operacional(status_operacional: str | None = None,
             ped["itens"] = [dict(r) for r in conn.execute(
                 "SELECT * FROM itens_pedido WHERE pedido_id=? ORDER BY id",
                 (ped["id"],)).fetchall()]
-            ped["total"] = sum(
-                i["quantidade"] * i["preco_unitario"] for i in ped["itens"])
+            ped["total"] = total_do_pedido(ped)
         if busca:
             b = busca.lower()
             peds = [p for p in peds
@@ -2422,7 +3157,7 @@ def avancar_status_operacional(pedido_id: int, observacao: str = "",
     with conectar() as conn:
         ped = conn.execute(
             "SELECT status_comercial, status_operacional, historico FROM pedidos"
-            " WHERE id=?", (pedido_id,)).fetchone()
+            f" WHERE id=? AND {_t()}", (pedido_id,)).fetchone()
         if not ped:
             raise ValueError("Pedido não encontrado.")
         if ped["historico"]:
@@ -2436,7 +3171,7 @@ def avancar_status_operacional(pedido_id: int, observacao: str = "",
             raise ValueError(f"Status '{atual}' não pode avançar.")
         proximo = FLUXO_OPERACIONAL[atual]
         conn.execute(
-            "UPDATE pedidos SET status_operacional=?, atualizado_em=? WHERE id=?",
+            f"UPDATE pedidos SET status_operacional=?, atualizado_em=? WHERE id=? AND {_t()}",
             (proximo, formato.agora(), pedido_id))
         registrar_evento_pedido(
             conn, pedido_id, TITULO_AVANCO.get(proximo, f"Avançou para {proximo}"),
@@ -2449,7 +3184,7 @@ def cancelar_pedido(id_: int, motivo: str = "", usuario_id=None):
     with conectar() as conn:
         ped = conn.execute(
             "SELECT status_comercial, status_operacional, historico, cliente_id"
-            " FROM pedidos WHERE id=?", (id_,)).fetchone()
+            f" FROM pedidos WHERE id=? AND {_t()}", (id_,)).fetchone()
         if not ped:
             raise ValueError("Pedido não encontrado.")
         if ped["status_comercial"] == "cancelado":
@@ -2459,7 +3194,7 @@ def cancelar_pedido(id_: int, motivo: str = "", usuario_id=None):
         conn.execute(
             "UPDATE pedidos SET status_comercial='cancelado',"
             " status_operacional='cancelado',"
-            " motivo_cancelamento=?, atualizado_em=? WHERE id=?",
+            f" motivo_cancelamento=?, atualizado_em=? WHERE id=? AND {_t()}",
             (motivo, formato.agora(), id_))
         registrar_evento_pedido(
             conn, id_, "Pedido cancelado", "Comercial", usuario_id,
@@ -2475,7 +3210,7 @@ def eventos_agenda(data_inicio: str, data_fim: str,
            " p.data_devolucao, p.status_comercial, p.status_operacional,"
            " p.observacoes, c.nome AS cliente_nome"
            " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
-           " WHERE p.status_comercial != 'cancelado'")
+           f" WHERE p.status_comercial != 'cancelado' AND {_t('p')}")
     params: list = []
 
     if status_comercial:
@@ -2583,10 +3318,10 @@ def salvar_evento_historico(dados_evt: dict) -> int:
     with conectar() as conn:
         cur = conn.execute(
             "INSERT INTO eventos_historico"
-            " (cliente_id, origem_id, origem, data_evento, descricao,"
+            " (tenant_id, cliente_id, origem_id, origem, data_evento, descricao,"
             "  observacoes, canal, valor, status_origem)"
-            " VALUES (?,?,?,?,?,?,?,?,?)",
-            (dados_evt.get("cliente_id"),
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (tenant_atual(), dados_evt.get("cliente_id"),
              dados_evt["origem_id"],
              dados_evt.get("origem", "Morumbi 3D"),
              dados_evt.get("data_evento"),
@@ -2614,7 +3349,7 @@ def salvar_historico_manual(id_: int, valor: float | None = None,
     with conectar() as conn:
         r = conn.execute(
             "SELECT id, origem, origem_id, valor, data_evento"
-            " FROM eventos_historico WHERE id = ?", (id_,)).fetchone()
+            f" FROM eventos_historico WHERE id = ? AND {_t()}", (id_,)).fetchone()
         if not r:
             raise ValueError("Registro histórico não encontrado.")
         if r["origem"] in ORIGENS_SOMENTE_LEITURA:
@@ -2630,8 +3365,8 @@ def salvar_historico_manual(id_: int, valor: float | None = None,
 
         agora_ = formato.agora()
         for campo, (antes, depois) in mudancas.items():
-            conn.execute(f"UPDATE eventos_historico SET {campo} = ? WHERE id = ?",
-                         (depois, id_))
+            conn.execute(f"UPDATE eventos_historico SET {campo} = ? WHERE id = ?"
+                         f" AND {_t()}", (depois, id_))
             if campo == "valor":
                 tipo = "valor_historico"
                 texto = f"{formato.dinheiro(antes)} → {formato.dinheiro(depois)}"
@@ -2639,8 +3374,8 @@ def salvar_historico_manual(id_: int, valor: float | None = None,
                 tipo = "data_historico"
                 texto = f"{antes or 'sem data'} → {depois}"
             conn.execute(
-                "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
-                " VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO audit_log (tenant_id, usuario_id, tipo, descricao, dados, criado_em)"
+                f" VALUES ({tenant_atual()}, ?, ?, ?, ?, ?)",
                 (usuario_id, tipo,
                  f"{campo} de {r['origem']} #{r['origem_id']}: {texto}",
                  json.dumps({"id": id_, "origem": r["origem"],
@@ -2657,8 +3392,8 @@ def salvar_valor_historico(id_: int, valor: float | None, usuario_id=None) -> di
 
 def atualizar_classificacao_cliente_do_historico(id_: int):
     with conectar() as conn:
-        r = conn.execute("SELECT cliente_id FROM eventos_historico WHERE id = ?",
-                         (id_,)).fetchone()
+        r = conn.execute(f"SELECT cliente_id FROM eventos_historico WHERE id = ?"
+                         f" AND {_t()}", (id_,)).fetchone()
     if r and r["cliente_id"]:
         atualizar_classificacao_cliente(r["cliente_id"])
 
@@ -2683,7 +3418,7 @@ def pedidos_cliente(cliente_id: int) -> list:
             " p.status_comercial, p.status_operacional, p.observacoes,"
             f" COALESCE({_total_pedido_sql()}, 0) AS valor_total"
             " FROM pedidos p"
-            " WHERE p.cliente_id = ?"
+            f" WHERE p.cliente_id = ? AND {_t('p')}"
             " ORDER BY p.data_evento DESC",
             (cliente_id,)).fetchall()
     return [dict(r) for r in rows]
@@ -2697,12 +3432,20 @@ def _festas_realizadas_sql() -> str:
         f" AND {_historico_visivel('')}"
         " UNION ALL"
         " SELECT cliente_id, data_evento FROM pedidos"
-        f" WHERE status_comercial IN ({realizados})")
+        f" WHERE status_comercial IN ({realizados}) AND {_t()}")
 
 
 def atualizar_classificacao_cliente(cliente_id: int):
-    """Festas realizadas: históricos finalizados + pedidos entregues/finalizados."""
+    """Festas realizadas: históricos finalizados + pedidos entregues/finalizados.
+
+    Conta sempre dentro da empresa do próprio cliente.
+    """
     with conectar() as conn:
+        dono = conn.execute("SELECT tenant_id FROM clientes WHERE id = ?",
+                            (cliente_id,)).fetchone()
+    if not dono:
+        return
+    with usando_tenant(dono["tenant_id"]), conectar() as conn:
         r = conn.execute(
             f"SELECT COUNT(*), MAX(data_evento) FROM ({_festas_realizadas_sql()})"
             " WHERE cliente_id = ?", (cliente_id,)).fetchone()
@@ -2717,11 +3460,11 @@ def atualizar_todas_classificacoes() -> int:
     with conectar() as conn:
         clientes = conn.execute(
             "SELECT DISTINCT cliente_id FROM ("
-            "  SELECT cliente_id FROM eventos_historico"
+            f"  SELECT cliente_id FROM eventos_historico WHERE {_t()}"
             "  UNION"
-            "  SELECT cliente_id FROM pedidos"
+            f"  SELECT cliente_id FROM pedidos WHERE {_t()}"
             "  UNION"
-            "  SELECT id FROM clientes WHERE total_festas > 0"
+            f"  SELECT id FROM clientes WHERE total_festas > 0 AND {_t()}"
             ") WHERE cliente_id IS NOT NULL").fetchall()
     for row in clientes:
         atualizar_classificacao_cliente(row[0])
@@ -2732,8 +3475,8 @@ def disponibilidade_calendario(produto_id: int, ano: int, mes: int) -> list:
     _, ultimo_dia = calendar.monthrange(ano, mes)
     resultado = []
     with conectar() as conn:
-        r = conn.execute("SELECT quantidade_total, status FROM produtos WHERE id=?",
-                         (produto_id,)).fetchone()
+        r = conn.execute("SELECT quantidade_total, status FROM produtos"
+                         f" WHERE id=? AND {_t()}", (produto_id,)).fetchone()
         if not r:
             return resultado
         if r["status"] == "manutencao":
@@ -2748,7 +3491,7 @@ def disponibilidade_calendario(produto_id: int, ano: int, mes: int) -> list:
                 "SELECT COALESCE(SUM(ip.quantidade), 0) FROM itens_pedido ip"
                 " JOIN pedidos p ON p.id = ip.pedido_id"
                 " WHERE ip.tipo = 'produto' AND ip.item_id = ?"
-                f" AND {_em_operacao()}"
+                f" AND {_em_operacao()} AND {_t('p')}"
                 " AND p.data_retirada IS NOT NULL AND p.data_devolucao IS NOT NULL"
                 " AND p.data_retirada <= ? AND p.data_devolucao >= ?",
                 (produto_id, d, d)).fetchone()[0]
@@ -2774,6 +3517,7 @@ def listar_pedidos_unificados() -> list:
             " AS itens_count"
             " FROM pedidos p"
             " LEFT JOIN clientes c ON c.id = p.cliente_id"
+            f" WHERE {_t('p')}"
         ).fetchall()
         for p in peds:
             p = dict(p)
@@ -2786,7 +3530,7 @@ def listar_pedidos_unificados() -> list:
                 "data_evento": p["data_evento"],
                 "itens_count": p["itens_count"],
                 "total": p["total"],
-                "origem": OPERACAO_PRINCIPAL,
+                "origem": nome_empresa(),
                 "fonte": p["fonte"] or "",
                 "canal": p["canal"] or "",
                 "historico": bool(p["historico"]),
@@ -2843,7 +3587,7 @@ def listar_pedidos_unificados() -> list:
 def origens_pedidos_unificados() -> list:
     """Operações com pedidos visíveis (o filtro Origem é de operação, não de fonte)."""
     with conectar() as conn:
-        origens = [OPERACAO_PRINCIPAL]
+        origens = [nome_empresa()]
         rows = conn.execute(
             f"SELECT DISTINCT {_operacao_sql('origem')} FROM eventos_historico"
             f" WHERE {_historico_visivel('')}").fetchall()
@@ -2855,7 +3599,7 @@ def origens_pedidos_unificados() -> list:
 
 def indicadores_pedidos() -> dict:
     from datetime import timedelta
-    hoje = date.today()
+    hoje = date.fromisoformat(_hoje_iso())
     daqui_30 = (hoje + timedelta(days=30)).isoformat()
     ano, mes = hoje.year, hoje.month
     primeiro_dia = f"{ano:04d}-{mes:02d}-01"
@@ -2867,13 +3611,13 @@ def indicadores_pedidos() -> dict:
     with conectar() as conn:
         abertos = conn.execute(
             "SELECT COUNT(*) FROM pedidos"
-            " WHERE status_comercial IN ('confirmado', 'entregue')"
+            f" WHERE status_comercial IN ('confirmado', 'entregue') AND {_t()}"
         ).fetchone()[0]
 
         proximos = conn.execute(
             "SELECT COUNT(*) FROM pedidos"
             " WHERE data_evento >= ? AND data_evento <= ?"
-            " AND status_comercial IN ('confirmado', 'entregue')",
+            f" AND status_comercial IN ('confirmado', 'entregue') AND {_t()}",
             (hoje.isoformat(), daqui_30),
         ).fetchone()[0]
 
@@ -2916,7 +3660,7 @@ def _sql_pedidos_historicos(conn) -> str:
         f" (SELECT SUM(i.quantidade * i.preco_unitario) FROM itens_pedido i"
         f"  WHERE i.pedido_id = p.id) AS valor"
         f" FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
-        f" WHERE p.status_comercial != 'cancelado'"
+        f" WHERE p.status_comercial != 'cancelado' AND {_t('p')}"
         f" AND {_data_pedido_sql()} < '{DATA_CORTE_FINALIZADOS}'")
 
 
@@ -2933,16 +3677,17 @@ def diagnostico_normalizacao(conn, amostra: int = 15) -> dict:
         _sql_pedidos_historicos(conn) + " ORDER BY data_ref, p.id").fetchall()]
     a_alterar = [p for p in historicos if not _ja_normalizado(p)]
 
-    total_pedidos = conn.execute("SELECT COUNT(*) FROM pedidos").fetchone()[0]
+    total_pedidos = conn.execute(
+        f"SELECT COUNT(*) FROM pedidos WHERE {_t()}").fetchone()[0]
     cancelados = conn.execute(
-        "SELECT COUNT(*) FROM pedidos WHERE status_comercial = 'cancelado'"
+        f"SELECT COUNT(*) FROM pedidos WHERE status_comercial = 'cancelado' AND {_t()}"
     ).fetchone()[0]
     sem_data = conn.execute(
         f"SELECT COUNT(*) FROM pedidos p WHERE {_data_pedido_sql()} IS NULL"
-        " AND p.status_comercial != 'cancelado'").fetchone()[0]
+        f" AND p.status_comercial != 'cancelado' AND {_t('p')}").fetchone()[0]
     col_hist = "historico" if "historico" in _colunas(conn, "pedidos") else "0"
     inconsistentes = conn.execute(
-        f"SELECT COUNT(*) FROM pedidos WHERE {col_hist} = 1"
+        f"SELECT COUNT(*) FROM pedidos WHERE {col_hist} = 1 AND {_t()}"
         " AND (status_comercial != 'finalizado'"
         "      OR status_operacional != 'finalizado')").fetchone()[0]
 
@@ -3029,8 +3774,8 @@ def aplicar_normalizacao(conn, usuario_id=None) -> dict:
                           "historico": p["historico"]}})
         if alterados:
             conn.execute(
-                "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
-                " VALUES (?, 'normalizacao_historico', ?, ?, ?)",
+                "INSERT INTO audit_log (tenant_id, usuario_id, tipo, descricao, dados, criado_em)"
+                f" VALUES ({tenant_atual()}, ?, 'normalizacao_historico', ?, ?, ?)",
                 (usuario_id,
                  f"Normalizou {len(alterados)} pedidos anteriores a"
                  f" {DATA_CORTE_FINALIZADOS} como finalizados/históricos",
@@ -3126,13 +3871,14 @@ POR_PAGINA_PEDIDOS = (10, 20, 50)
 def _sql_base_pedidos() -> str:
     """Pedidos do sistema + importados visíveis, com a mesma forma de linha."""
     sit = "situacao_historico(h.origem, h.status_origem, h.data_evento)"
+    nome_op = nome_empresa().replace("'", "''")
     return (
         "SELECT 'pedido' AS tipo, p.id AS id, p.id AS numero, p.cliente_id,"
         " c.nome AS cliente_nome, c.whatsapp AS cliente_whatsapp,"
         " c.telefone AS cliente_telefone,"
         " p.data_evento, p.data_retirada, p.data_devolucao,"
         " p.status_comercial, p.status_operacional, p.historico,"
-        f" '{OPERACAO_PRINCIPAL}' AS origem, COALESCE(p.canal, '') AS canal,"
+        f" '{nome_op}' AS origem, COALESCE(p.canal, '') AS canal,"
         " COALESCE(p.fonte, '') AS fonte, p.fonte_id AS numero_origem,"
         f" {_total_pedido_sql()} AS total,"
         " (SELECT SUM(i.quantidade) FROM itens_pedido i"
@@ -3143,6 +3889,7 @@ def _sql_base_pedidos() -> str:
         "  WHERE i.pedido_id = p.id) AS texto_itens,"
         " COALESCE(p.observacoes, '') AS observacoes, p.criado_em"
         " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
+        f" WHERE {_t('p')}"
         " UNION ALL"
         " SELECT 'historico', h.id, COALESCE(h.origem_id, h.id), h.cliente_id,"
         " c.nome, c.whatsapp, c.telefone,"
@@ -3261,9 +4008,9 @@ def buscar_pedido_detalhe(id_: int) -> dict | None:
     with conectar() as conn:
         c = conn.execute(
             "SELECT id, nome, whatsapp, telefone, total_festas, classificacao"
-            " FROM clientes WHERE id = ?", (ped["cliente_id"],)).fetchone()
+            f" FROM clientes WHERE id = ? AND {_t()}", (ped["cliente_id"],)).fetchone()
     ped["cliente"] = dict(c) if c else None
-    ped["origem"] = OPERACAO_PRINCIPAL
+    ped["origem"] = nome_empresa()
     ped["canal"] = ped.get("canal") or ""
     ped["fonte_rotulo"] = rotulo_fonte(ped.get("fonte"))
     ped["numero_origem"] = ped.get("fonte_id")
@@ -3271,7 +4018,7 @@ def buscar_pedido_detalhe(id_: int) -> dict | None:
     if ped.get("historico_id"):
         with conectar() as conn:
             h = conn.execute("SELECT canal, status_origem, criado_em"
-                             " FROM eventos_historico WHERE id = ?",
+                             f" FROM eventos_historico WHERE id = ? AND {_t()}",
                              (ped["historico_id"],)).fetchone()
         if h:
             ped["canal_original"] = h["canal"] or ""
@@ -3301,7 +4048,7 @@ def buscar_historico_detalhe(id_: int) -> dict | None:
         h = dict(h)
         c = conn.execute(
             "SELECT id, nome, whatsapp, telefone, total_festas, classificacao"
-            " FROM clientes WHERE id = ?", (h["cliente_id"],)).fetchone()
+            f" FROM clientes WHERE id = ? AND {_t()}", (h["cliente_id"],)).fetchone()
     h["cliente"] = dict(c) if c else None
     h["tipo"] = "historico"
     # pendente = festa ainda não encerrada: não é histórico nem modo consulta
@@ -3337,9 +4084,10 @@ def registrar_evento_pedido(conn, pedido_id: int, titulo: str, categoria: str,
                             usuario_id=None, detalhe: str = "",
                             mudancas: dict | None = None):
     conn.execute(
-        "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
-        " VALUES (?, 'pedido_evento', ?, ?, ?)",
-        (usuario_id, f"Pedido #{pedido_id}: {titulo}",
+        "INSERT INTO audit_log (tenant_id, usuario_id, tipo, entidade, entidade_id,"
+        " descricao, dados, criado_em)"
+        " VALUES (?, ?, 'pedido_evento', 'pedido', ?, ?, ?, ?)",
+        (tenant_atual(), usuario_id, pedido_id, f"Pedido #{pedido_id}: {titulo}",
          json.dumps({"pedido_id": pedido_id, "titulo": titulo,
                      "categoria": categoria, "detalhe": detalhe,
                      "mudancas": mudancas or {}}, ensure_ascii=False),
@@ -3357,8 +4105,8 @@ def linha_do_tempo_pedido(ped: dict) -> list:
         rows = conn.execute(
             "SELECT a.criado_em, a.tipo, a.descricao, a.dados, u.nome AS usuario"
             " FROM audit_log a LEFT JOIN usuarios u ON u.id = a.usuario_id"
-            " WHERE (a.tipo = 'pedido_evento' AND a.descricao LIKE ?)"
-            "    OR (a.tipo IN ('pedido', 'operacao') AND a.descricao LIKE ?)"
+            f" WHERE {_t('a')} AND ((a.tipo = 'pedido_evento' AND a.descricao LIKE ?)"
+            "    OR (a.tipo IN ('pedido', 'operacao') AND a.descricao LIKE ?))"
             " ORDER BY a.criado_em, a.id",
             (f"Pedido #{pid}: %", f"%edido #{pid}%")).fetchall()
     for r in rows:
@@ -3401,15 +4149,16 @@ def linha_do_tempo_pedido(ped: dict) -> list:
 
 def finalizar_pedido(id_: int, usuario_id=None):
     with conectar() as conn:
-        p = conn.execute("SELECT * FROM pedidos WHERE id = ?", (id_,)).fetchone()
+        p = conn.execute(f"SELECT * FROM pedidos WHERE id = ? AND {_t()}",
+                         (id_,)).fetchone()
         if not p:
             raise ValueError("Pedido não encontrado.")
         if "finalizar" not in acoes_permitidas(dict(p, tipo="pedido")):
             raise ValueError("Só é possível finalizar um pedido conferido.")
         conn.execute(
             "UPDATE pedidos SET status_comercial = 'finalizado',"
-            " status_operacional = 'finalizado', atualizado_em = ? WHERE id = ?",
-            (formato.agora(), id_))
+            " status_operacional = 'finalizado', atualizado_em = ?"
+            f" WHERE id = ? AND {_t()}", (formato.agora(), id_))
         registrar_evento_pedido(
             conn, id_, "Pedido finalizado", "Comercial", usuario_id,
             mudancas={"status_comercial": [p["status_comercial"], "finalizado"],
@@ -3424,7 +4173,7 @@ def registrar_ocorrencia(id_: int, texto: str, usuario_id=None):
     if len(texto) > 1000:
         raise ValueError("A ocorrência deve ter no máximo 1000 caracteres.")
     with conectar() as conn:
-        if not conn.execute("SELECT 1 FROM pedidos WHERE id = ?", (id_,)).fetchone():
+        if not _do_tenant(conn, "pedidos", id_):
             raise ValueError("Pedido não encontrado.")
         registrar_evento_pedido(conn, id_, "Ocorrência registrada", "Ocorrência",
                                 usuario_id, detalhe=texto)
@@ -3460,7 +4209,7 @@ def motivos_sem_conversao(h: dict) -> list:
             motivos.append("data do evento inválida")
     if not h.get("cliente_id") or h.get("cliente_existe") == 0:
         motivos.append("sem cliente vinculado")
-    if operacao_da_fonte(h.get("fonte") or h.get("origem")) != OPERACAO_PRINCIPAL:
+    if operacao_da_fonte(h.get("fonte") or h.get("origem")) != nome_empresa():
         motivos.append("não é da operação Morumbi Festas")
     return motivos
 
@@ -3489,7 +4238,7 @@ def _sql_historico_inconsistente() -> str:
     return (
         "SELECT p.id, p.cliente_id, p.status_comercial, p.status_operacional,"
         f" {_data_pedido_sql()} AS data_ref"
-        " FROM pedidos p WHERE p.historico = 1 AND ("
+        f" FROM pedidos p WHERE p.historico = 1 AND {_t('p')} AND ("
         "  p.status_comercial NOT IN ('finalizado', 'cancelado')"
         f"  OR {_data_pedido_sql()} >= '{DATA_CORTE_FINALIZADOS}')")
 
@@ -3499,11 +4248,11 @@ def _promover_importado(conn, h: dict, usuario_id, agora_: str) -> int:
         f"Pedido na planilha: {h['descricao']}" if h.get("descricao") else "",
         h.get("observacoes") or "") if t)
     cur = conn.execute(
-        "INSERT INTO pedidos (cliente_id, data_evento, status_comercial,"
+        "INSERT INTO pedidos (tenant_id, cliente_id, data_evento, status_comercial,"
         " status_operacional, observacoes, canal, fonte, fonte_id,"
         " historico_id, valor_informado, historico, criado_em, atualizado_em)"
-        " VALUES (?, ?, 'confirmado', 'preparacao', ?, ?, ?, ?, ?, ?, 0, ?, ?)",
-        (h["cliente_id"], h["data_evento"], obs, canal_canonico(h.get("canal")),
+        " VALUES (?, ?, ?, 'confirmado', 'preparacao', ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+        (h["tenant_id"], h["cliente_id"], h["data_evento"], obs, canal_canonico(h.get("canal")),
          h["origem"], h["origem_id"], h["id"], h.get("valor") or None,
          h.get("criado_em") or agora_, agora_))
     pedido_id = cur.lastrowid
@@ -3520,7 +4269,7 @@ def _promover_importado(conn, h: dict, usuario_id, agora_: str) -> int:
 
 def pedido_do_historico(historico_id: int) -> int | None:
     with conectar() as conn:
-        r = conn.execute("SELECT id FROM pedidos WHERE historico_id = ?",
+        r = conn.execute(f"SELECT id FROM pedidos WHERE historico_id = ? AND {_t()}",
                          (historico_id,)).fetchone()
     return r["id"] if r else None
 
@@ -3542,8 +4291,8 @@ def converter_historico_em_pedido(historico_id: int, usuario_id=None) -> int:
                              + ", ".join(h["motivos"]) + ".")
         pedido_id = _promover_importado(conn, h, usuario_id, agora_)
         conn.execute(
-            "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
-            " VALUES (?, 'reclassificacao_pedidos', ?, ?, ?)",
+            "INSERT INTO audit_log (tenant_id, usuario_id, tipo, descricao, dados, criado_em)"
+            f" VALUES ({tenant_atual()}, ?, 'reclassificacao_pedidos', ?, ?, ?)",
             (usuario_id, f"Importado {rotulo_fonte(h['origem'])}"
              f" #{h['origem_id']} convertido no pedido #{pedido_id}",
              json.dumps({"promovidos": [{"historico_id": h["id"],
@@ -3558,7 +4307,7 @@ def _finalizados_com_operacao_em_curso(conn) -> list:
     quando já tinham itens com o cliente ou voltando: conferir à mão."""
     ids = {}
     for r in conn.execute("SELECT dados FROM audit_log"
-                          " WHERE tipo = 'normalizacao_historico'"):
+                          f" WHERE tipo = 'normalizacao_historico' AND {_t()}"):
         try:
             alterados = json.loads(r["dados"] or "{}").get("alterados", [])
         except (TypeError, ValueError):
@@ -3574,7 +4323,8 @@ def _finalizados_com_operacao_em_curso(conn) -> list:
         "SELECT p.id, p.data_evento, p.data_devolucao, p.status_comercial,"
         " c.nome AS cliente_nome FROM pedidos p"
         " LEFT JOIN clientes c ON c.id = p.cliente_id"
-        f" WHERE p.id IN ({marcas}) AND p.status_comercial = 'finalizado'",
+        f" WHERE p.id IN ({marcas}) AND p.status_comercial = 'finalizado'"
+        f" AND {_t('p')}",
         list(ids)).fetchall()
     return [dict(r, status_antes=ids[r["id"]]) for r in rows]
 
@@ -3592,7 +4342,8 @@ def possiveis_clientes_duplicados(conn) -> list:
     Só relatório: nada é mesclado. Mesmo nome é indício, não prova.
     """
     clientes = [dict(r) for r in conn.execute(
-        "SELECT id, nome, whatsapp, telefone, email, cpf_cnpj FROM clientes")]
+        f"SELECT id, nome, whatsapp, telefone, email, cpf_cnpj FROM clientes"
+        f" WHERE {_t()}")]
     pai = {c["id"]: c["id"] for c in clientes}
 
     def raiz(i):
@@ -3645,7 +4396,7 @@ def _vinculos_por_nome_ambiguos(conn) -> list:
     """Importados ligados a um cliente cujo nome é compartilhado por outro:
     o importador pode ter escolhido o cliente errado (vínculo por nome)."""
     nomes: dict = {}
-    for c in conn.execute("SELECT id, nome FROM clientes"):
+    for c in conn.execute(f"SELECT id, nome FROM clientes WHERE {_t()}"):
         nomes.setdefault(" ".join(normalizar_texto(c["nome"]).split()),
                          []).append(c["id"])
     repetidos = {i for ids in nomes.values() if len(ids) > 1 for i in ids}
@@ -3666,27 +4417,28 @@ def diagnostico_reclassificacao(conn) -> dict:
     hoje = _hoje_iso()
     um = lambda sql, *p: conn.execute(sql, p).fetchone()[0]  # noqa: E731
 
+    peds = f"pedidos p WHERE {_t('p')}"  # só a empresa atual
     ped = {
-        "total": um("SELECT COUNT(*) FROM pedidos"),
-        "promovidos": um("SELECT COUNT(*) FROM pedidos"
-                         " WHERE historico_id IS NOT NULL"),
-        "historicos": um("SELECT COUNT(*) FROM pedidos WHERE historico = 1"),
-        "finalizados": um("SELECT COUNT(*) FROM pedidos"
-                          " WHERE status_comercial = 'finalizado'"),
-        "cancelados": um("SELECT COUNT(*) FROM pedidos"
-                         " WHERE status_comercial = 'cancelado'"),
-        "em_andamento": um("SELECT COUNT(*) FROM pedidos WHERE historico = 0"
+        "total": um(f"SELECT COUNT(*) FROM {peds}"),
+        "promovidos": um(f"SELECT COUNT(*) FROM {peds}"
+                         " AND historico_id IS NOT NULL"),
+        "historicos": um(f"SELECT COUNT(*) FROM {peds} AND historico = 1"),
+        "finalizados": um(f"SELECT COUNT(*) FROM {peds}"
+                          " AND status_comercial = 'finalizado'"),
+        "cancelados": um(f"SELECT COUNT(*) FROM {peds}"
+                         " AND status_comercial = 'cancelado'"),
+        "em_andamento": um(f"SELECT COUNT(*) FROM {peds} AND historico = 0"
                            " AND status_comercial NOT IN"
                            " ('finalizado', 'cancelado')"),
-        "futuros": um("SELECT COUNT(*) FROM pedidos"
-                      " WHERE status_comercial != 'cancelado'"
+        "futuros": um(f"SELECT COUNT(*) FROM {peds}"
+                      " AND status_comercial != 'cancelado'"
                       " AND data_evento >= ?", hoje),
         "passados_com_operacao_pendente": um(
-            "SELECT COUNT(*) FROM pedidos p WHERE p.historico = 0"
+            f"SELECT COUNT(*) FROM {peds} AND p.historico = 0"
             " AND p.status_comercial NOT IN ('finalizado', 'cancelado')"
             f" AND {_data_pedido_sql()} < ?", hoje),
         "sem_itens_em_andamento": um(
-            "SELECT COUNT(*) FROM pedidos p WHERE p.historico = 0"
+            f"SELECT COUNT(*) FROM {peds} AND p.historico = 0"
             " AND p.status_comercial NOT IN ('finalizado', 'cancelado')"
             " AND NOT EXISTS (SELECT 1 FROM itens_pedido i"
             "                 WHERE i.pedido_id = p.id)"),
@@ -3701,9 +4453,9 @@ def diagnostico_reclassificacao(conn) -> dict:
         imp["por_situacao"][r[0]] = r[1]
     imp["visiveis"] = sum(imp["por_situacao"].values())
     imp["ocultos"] = um("SELECT COUNT(*) FROM eventos_historico h"
-                        f" WHERE NOT ({_origem_visivel()})")
+                        f" WHERE {_t('h')} AND NOT ({_origem_visivel()})")
     imp["formulario_festas"] = um("SELECT COUNT(*) FROM eventos_historico"
-                                  " WHERE origem = 'Formulario Festas'")
+                                  f" WHERE origem = 'Formulario Festas' AND {_t()}")
     imp["futuros"] = um(f"SELECT COUNT(*) FROM eventos_historico h"
                         f" WHERE {_historico_visivel()} AND {sit} = 'pendente'"
                         " AND h.data_evento >= ?", hoje)
@@ -3723,7 +4475,7 @@ def diagnostico_reclassificacao(conn) -> dict:
         canais[r[0] or "(não informado)"] = r[1]
     for r in conn.execute("SELECT COALESCE(NULLIF(canal, ''), '(não informado)'),"
                           " COUNT(*) FROM pedidos WHERE historico_id IS NULL"
-                          " GROUP BY 1"):
+                          f" AND {_t()} GROUP BY 1"):
         canais[r[0]] = canais.get(r[0], 0) + r[1]
 
     duplicados = possiveis_clientes_duplicados(conn)
@@ -3791,8 +4543,8 @@ def aplicar_reclassificacao(conn, usuario_id=None) -> dict:
             clientes.add(p["cliente_id"])
         if promovidos or desmarcados:
             conn.execute(
-                "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
-                " VALUES (?, 'reclassificacao_pedidos', ?, ?, ?)",
+                "INSERT INTO audit_log (tenant_id, usuario_id, tipo, descricao, dados, criado_em)"
+                f" VALUES ({tenant_atual()}, ?, 'reclassificacao_pedidos', ?, ?, ?)",
                 (usuario_id,
                  f"Reclassificação: {len(promovidos)} importados viraram pedidos"
                  f" atuais; {len(desmarcados)} marcações de histórico corrigidas",

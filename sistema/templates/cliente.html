@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} cliente — Morumbi Festas{% endblock %}
+{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} cliente — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -149,7 +149,7 @@
 
   {% if atual.get('id') and pedidos_cliente %}
   <div class="cartao cli-hist-secao">
-    <h3 class="form-secao">Pedidos — Morumbi Festas</h3>
+    <h3 class="form-secao">Pedidos</h3>
     <div class="rolagem">
     <table class="tabela tabela-hist">
       <thead>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} kit — Morumbi Festas{% endblock %}
+{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} kit — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 

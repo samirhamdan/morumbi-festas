@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}Faturamento — Morumbi Festas{% endblock %}
+{% block titulo %}Faturamento — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -109,7 +109,7 @@
                    class="fat-data" aria-label="Data do evento do pedido #{{ r.numero }}">
             {% else %}{{ data_br(r.data) }}{% endif %}
           </td>
-          <td data-rotulo="Origem"><span class="etiqueta {{ 'roxo' if r.origem == 'Morumbi Festas' else 'cinza' }}">{{ r.origem }}</span>
+          <td data-rotulo="Origem"><span class="etiqueta {{ 'roxo' if r.origem == empresa.nome_exibicao else 'cinza' }}">{{ r.origem }}</span>
             {%- if r.fonte %} <span class="etiqueta cinza" title="Fonte do registro: {{ rotulo_fonte(r.fonte) }}{% if r.numero_origem %} #{{ r.numero_origem }}{% endif %}">importado</span>{% endif %}</td>
           <td data-rotulo="Valor" style="text-align:right;font-variant-numeric:tabular-nums">
             {% if editavel %}

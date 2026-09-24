@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}{{ 'Editar Orçamento' if atual.get('id') else 'Novo Orçamento' }} — Morumbi Festas{% endblock %}
+{% block titulo %}{{ 'Editar Orçamento' if atual.get('id') else 'Novo Orçamento' }} — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 

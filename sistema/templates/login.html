@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}Entrar — Morumbi Festas{% endblock %}
+{% block titulo %}Entrar — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}palco{% endblock %}
 {% block conteudo %}
 
@@ -7,7 +7,7 @@
   <div class="login-visual" role="presentation">
     <div class="login-visual-conteudo">
       <img src="{{ url_for('static', filename='logo-morumbi.webp') }}"
-           alt="Morumbi Festas — Seu momento, sua festa" class="login-logo-img">
+           alt="{{ empresa.nome_exibicao }} — Seu momento, sua festa" class="login-logo-img">
     </div>
   </div>
 
@@ -21,7 +21,7 @@
 
     <div class="login-logo-mobile">
       <img src="{{ url_for('static', filename='logo-morumbi.webp') }}"
-           alt="Morumbi Festas" class="login-logo-img-mobile">
+           alt="{{ empresa.nome_exibicao }}" class="login-logo-img-mobile">
     </div>
 
     <div class="login-card">

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}{{ 'Editar Pedido #%d'|format(atual.id) if atual.get('id') else 'Novo Pedido' }} — Morumbi Festas{% endblock %}
+{% block titulo %}{{ 'Editar Pedido #%d'|format(atual.id) if atual.get('id') else 'Novo Pedido' }} — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -117,8 +117,7 @@
           <span>Forma de pagamento</span>
           <input type="text" name="forma_pagamento" maxlength="200" list="formas-pagamento" value="{{ atual.get('forma_pagamento') or '' }}">
           <datalist id="formas-pagamento">
-            <option value="Pix"><option value="Dinheiro"><option value="Cartão de crédito">
-            <option value="Cartão de débito"><option value="Transferência"><option value="Boleto">
+            {% for f in formas_pagamento %}<option value="{{ f }}">{% endfor %}
           </datalist>
         </label>
 
@@ -156,7 +155,7 @@
         </select>
         <input type="hidden" name="item_item_id_{{ loop.index0 }}" value="{{ item.item_id or '' }}">
         <input type="text" name="item_descricao_{{ loop.index0 }}" value="{{ item.descricao }}"
-               placeholder="Descrição" required style="flex:2">
+               placeholder="Descrição" required style="flex:2"{% if item.tipo == 'servico' %} list="servicos-empresa"{% endif %}>
         <input type="number" name="item_quantidade_{{ loop.index0 }}" value="{{ item.quantidade }}"
                min="1" step="1" style="width:70px" inputmode="numeric" placeholder="Qtd">
         <input type="number" name="item_preco_{{ loop.index0 }}" value="{{ '%.2f'|format(item.preco_unitario) }}"
@@ -166,6 +165,9 @@
       {% endfor %}
     </div>
 
+    <datalist id="servicos-empresa">
+      {% for s in servicos %}<option value="{{ s.nome }}">{% endfor %}
+    </datalist>
     <div style="margin:12px 0">
       <button type="button" class="botao vazado" id="btn-adicionar-item">Adicionar item</button>
       <span style="margin-left:8px;color:var(--suave);font-size:13px">
@@ -212,6 +214,13 @@
       '<input type="number" name="item_preco_'+i+'" value="0.00" min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preço">' +
       '<button type="button" class="botao mini perigoso" onclick="this.parentElement.remove()">✕</button>';
     container.appendChild(div);
+  });
+  // serviço: sugere os serviços cadastrados em Configurações → Operação
+  container.addEventListener('change', function(e) {
+    if (!/^item_tipo_/.test(e.target.name)) return;
+    var desc = e.target.parentElement.querySelector('input[name^="item_descricao_"]');
+    if (e.target.value === 'servico') desc.setAttribute('list', 'servicos-empresa');
+    else desc.removeAttribute('list');
   });
 })();
 </script>

@@ -68,7 +68,7 @@
               <a href="{{ link_pedido(r) }}">Ver pedido</a>
               {% if 'editar' in r.acoes and pode('editar_pedido') %}
               <a href="{{ url_for('editar_pedido', id_=r.id) }}">Editar</a>
-              {% elif 'corrigir' in r.acoes and perfil == 'admin' %}
+              {% elif 'corrigir' in r.acoes and tem('orders.admin') %}
               <a href="{{ url_for('editar_pedido', id_=r.id) }}">Correção administrativa</a>
               {% endif %}
               {% if r.cliente_id and pode('editar_cliente') %}
@@ -83,7 +83,7 @@
                 <button type="submit">Finalizar</button>
               </form>
               {% endif %}
-              {% if 'converter' in r.acoes and perfil == 'admin' %}
+              {% if 'converter' in r.acoes and tem('orders.admin') %}
               <form method="post" action="{{ url_for('converter_historico', id_=r.id) }}">
                 <button type="submit">Converter em pedido atual</button>
               </form>

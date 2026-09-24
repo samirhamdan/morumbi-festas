@@ -2,7 +2,24 @@
 
 from datetime import date, datetime, timezone, timedelta
 
+# Horário de Campo Grande: usado quando o fuso da empresa não pode ser lido.
 FUSO = timezone(timedelta(hours=-4))
+_provedor_fuso = None
+
+
+def definir_provedor_fuso(funcao):
+    """A camada de dados informa o fuso da empresa atual (configuração)."""
+    global _provedor_fuso
+    _provedor_fuso = funcao
+
+
+def fuso():
+    if _provedor_fuso:
+        try:
+            return _provedor_fuso() or FUSO
+        except Exception:
+            return FUSO
+    return FUSO
 
 MESES = (
     "", "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
@@ -11,7 +28,7 @@ MESES = (
 
 
 def agora() -> str:
-    return datetime.now(FUSO).strftime("%Y-%m-%dT%H:%M:%S")
+    return datetime.now(fuso()).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def dinheiro(valor) -> str:
@@ -74,7 +91,7 @@ def fmt_datahora(valor) -> str:
             valor = datetime.fromisoformat(valor[:19]).replace(tzinfo=timezone.utc)
         except ValueError:
             return valor
-    return valor.astimezone(FUSO).strftime("%d/%m/%Y %H:%M")
+    return valor.astimezone(fuso()).strftime("%d/%m/%Y %H:%M")
 
 
 def mes_por_extenso(ref=None) -> str:

@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block titulo %}Configurações — {{ empresa.nome_exibicao }}{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+
+{% macro campo(nome, rotulo, valor='', tipo='text', ajuda='', max=200) -%}
+<label class="campo" id="campo-{{ nome }}">
+  <span class="campo-rotulo">{{ rotulo }}</span>
+  <input type="{{ tipo }}" name="{{ nome }}" value="{{ valor or '' }}" maxlength="{{ max }}" {{ 'disabled' if not pode_editar }}>
+  {% if ajuda %}<small class="campo-ajuda">{{ ajuda }}</small>{% endif %}
+  {% if campo_erro == nome %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+</label>
+{%- endmacro %}
+
+<main id="conteudo" class="pagina">
+  <div class="cabecalho-lista">
+    <h2 class="secao">Configurações</h2>
+    <span class="abas cfg-abas">
+      {% for ep, rotulo in abas %}{% if pode(ep) %}
+      <a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}">{{ rotulo }}</a>
+      {% endif %}{% endfor %}
+    </span>
+  </div>
+
+  {% include "_erro.html" %}
+
+  {% if aba == 'empresa' %}
+  <form method="post" enctype="multipart/form-data" class="formulario" data-avisar>
+    <div class="cartao cfg-cartao">
+      <h3 class="form-secao" style="border-top:none;padding-top:0">Empresa</h3>
+      <div class="cfg-logo">
+        {% if empresa.logo %}
+        <img src="{{ url_for('static', filename=empresa.logo) }}" alt="Logo atual">
+        {% else %}<span class="cfg-logo-vazio">Sem logo</span>{% endif %}
+        {% if pode_editar %}
+        <label class="campo" id="campo-logo">
+          <span class="campo-rotulo">Logo</span>
+          <input type="file" name="logo" accept=".png,.jpg,.jpeg,.webp">
+          <small class="campo-ajuda">JPG, PNG ou WebP, até 2 MB.</small>
+          {% if campo_erro == 'logo' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+        </label>
+        {% endif %}
+      </div>
+      <div class="cfg-grade">
+        {{ campo('nome', 'Nome da empresa', atual.nome) }}
+        {{ campo('nome_fantasia', 'Nome fantasia', atual.nome_fantasia, ajuda='Se preenchido, é o nome exibido no sistema.') }}
+        {{ campo('razao_social', 'Razão social', atual.razao_social) }}
+        {{ campo('cnpj', 'CNPJ / documento', atual.cnpj) }}
+        {{ campo('telefone', 'Telefone', atual.telefone) }}
+        {{ campo('whatsapp', 'WhatsApp', atual.whatsapp) }}
+        {{ campo('email', 'E-mail', atual.email, tipo='email') }}
+        {{ campo('horario_funcionamento', 'Horário de funcionamento', atual.horario_funcionamento, ajuda='Ex.: seg a sex, 8h às 18h') }}
+      </div>
+      <h3 class="form-secao">Endereço</h3>
+      <div class="cfg-grade">
+        {{ campo('endereco', 'Endereço', atual.endereco) }}
+        {{ campo('bairro', 'Bairro', atual.bairro) }}
+        {{ campo('cidade', 'Cidade', atual.cidade) }}
+        {{ campo('cep', 'CEP', atual.cep, max=20) }}
+      </div>
+      <h3 class="form-secao">Redes sociais</h3>
+      <div class="cfg-grade">
+        {{ campo('instagram', 'Instagram', atual.instagram) }}
+        {{ campo('facebook', 'Facebook', atual.facebook) }}
+        {{ campo('site', 'Site', atual.site) }}
+      </div>
+    </div>
+    {% if pode_editar %}
+    <div class="barra-acoes"><button type="submit" class="botao primario">Salvar alterações</button></div>
+    {% endif %}
+  </form>
+
+  {% elif aba == 'permissoes' %}
+  <div class="cartao cfg-cartao">
+    <p class="cfg-nota">O que cada perfil pode fazer. Os perfis e as permissões são definidos pelo sistema; a personalização por empresa virá numa próxima etapa.</p>
+    <div class="rolagem">
+      <table class="tabela cfg-matriz">
+        <thead><tr><th>Permissão</th>{% for p in perfis %}<th>{{ rotulos_perfil[p] }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for linha in matriz %}
+          {% if loop.first or linha.grupo != matriz[loop.index0 - 1].grupo %}
+          <tr class="cfg-grupo"><th colspan="{{ perfis|length + 1 }}">{{ linha.grupo }}</th></tr>
+          {% endif %}
+          <tr>
+            <td>{{ linha.descricao }}</td>
+            {% for p in perfis %}<td class="cfg-marca">{% if p in linha.perfis %}<span aria-label="sim">✓</span>{% else %}<span aria-label="não" class="cfg-nao">—</span>{% endif %}</td>{% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% elif aba == 'operacao' %}
+  <form method="post" class="formulario" data-avisar>
+    <div class="cartao cfg-cartao">
+      <h3 class="form-secao" style="border-top:none;padding-top:0">Prazos padrão</h3>
+      <div class="cfg-grade">
+        {{ campo('prazo_preparacao_dias', 'Preparação (dias antes do evento)', atual.prazo_preparacao_dias, 'number', max=3) }}
+        {{ campo('prazo_devolucao_dias', 'Devolução (dias após o evento)', atual.prazo_devolucao_dias, 'number', max=3) }}
+        {{ campo('duracao_evento_padrao_horas', 'Duração padrão do evento (horas)', atual.duracao_evento_padrao_horas, 'number', max=3) }}
+        {{ campo('dias_orcamento_sem_retorno', 'Alerta de orçamento sem retorno (dias)', atual.dias_orcamento_sem_retorno, 'number', max=3) }}
+      </div>
+      <h3 class="form-secao">Regras</h3>
+      {% for nome, rotulo in (('regras_retirada', 'Retirada'), ('regras_entrega', 'Entrega'), ('regras_conferencia', 'Conferência')) %}
+      <label class="campo" id="campo-{{ nome }}">
+        <span class="campo-rotulo">{{ rotulo }}</span>
+        <textarea name="{{ nome }}" rows="2" maxlength="1000" {{ 'disabled' if not pode_editar }}>{{ atual[nome] }}</textarea>
+      </label>
+      {% endfor %}
+      <label class="campo" id="campo-formas_pagamento">
+        <span class="campo-rotulo">Formas de pagamento</span>
+        <textarea name="formas_pagamento" rows="4" maxlength="1000" {{ 'disabled' if not pode_editar }}>{{ atual.formas_pagamento }}</textarea>
+        <small class="campo-ajuda">Uma por linha. Aparecem como sugestão no pedido.</small>
+      </label>
+      <p class="cfg-nota">Os status e as etapas da operação (Preparação → Separado → Montado → Entregue → Recolhido → Conferido → Finalizado) são controlados pelo sistema.</p>
+    </div>
+    {% if pode_editar %}
+    <div class="barra-acoes"><button type="submit" class="botao primario">Salvar alterações</button></div>
+    {% endif %}
+  </form>
+
+  <div class="cartao cfg-cartao" id="servicos">
+    <h3 class="form-secao" style="border-top:none;padding-top:0">Serviços</h3>
+    <p class="cfg-nota">Serviços oferecidos nos pedidos (entrega, montagem…).</p>
+    <table class="tabela">
+      <tbody>
+        {% for s in servicos %}
+        <tr class="{{ 'inativo' if not s.ativo }}">
+          <td>{{ s.nome }}{% if not s.ativo %} <span class="etiqueta cinza">inativo</span>{% endif %}</td>
+          <td class="num acao">
+            {% if pode_editar %}
+            <form method="post" action="{{ url_for('config_servicos') }}" style="display:inline">
+              <input type="hidden" name="id" value="{{ s.id }}">
+              {% if not loop.first %}<button class="link-botao" name="acao" value="subir" aria-label="Subir {{ s.nome }}">↑</button>{% endif %}
+              {% if not loop.last %}<button class="link-botao" name="acao" value="descer" aria-label="Descer {{ s.nome }}">↓</button>{% endif %}
+              <button class="link-botao" name="acao" value="alternar">{{ 'desativar' if s.ativo else 'ativar' }}</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td>Nenhum serviço cadastrado.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if pode_editar %}
+    <form method="post" action="{{ url_for('config_servicos') }}" class="cfg-novo">
+      <input type="hidden" name="acao" value="criar">
+      <label class="sr" for="novo-servico">Novo serviço</label>
+      <input id="novo-servico" type="text" name="nome" maxlength="80" placeholder="Novo serviço" required>
+      <button type="submit" class="botao vazado">Adicionar</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% elif aba == 'sistema' %}
+  <form method="post" class="formulario" data-avisar>
+    <div class="cartao cfg-cartao">
+      <h3 class="form-secao" style="border-top:none;padding-top:0">Localização</h3>
+      <div class="cfg-grade">
+        {% for nome, rotulo, opcoes in (('idioma', 'Idioma', idiomas), ('moeda', 'Moeda', moedas), ('formato_data', 'Formato de data', formatos)) %}
+        <label class="campo" id="campo-{{ nome }}">
+          <span class="campo-rotulo">{{ rotulo }}</span>
+          <select name="{{ nome }}" {{ 'disabled' if not pode_editar }}>
+            {% for valor, texto in opcoes.items() %}<option value="{{ valor }}" {{ 'selected' if atual[nome] == valor }}>{{ texto }}</option>{% endfor %}
+          </select>
+        </label>
+        {% endfor %}
+        <label class="campo" id="campo-fuso_horario">
+          <span class="campo-rotulo">Fuso horário</span>
+          <select name="fuso_horario" {{ 'disabled' if not pode_editar }}>
+            {% for f in fusos %}<option value="{{ f }}" {{ 'selected' if atual.fuso_horario == f }}>{{ f }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <h3 class="form-secao">Identidade visual</h3>
+      <div class="cfg-grade">
+        {% for nome, rotulo in (('cor_primaria', 'Cor principal'), ('cor_secundaria', 'Cor secundária')) %}
+        <label class="campo" id="campo-{{ nome }}">
+          <span class="campo-rotulo">{{ rotulo }}</span>
+          <input type="color" name="{{ nome }}" value="{{ atual[nome] }}" {{ 'disabled' if not pode_editar }}>
+        </label>
+        {% endfor %}
+      </div>
+      <p class="cfg-nota">As cores ficam guardadas para a personalização visual futura; a aparência atual do sistema não muda.</p>
+    </div>
+    {% if pode_editar %}
+    <div class="barra-acoes"><button type="submit" class="botao primario">Salvar alterações</button></div>
+    {% endif %}
+  </form>
+  {% endif %}
+</main>
+{% endblock %}

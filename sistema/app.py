@@ -4,12 +4,12 @@ import io
 import os
 import re
 
-from flask import (Flask, Response, abort, flash, redirect, render_template,
+from flask import (Flask, Response, abort, flash, g, redirect, render_template,
                    request, session, url_for)
 from werkzeug.security import generate_password_hash
 from werkzeug.utils import secure_filename
 
-from sistema import auth, dados, formato, listas
+from sistema import auth, dados, formato, listas, permissoes
 
 UPLOAD_EXTENSOES = {".jpg", ".jpeg", ".png", ".webp"}
 UPLOAD_MAX_MB = 10
@@ -38,11 +38,23 @@ MENU = (
     ("BI", (
         ("faturamento", "Relatórios"),
     )),
-    ("Administração", (
+    ("Configurações", (
+        ("config_empresa", "Empresa"),
         ("lista_usuarios", "Usuários"),
+        ("config_permissoes", "Permissões"),
+        ("config_operacao", "Operação"),
+        ("config_sistema", "Sistema"),
         ("lista_origens", "Origens de lead"),
     )),
 )
+
+# Abas da área de Configurações (endpoint, rótulo).
+ABAS_CONFIG = (
+    ("config_empresa", "Empresa"), ("lista_usuarios", "Usuários"),
+    ("config_permissoes", "Permissões"), ("config_operacao", "Operação"),
+    ("config_sistema", "Sistema"),
+)
+LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 
 def _grupo_de(endpoint: str) -> str:
@@ -92,14 +104,30 @@ def criar_app() -> Flask:
     _css_ver = int(os.path.getmtime(_css_path)) if os.path.exists(_css_path) else 0
 
     def _pode(endpoint: str) -> bool:
-        return auth.pode_acessar(endpoint, session.get("perfil"),
-                                 app.view_functions)
+        return auth.pode_acessar(endpoint, app.view_functions)
+
+    # Empresa atual de cada requisição: a do vínculo do usuário autenticado;
+    # sem login (entrar, catálogo público), a empresa principal.
+    @app.before_request
+    def _empresa_da_requisicao():
+        m = auth.membro_atual()
+        g._token_empresa = dados.definir_tenant(
+            m["tenant_id"] if m else dados.tenant_padrao())
+
+    @app.teardown_request
+    def _fim_da_requisicao(_erro=None):
+        token = g.pop("_token_empresa", None)
+        if token is not None:
+            dados.restaurar_tenant(token)
 
     @app.context_processor
     def contexto_global():
-        u = auth.usuario_atual()
+        m = auth.membro_atual()
         return {
-            "perfil": session.get("perfil", ""),
+            "perfil": m["perfil"] if m else "",
+            "rotulo_perfil": dados.ROTULOS_PERFIL.get(m["perfil"], "") if m else "",
+            "tem": auth.tem,
+            "empresa": dados.empresa_atual(),
             "usuario_nome": session.get("usuario_nome", ""),
             "usuario_id": session.get("usuario_id"),
             "com_senha": auth.com_senha(),
@@ -119,7 +147,11 @@ def criar_app() -> Flask:
         if request.method == "POST":
             login_ = (request.form.get("login") or "").strip().lower()
             senha = request.form.get("senha") or ""
-            u = auth.login(login_, senha)
+            try:
+                u = auth.login(login_, senha)
+            except auth.AcessoNegado as e:
+                flash(str(e), "erro")
+                return render_template("login.html")
             if u:
                 dados.registrar_acao(u["id"], "login", f"{u['nome']} entrou")
                 return redirect(url_for("painel"))
@@ -187,7 +219,7 @@ def criar_app() -> Flask:
         return ano if ano and 2000 <= ano <= atual + 1 else atual
 
     @app.route("/")
-    @auth.exige_login
+    @auth.exige_permissao("dashboard.view")
     def painel():
         from datetime import date
 
@@ -204,7 +236,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/usuarios")
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("users.view")
     def lista_usuarios():
         ver = request.args.get("ver", "ativos")
         if ver == "todos":
@@ -222,46 +254,185 @@ def criar_app() -> Flask:
         lista = listas.ordenar(lista, ordem, listas.ORDENS_USUARIOS, invertido)
 
         return render_template("usuarios.html", usuarios=lista,
+                               rotulos_perfil=dados.ROTULOS_PERFIL,
+                               abas_config=ABAS_CONFIG,
                                ver=ver, busca=busca, ordem=ordem,
                                invertido=invertido,
                                ordens=listas.ORDENS_USUARIOS)
 
     @app.route("/usuario", methods=["GET", "POST"])
     @app.route("/usuario/<int:id_>", methods=["GET", "POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("users.manage")
     def editar_usuario(id_=None):
         usuario = dados.buscar_usuario(id_) if id_ else None
         if id_ and not usuario:
             abort(404)
+        contexto = dict(perfis=dados.PERFIS, rotulos_perfil=dados.ROTULOS_PERFIL,
+                        proprio=id_ == session.get("usuario_id"))
 
         if request.method == "POST":
             campos = dados.campos_usuario(request.form)
+            if contexto["proprio"]:  # ninguém tira o próprio acesso
+                campos["perfil"], campos["ativo"] = usuario["perfil"], 1
             senha = request.form.get("senha", "").strip()
             senha_hash = generate_password_hash(senha) if senha else None
 
             try:
-                novo_id = dados.salvar_usuario(campos, senha_hash, id_)
-                acao = "alterou" if id_ else "criou"
-                dados.registrar_acao(
-                    session.get("usuario_id"), f"usuario_{acao}",
-                    f"{acao.capitalize()} usuario {campos['nome']}",
-                    {"usuario_id": novo_id})
+                dados.salvar_usuario(campos, senha_hash, id_,
+                                     usuario_id=session.get("usuario_id"))
                 flash(f"Usuário {'atualizado' if id_ else 'criado'}.", "ok")
                 return redirect(url_for("lista_usuarios"))
-            except dados.ErroDeCampo as e:
-                return render_template("usuario.html", atual=campos,
-                                       perfis=dados.PERFIS, **_erro(e))
+            except (dados.ErroDeCampo, ValueError) as e:
+                return render_template("usuario.html", atual=dict(campos, id=id_),
+                                       **contexto, **_erro(e))
 
-        return render_template("usuario.html",
-                               atual=usuario or {},
-                               perfis=dados.PERFIS)
+        return render_template("usuario.html", atual=usuario or {}, **contexto)
+
+    @app.route("/usuario/<int:id_>/alternar", methods=["POST"])
+    @auth.exige_permissao("users.manage")
+    def alternar_usuario(id_):
+        try:
+            ativo = dados.alternar_usuario(id_, session.get("usuario_id"))
+            flash(f"Usuário {'ativado' if ativo else 'desativado'}.", "ok")
+        except ValueError as e:
+            flash(str(e), "erro")
+        return redirect(url_for("lista_usuarios", ver=request.form.get("ver") or None))
+
+    # ------------------------------------------------------------------
+    # Configurações da empresa (Sprint 2.2)
+    # ------------------------------------------------------------------
+
+    def _render_config(aba: str, **ctx):
+        return render_template("configuracoes.html", aba=aba, abas=ABAS_CONFIG,
+                               pode_editar=auth.tem("settings.edit"), **ctx)
+
+    @app.route("/configuracoes")
+    @auth.exige_permissao("settings.view")
+    def configuracoes():
+        return redirect(url_for("config_empresa"))
+
+    @app.route("/configuracoes/empresa", methods=["GET", "POST"])
+    @auth.exige_permissao("settings.view", post="settings.edit")
+    def config_empresa():
+        if request.method == "POST":
+            form = request.form
+            try:
+                dados.salvar_empresa({c: form.get(c, "") for c in dados.CAMPOS_EMPRESA},
+                                     session.get("usuario_id"))
+                dados.salvar_config(
+                    {c: (form.get(c) or "").strip() for c in
+                     ("facebook", "site", "horario_funcionamento")},
+                    session.get("usuario_id"))
+                logo = request.files.get("logo")
+                if logo and logo.filename:
+                    _salvar_logo(logo)
+                flash("Alterações salvas.", "ok")
+                return redirect(url_for("config_empresa"))
+            except (dados.ErroDeCampo, ValueError) as e:
+                return _render_config("empresa", atual=dict(form), **_erro(e))
+        atual = dict(dados.empresa_atual())
+        for c in ("facebook", "site", "horario_funcionamento"):
+            atual[c] = dados.config(c)
+        return _render_config("empresa", atual=atual)
+
+    def _salvar_logo(arquivo):
+        nome = secure_filename(arquivo.filename)
+        _, ext = os.path.splitext(nome)
+        if ext.lower() not in UPLOAD_EXTENSOES:
+            raise dados.ErroDeCampo("logo", "Formato inválido. Use JPG, PNG ou WebP.")
+        conteudo = arquivo.read(LOGO_MAX_BYTES + 1)
+        if len(conteudo) > LOGO_MAX_BYTES:
+            raise dados.ErroDeCampo("logo", "O logo deve ter no máximo 2 MB.")
+        # pasta da própria empresa: arquivos nunca se misturam entre empresas
+        pasta = os.path.join(app.static_folder, "uploads", "empresas",
+                             str(dados.tenant_atual()))
+        os.makedirs(pasta, exist_ok=True)
+        destino = f"logo-{formato.agora().replace(':', '').replace('-', '')}{ext.lower()}"
+        with open(os.path.join(pasta, destino), "wb") as f:
+            f.write(conteudo)
+        dados.salvar_logo_empresa(
+            f"uploads/empresas/{dados.tenant_atual()}/{destino}", session.get("usuario_id"))
+
+    @app.route("/configuracoes/permissoes")
+    @auth.exige_permissao("users.view")
+    def config_permissoes():
+        return _render_config("permissoes", matriz=permissoes.matriz(),
+                              perfis=dados.PERFIS, rotulos_perfil=dados.ROTULOS_PERFIL)
+
+    CAMPOS_OPERACAO = ("prazo_preparacao_dias", "prazo_devolucao_dias",
+                       "duracao_evento_padrao_horas", "dias_orcamento_sem_retorno",
+                       "regras_retirada", "regras_entrega", "regras_conferencia",
+                       "formas_pagamento")
+
+    @app.route("/configuracoes/operacao", methods=["GET", "POST"])
+    @auth.exige_permissao("settings.view", post="settings.edit")
+    def config_operacao():
+        if request.method == "POST":
+            valores = {c: (request.form.get(c) or "").strip() for c in CAMPOS_OPERACAO}
+            for c in ("prazo_preparacao_dias", "prazo_devolucao_dias",
+                      "duracao_evento_padrao_horas", "dias_orcamento_sem_retorno"):
+                if valores[c] and not (valores[c].isdigit() and int(valores[c]) <= 365):
+                    return _render_config(
+                        "operacao", atual=valores, servicos=dados.listar_servicos(),
+                        erro="Use um número inteiro de 0 a 365.", campo_erro=c)
+            dados.salvar_config(valores, session.get("usuario_id"))
+            flash("Alterações salvas.", "ok")
+            return redirect(url_for("config_operacao"))
+        return _render_config("operacao",
+                              atual={c: dados.config(c) for c in CAMPOS_OPERACAO},
+                              servicos=dados.listar_servicos())
+
+    @app.route("/configuracoes/servicos", methods=["POST"])
+    @auth.exige_permissao("settings.edit")
+    def config_servicos():
+        acao = request.form.get("acao")
+        try:
+            if acao == "criar":
+                dados.salvar_servico(request.form.get("nome"), session.get("usuario_id"))
+                flash("Serviço adicionado.", "ok")
+            elif acao == "alternar":
+                dados.alternar_servico(request.form.get("id", type=int),
+                                       session.get("usuario_id"))
+            elif acao in ("subir", "descer"):
+                dados.mover_servico(request.form.get("id", type=int),
+                                    -1 if acao == "subir" else 1)
+        except (dados.ErroDeCampo, ValueError) as e:
+            flash(str(e), "erro")
+        return redirect(url_for("config_operacao") + "#servicos")
+
+    CAMPOS_SISTEMA = ("idioma", "moeda", "fuso_horario", "formato_data",
+                      "cor_primaria", "cor_secundaria")
+
+    @app.route("/configuracoes/sistema", methods=["GET", "POST"])
+    @auth.exige_permissao("settings.view", post="settings.edit")
+    def config_sistema():
+        if request.method == "POST":
+            f = request.form
+            valores = {c: (f.get(c) or "").strip() for c in CAMPOS_SISTEMA}
+            validos = (valores["idioma"] in dados.ROTULOS_IDIOMA
+                       and valores["moeda"] in dados.ROTULOS_MOEDA
+                       and valores["fuso_horario"] in dados.FUSOS_HORARIOS
+                       and valores["formato_data"] in dados.ROTULOS_FORMATO_DATA
+                       and all(re.fullmatch(r"#[0-9A-Fa-f]{6}", valores[c])
+                               for c in ("cor_primaria", "cor_secundaria")))
+            if not validos:
+                flash("Valor inválido.", "erro")
+                return redirect(url_for("config_sistema"))
+            dados.salvar_config(valores, session.get("usuario_id"))
+            flash("Alterações salvas.", "ok")
+            return redirect(url_for("config_sistema"))
+        return _render_config("sistema",
+                              atual={c: dados.config(c) for c in CAMPOS_SISTEMA},
+                              idiomas=dados.ROTULOS_IDIOMA, moedas=dados.ROTULOS_MOEDA,
+                              fusos=dados.FUSOS_HORARIOS,
+                              formatos=dados.ROTULOS_FORMATO_DATA)
 
     # ------------------------------------------------------------------
     # Clientes
     # ------------------------------------------------------------------
 
     @app.route("/clientes")
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("customers.view")
     def lista_clientes():
         ver = request.args.get("ver", "ativos")
         if ver == "todos":
@@ -305,20 +476,19 @@ def criar_app() -> Flask:
                                todas_tags=todas_tags)
 
     def _todas_tags_clientes() -> list:
-        with dados.conectar() as conn:
-            return [r["tag"] for r in conn.execute(
-                "SELECT DISTINCT tag FROM tags_cliente ORDER BY tag"
-            ).fetchall()]
+        return dados.tags_em_uso("clientes")
 
     @app.route("/cliente", methods=["GET", "POST"])
     @app.route("/cliente/<int:id_>", methods=["GET", "POST"])
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("customers.view", post="customers.edit")
     def editar_cliente(id_=None):
         cliente = dados.buscar_cliente(id_) if id_ else None
         if id_ and not cliente:
             abort(404)
 
         if request.method == "POST":
+            if not id_ and not auth.tem("customers.create"):
+                abort(403)
             campos = dados.campos_cliente(request.form)
             tags_texto = (request.form.get("tags") or "").strip()
             tags = [t.strip() for t in tags_texto.split(",") if t.strip()] if tags_texto else []
@@ -350,7 +520,7 @@ def criar_app() -> Flask:
                                pedidos_cliente=pedidos_cli)
 
     @app.route("/clientes/exportar")
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("customers.export")
     def exportar_clientes():
         ver = request.args.get("ver", "ativos")
         if ver == "todos":
@@ -375,14 +545,14 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/categorias")
-    @auth.exige_login
+    @auth.exige_permissao("catalog.view")
     def lista_categorias():
         arvore = dados.categorias_arvore()
         return render_template("categorias.html", arvore=arvore,
                                categorias=dados.listar_categorias())
 
     @app.route("/categoria", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def salvar_categoria():
         nome = (request.form.get("nome") or "").strip()
         pai_id = request.form.get("pai_id") or None
@@ -412,7 +582,7 @@ def criar_app() -> Flask:
         return redirect(url_for("lista_categorias"))
 
     @app.route("/categoria/<int:id_>/excluir", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def excluir_categoria(id_):
         try:
             dados.excluir_categoria(id_)
@@ -429,7 +599,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/produtos")
-    @auth.exige_login
+    @auth.exige_permissao("catalog.view")
     def lista_produtos():
         ver = request.args.get("ver", "disponiveis")
         if ver == "todos":
@@ -472,14 +642,11 @@ def criar_app() -> Flask:
                                todas_tags=todas_tags)
 
     def _todas_tags_produtos() -> list:
-        with dados.conectar() as conn:
-            return [r["tag"] for r in conn.execute(
-                "SELECT DISTINCT tag FROM tags_produto ORDER BY tag"
-            ).fetchall()]
+        return dados.tags_em_uso("produtos")
 
     @app.route("/produto", methods=["GET", "POST"])
     @app.route("/produto/<int:id_>", methods=["GET", "POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def editar_produto(id_=None):
         produto = dados.buscar_produto(id_) if id_ else None
         if id_ and not produto:
@@ -518,7 +685,7 @@ def criar_app() -> Flask:
         return pasta
 
     @app.route("/produto/<int:id_>/foto", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def upload_foto(id_):
         produto = dados.buscar_produto(id_)
         if not produto:
@@ -560,7 +727,7 @@ def criar_app() -> Flask:
         return redirect(url_for("editar_produto", id_=id_))
 
     @app.route("/produto/<int:id_>/foto/<int:foto_id>/excluir", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def excluir_foto(id_, foto_id):
         foto = dados.excluir_foto_produto(foto_id)
         if foto:
@@ -575,7 +742,7 @@ def criar_app() -> Flask:
         return redirect(url_for("editar_produto", id_=id_))
 
     @app.route("/produto/<int:id_>/foto/<int:foto_id>/principal", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def definir_capa(id_, foto_id):
         dados.definir_foto_principal(foto_id, id_)
         flash("Foto de capa definida.", "ok")
@@ -586,7 +753,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/kits")
-    @auth.exige_login
+    @auth.exige_permissao("catalog.view")
     def lista_kits():
         ver = request.args.get("ver", "ativos")
         if ver == "todos":
@@ -610,7 +777,7 @@ def criar_app() -> Flask:
 
     @app.route("/kit", methods=["GET", "POST"])
     @app.route("/kit/<int:id_>", methods=["GET", "POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def editar_kit(id_=None):
         kit = dados.buscar_kit(id_) if id_ else None
         if id_ and not kit:
@@ -644,7 +811,7 @@ def criar_app() -> Flask:
                                disponibilidade=disp)
 
     @app.route("/kit/<int:id_>/item", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def adicionar_item_kit(id_):
         kit = dados.buscar_kit(id_)
         if not kit:
@@ -672,9 +839,9 @@ def criar_app() -> Flask:
         return redirect(url_for("editar_kit", id_=id_))
 
     @app.route("/kit/<int:id_>/item/<int:item_id>/remover", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def remover_item_kit(id_, item_id):
-        dados.remover_item_kit(item_id)
+        dados.remover_item_kit(item_id, id_)
         dados.registrar_acao(
             session.get("usuario_id"), "kit_item_removeu",
             f"Removeu item do kit {id_}",
@@ -689,7 +856,7 @@ def criar_app() -> Flask:
         return pasta
 
     @app.route("/kit/<int:id_>/foto", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def upload_foto_kit(id_):
         kit = dados.buscar_kit(id_)
         if not kit:
@@ -731,7 +898,7 @@ def criar_app() -> Flask:
         return redirect(url_for("editar_kit", id_=id_))
 
     @app.route("/kit/<int:id_>/foto/<int:foto_id>/excluir", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def excluir_foto_kit(id_, foto_id):
         foto = dados.excluir_foto_kit(foto_id)
         if foto:
@@ -746,7 +913,7 @@ def criar_app() -> Flask:
         return redirect(url_for("editar_kit", id_=id_))
 
     @app.route("/kit/<int:id_>/foto/<int:foto_id>/principal", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("catalog.edit")
     def definir_capa_kit(id_, foto_id):
         dados.definir_foto_principal_kit(foto_id, id_)
         flash("Foto de capa definida.", "ok")
@@ -802,7 +969,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/catalogo-interno")
-    @auth.exige_login
+    @auth.exige_permissao("catalog.view")
     def catalogo_interno():
         busca = request.args.get("q", "")
         cat_id = request.args.get("categoria", "")
@@ -835,13 +1002,13 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/origens")
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("settings.view")
     def lista_origens():
         return render_template("origens.html",
                                origens=dados.listar_origens())
 
     @app.route("/origem", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("settings.edit")
     def salvar_origem_rota():
         try:
             nome = request.form.get("nome", "")
@@ -854,7 +1021,7 @@ def criar_app() -> Flask:
         return redirect(url_for("lista_origens"))
 
     @app.route("/origem/<int:id_>/excluir", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("settings.edit")
     def excluir_origem_rota(id_):
         try:
             dados.excluir_origem(id_)
@@ -868,7 +1035,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/leads")
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("leads.view")
     def lista_leads():
         modo = request.args.get("modo", "kanban")
         busca = request.args.get("q", "")
@@ -899,7 +1066,7 @@ def criar_app() -> Flask:
 
     @app.route("/lead", methods=["GET", "POST"])
     @app.route("/lead/<int:id_>", methods=["GET", "POST"])
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("leads.view", post="leads.edit")
     def editar_lead(id_=None):
         atual = dados.buscar_lead(id_) if id_ else {}
         if id_ and not atual:
@@ -932,7 +1099,7 @@ def criar_app() -> Flask:
                                etapas_alt=dados.ETAPAS_ALT_LEAD)
 
     @app.route("/lead/<int:id_>/mover", methods=["POST"])
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("leads.edit")
     def mover_lead_rota(id_):
         novo = request.form.get("status", "")
         try:
@@ -949,7 +1116,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/orcamentos")
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("quotes.view")
     def lista_orcamentos():
         busca = request.args.get("q", "")
         status_f = request.args.get("status", "")
@@ -965,7 +1132,7 @@ def criar_app() -> Flask:
 
     @app.route("/orcamento", methods=["GET", "POST"])
     @app.route("/orcamento/<int:id_>", methods=["GET", "POST"])
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("quotes.view", post="quotes.edit")
     def editar_orcamento(id_=None):
         atual = dados.buscar_orcamento(id_) if id_ else {}
         if id_ and not atual:
@@ -1013,7 +1180,7 @@ def criar_app() -> Flask:
                                status_opcoes=dados.STATUS_ORCAMENTO)
 
     @app.route("/orcamento/<int:id_>/converter", methods=["POST"])
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("quotes.edit")
     def converter_orcamento(id_):
         try:
             pedido_id = dados.converter_orcamento_em_pedido(
@@ -1032,7 +1199,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/pedidos")
-    @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
+    @auth.exige_permissao("orders.view")
     def lista_pedidos():
         from datetime import date
         hoje = date.fromisoformat(formato.agora()[:10])
@@ -1085,7 +1252,7 @@ def criar_app() -> Flask:
         return render_template("pedidos.html", **contexto)
 
     @app.route("/pedido/<int:id_>")
-    @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
+    @auth.exige_permissao("orders.view")
     def ver_pedido(id_):
         ped = dados.buscar_pedido_detalhe(id_)
         if not ped:
@@ -1095,7 +1262,7 @@ def criar_app() -> Flask:
                                rot_op=dados.ROTULOS_OPERACIONAL)
 
     @app.route("/pedido/historico/<int:id_>")
-    @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
+    @auth.exige_permissao("orders.view")
     def ver_pedido_historico(id_):
         # importado que já virou pedido atual: o pedido é a única fonte
         pedido_id = dados.pedido_do_historico(id_)
@@ -1109,7 +1276,7 @@ def criar_app() -> Flask:
                                rot_op=dados.ROTULOS_OPERACIONAL)
 
     @app.route("/pedido/historico/<int:id_>/converter", methods=["POST"])
-    @auth.exige_perfil("admin")
+    @auth.exige_permissao("orders.admin")
     def converter_historico(id_):
         try:
             pedido_id = dados.converter_historico_em_pedido(
@@ -1128,12 +1295,14 @@ def criar_app() -> Flask:
 
     @app.route("/pedido/novo", methods=["GET", "POST"])
     @app.route("/pedido/<int:id_>/editar", methods=["GET", "POST"])
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("orders.edit")
     def editar_pedido(id_=None):
+        if not id_ and not auth.tem("orders.create"):
+            abort(403)
         atual = dados.buscar_pedido_festas(id_) if id_ else {}
         if id_ and not atual:
             abort(404)
-        pode_alterar_status = session.get("perfil") == "admin"
+        pode_alterar_status = auth.tem("orders.admin")
 
         if request.method == "POST":
             try:
@@ -1166,10 +1335,12 @@ def criar_app() -> Flask:
                                status_operacional=dados.STATUS_PEDIDO_OPERACIONAL,
                                rot_com=dados.ROTULOS_COMERCIAL,
                                rot_op=dados.ROTULOS_OPERACIONAL,
-                               canais=dados.CANAIS)
+                               canais=dados.CANAIS,
+                               servicos=dados.listar_servicos(somente_ativos=True),
+                               formas_pagamento=dados.lista_config("formas_pagamento"))
 
     @app.route("/pedido/<int:id_>/cancelar", methods=["POST"])
-    @auth.exige_perfil("admin", "comercial")
+    @auth.exige_permissao("orders.cancel")
     def cancelar_pedido_rota(id_):
         motivo = (request.form.get("motivo") or "").strip()
         try:
@@ -1180,7 +1351,7 @@ def criar_app() -> Flask:
         return _voltar_pedido(id_)
 
     @app.route("/pedido/<int:id_>/finalizar", methods=["POST"])
-    @auth.exige_perfil("admin", "operacional", "gestor")
+    @auth.exige_permissao("orders.finish")
     def finalizar_pedido_rota(id_):
         try:
             dados.finalizar_pedido(id_, session.get("usuario_id"))
@@ -1190,7 +1361,7 @@ def criar_app() -> Flask:
         return _voltar_pedido(id_)
 
     @app.route("/pedido/<int:id_>/ocorrencia", methods=["POST"])
-    @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
+    @auth.exige_permissao("orders.note")
     def ocorrencia_pedido(id_):
         try:
             dados.registrar_ocorrencia(id_, request.form.get("texto"),
@@ -1201,7 +1372,7 @@ def criar_app() -> Flask:
         return _voltar_pedido(id_)
 
     @app.route("/faturamento")
-    @auth.exige_perfil("admin", "comercial", "gestor")
+    @auth.exige_permissao("reports.view")
     def faturamento():
         periodo, fat = _faturamento_da_requisicao()
         so_sem_valor = request.args.get("sem_valor") == "1"
@@ -1214,7 +1385,7 @@ def criar_app() -> Flask:
                                origens_editaveis_bloqueadas=dados.ORIGENS_SOMENTE_LEITURA)
 
     @app.route("/faturamento/historico/<int:id_>", methods=["POST"])
-    @auth.exige_perfil("admin", "comercial", "gestor")
+    @auth.exige_permissao("finance.edit")
     def salvar_historico(id_):
         voltar = request.form.get("voltar") or ""
         if not voltar.startswith("/faturamento"):
@@ -1257,7 +1428,7 @@ def criar_app() -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/operacao")
-    @auth.exige_perfil("admin", "operacional", "gestor")
+    @auth.exige_permissao("operation.view")
     def painel_operacional():
         busca = request.args.get("q", "")
         filtro = request.args.get("status", "")
@@ -1278,7 +1449,7 @@ def criar_app() -> Flask:
                                filtro=filtro)
 
     @app.route("/operacao/pedido/<int:id_>")
-    @auth.exige_perfil("admin", "operacional", "gestor")
+    @auth.exige_permissao("operation.view")
     def ver_pedido_operacional(id_):
         ped = dados.buscar_pedido_festas(id_)
         if not ped:
@@ -1291,7 +1462,7 @@ def criar_app() -> Flask:
                                etapas=etapas)
 
     @app.route("/operacao/pedido/<int:id_>/avancar", methods=["POST"])
-    @auth.exige_perfil("admin", "operacional", "gestor")
+    @auth.exige_permissao("operation.edit")
     def avancar_pedido(id_):
         obs = (request.form.get("observacao") or "").strip()
         try:
@@ -1316,12 +1487,12 @@ def criar_app() -> Flask:
     DIAS_SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
 
     @app.route("/agenda")
-    @auth.exige_login
+    @auth.exige_permissao("agenda.view")
     def agenda():
         import calendar as cal_mod
         from datetime import date, timedelta
 
-        hoje = date.today()
+        hoje = date.fromisoformat(formato.agora()[:10])
         visao = request.args.get("visao", "mensal")
         tipo = request.args.get("tipo") or None
         status = request.args.get("status") or None
@@ -1425,7 +1596,7 @@ def criar_app() -> Flask:
                                status_comercial=dados.STATUS_PEDIDO_COMERCIAL)
 
     @app.route("/disponibilidade/<int:id_>")
-    @auth.exige_login
+    @auth.exige_permissao("inventory.view")
     def disponibilidade_produto(id_):
         import calendar as cal_mod
         from datetime import date
@@ -1434,10 +1605,10 @@ def criar_app() -> Flask:
         if not produto:
             abort(404)
 
-        ano = request.args.get("ano", type=int) or date.today().year
-        mes = request.args.get("mes", type=int) or date.today().month
+        ano = request.args.get("ano", type=int) or date.fromisoformat(formato.agora()[:10]).year
+        mes = request.args.get("mes", type=int) or date.fromisoformat(formato.agora()[:10]).month
         if mes < 1 or mes > 12:
-            mes = date.today().month
+            mes = date.fromisoformat(formato.agora()[:10]).month
 
         calendario = dados.disponibilidade_calendario(id_, ano, mes)
         _, _ = cal_mod.monthrange(ano, mes)
@@ -1463,7 +1634,7 @@ def criar_app() -> Flask:
                                meses=MESES_PT)
 
     @app.route("/api/disponibilidade")
-    @auth.exige_login
+    @auth.exige_permissao("inventory.view")
     def api_disponibilidade():
         from flask import jsonify
         produto_id = request.args.get("produto_id", type=int)
@@ -1476,14 +1647,14 @@ def criar_app() -> Flask:
         return jsonify({"disponivel": disp})
 
     @app.route("/api/faturamento")
-    @auth.exige_perfil("admin", "comercial", "gestor")
+    @auth.exige_permissao("reports.view")
     def api_faturamento():
         from flask import jsonify
         periodo, fat = _faturamento_da_requisicao()
         return jsonify(dict(fat, periodo=periodo))
 
     @app.route("/api/painel")
-    @auth.exige_login
+    @auth.exige_permissao("dashboard.view")
     def api_painel():
         from flask import jsonify
         return jsonify(_dados_painel(

@@ -1,7 +1,7 @@
 {% extends "catalogo_base.html" %}
-{% block titulo %}{{ kit.nome }} — Morumbi Festas{% endblock %}
+{% block titulo %}{{ kit.nome }} — {{ empresa.nome_exibicao }}{% endblock %}
 {% block meta %}
-<meta property="og:title" content="{{ kit.nome }} — Morumbi Festas">
+<meta property="og:title" content="{{ kit.nome }} — {{ empresa.nome_exibicao }}">
 <meta property="og:description" content="{{ kit.descricao[:160] if kit.descricao else 'Kit de locação para eventos' }}">
 <meta property="og:type" content="product">
 {% if kit.foto_capa %}

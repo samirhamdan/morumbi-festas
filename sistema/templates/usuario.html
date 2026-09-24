@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} usuário — Morumbi Festas{% endblock %}
+{% block titulo %}{{ 'Editar' if atual.get('id') else 'Novo' }} usuário — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -27,6 +27,12 @@
         {% if campo_erro == 'login' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
       </label>
 
+      <label class="campo" id="campo-email">
+        <span class="campo-rotulo">E-mail</span>
+        <input type="email" name="email" value="{{ atual.get('email') or '' }}" autocomplete="off">
+        {% if campo_erro == 'email' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+      </label>
+
       <label class="campo" id="campo-senha">
         <span class="campo-rotulo">Senha{{ ' (deixe vazio para manter)' if atual.get('id') }}</span>
         <input type="password" name="senha" autocomplete="new-password"
@@ -36,19 +42,21 @@
 
       <label class="campo" id="campo-perfil">
         <span class="campo-rotulo">Perfil</span>
-        <select name="perfil">
+        <select name="perfil" {{ 'disabled' if proprio }}>
           {% for p in perfis %}
-            <option value="{{ p }}" {{ 'selected' if atual.get('perfil') == p }}>{{ p|capitalize }}</option>
+            <option value="{{ p }}" {{ 'selected' if atual.get('perfil') == p }}>{{ rotulos_perfil.get(p, p) }}</option>
           {% endfor %}
         </select>
+        {% if proprio %}<small class="campo-ajuda">Você não pode alterar o próprio perfil.</small>{% endif %}
+        {% if campo_erro == 'perfil' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
       </label>
 
-      {% if atual.get('id') %}
+      {% if atual.get('id') and not proprio %}
       <label class="campo" id="campo-ativo">
         <span class="campo-rotulo">Status</span>
         <select name="ativo">
-          <option value="1" {{ 'selected' if atual.get('ativo', 1) }}>Ativo</option>
-          <option value="0" {{ 'selected' if not atual.get('ativo', 1) }}>Inativo</option>
+          <option value="1" {{ 'selected' if atual.get('membro_ativo', atual.get('ativo', 1)) }}>Ativo</option>
+          <option value="0" {{ 'selected' if not atual.get('membro_ativo', atual.get('ativo', 1)) }}>Inativo</option>
         </select>
       </label>
       {% endif %}

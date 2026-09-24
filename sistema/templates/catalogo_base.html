@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block titulo %}Catálogo — Morumbi Festas{% endblock %}</title>
+<title>{% block titulo %}Catálogo — {{ empresa.nome_exibicao }}{% endblock %}</title>
 {% block meta %}{% endblock %}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,8 +15,10 @@
 <header class="cat-topo">
   <div class="cat-topo-inner">
     <a href="{{ url_for('catalogo') }}" class="cat-marca">
+      {% if empresa.nome_exibicao == 'Morumbi Festas' %}
       <span class="cat-morumbi">MORUMBI</span>
       <span class="cat-festas">FESTAS</span>
+      {% else %}<span class="cat-morumbi">{{ empresa.nome_exibicao }}</span>{% endif %}
     </a>
     {% if org and org.get('whatsapp') %}
     <a href="{{ org.whatsapp|whatsapp_link }}" class="botao cat-btn-wpp" target="_blank" rel="noopener">
@@ -32,8 +34,10 @@
 
 <footer class="cat-rodape">
   <div class="cat-rodape-inner">
+    {% if empresa.nome_exibicao == 'Morumbi Festas' %}
     <span class="cat-morumbi" style="font-size:16px">MORUMBI</span>
     <span class="cat-festas" style="font-size:16px">FESTAS</span>
+    {% else %}<span class="cat-morumbi" style="font-size:16px">{{ empresa.nome_exibicao }}</span>{% endif %}
     {% if org %}
       <p>{{ org.get('endereco', '') }}{% if org.get('bairro') %}, {{ org.bairro }}{% endif %}{% if org.get('cidade') %} — {{ org.cidade }}{% endif %}</p>
       {% if org.get('whatsapp') %}<p>WhatsApp: {{ org.whatsapp }}</p>{% endif %}

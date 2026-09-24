@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}Pedido #{{ pedido.numero or pedido.id }} — Morumbi Festas{% endblock %}
+{% block titulo %}Pedido #{{ pedido.numero or pedido.id }} — {{ empresa.nome_exibicao }}{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
@@ -36,7 +36,7 @@
     <div class="ped-det-acoes">
       {% if eh_pedido and 'editar' in p.acoes and pode('editar_pedido') %}
       <a class="ped-botao-sec" href="{{ url_for('editar_pedido', id_=p.id) }}">Editar pedido</a>
-      {% elif eh_pedido and 'corrigir' in p.acoes and perfil == 'admin' %}
+      {% elif eh_pedido and 'corrigir' in p.acoes and tem('orders.admin') %}
       <a class="ped-botao-sec" href="{{ url_for('editar_pedido', id_=p.id) }}">Correção administrativa</a>
       {% endif %}
       {% if eh_pedido and data_agenda and pode('agenda') %}
@@ -58,7 +58,7 @@
     <p>Festa importada de {{ p.fonte_rotulo }} que ainda não virou pedido atual.
       {% if p.pendencias_conversao %}Precisa de análise: {{ p.pendencias_conversao|join(', ') }}.
       {% else %}Ao converter, ela entra em Em andamento e na Agenda, sem inventar itens nem valor.{% endif %}</p>
-    {% if 'converter' in p.acoes and perfil == 'admin' and not p.pendencias_conversao %}
+    {% if 'converter' in p.acoes and tem('orders.admin') and not p.pendencias_conversao %}
     <form method="post" action="{{ url_for('converter_historico', id_=p.id) }}">
       <button type="submit" class="ped-botao ped-botao--p">Converter em pedido atual</button>
     </form>
@@ -225,7 +225,7 @@
         {% elif p.historico %}
           <p class="ped-dica">Modo consulta: pedidos históricos não têm ações operacionais.</p>
         {% elif importado_pendente %}
-          <p class="ped-dica">{% if p.pendencias_conversao %}Corrigir os dados da importação antes de converter.{% elif perfil == 'admin' %}Converta em pedido atual para registrar itens e operação.{% else %}Um administrador precisa converter esta festa em pedido atual.{% endif %}</p>
+          <p class="ped-dica">{% if p.pendencias_conversao %}Corrigir os dados da importação antes de converter.{% elif tem('orders.admin') %}Converta em pedido atual para registrar itens e operação.{% else %}Um administrador precisa converter esta festa em pedido atual.{% endif %}</p>
         {% elif p.status_comercial == 'cancelado' %}
           <p class="ped-dica">Pedido cancelado. Não conta como festa realizada nem entra no faturamento.</p>
         {% elif p.status_comercial == 'finalizado' %}
