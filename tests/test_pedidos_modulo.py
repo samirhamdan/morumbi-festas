@@ -312,9 +312,11 @@ class TesteHistorico:
                 " 'Formulario Festas', '2025-01-25', 'Kit Safari', 150, 'entregue',"
                 " '2026-09-19T10:00:00')", (cli,)).lastrowid
         r = admin.get("/pedidos")
-        assert f"/pedido/historico/{hid}" in r.text and "Formulario Festas" in r.text
+        assert f"/pedido/historico/{hid}" in r.text and "Morumbi Festas" in r.text
+        assert "Formulario Festas" not in r.text
         d = admin.get(f"/pedido/historico/{hid}")
         assert "Pedido importado #351" in d.text and "Registro importado" in d.text
+        assert "modo consulta" in d.text and "Formulário Festas #351" in d.text
         assert "150,00" in d.text and "Marcar como" not in d.text
         assert admin.get("/pedido/historico/9999").status_code == 404
 

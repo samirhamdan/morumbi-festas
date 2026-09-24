@@ -121,7 +121,7 @@
         {% for ev in ds.eventos %}
         {% if ev.get('historico') %}
         <span class="ag-ev ag-ev-historico">
-          <span class="ag-ev-tipo">{{ ev.origem[:10] if ev.origem else 'Hist' }}</span>
+          <span class="ag-ev-tipo" title="Importado de {{ rotulo_fonte(ev.fonte) }}">importado</span>
           <span class="ag-ev-cliente">{{ ev.cliente_nome or '—' }}</span>
           <span class="ag-ev-status etiqueta">{{ ev.status_origem or '—' }}</span>
         </span>
@@ -195,7 +195,7 @@
         <tbody>
           {% for h in historicos %}
           <tr>
-            <td><span class="etiqueta">{{ h.origem }}</span></td>
+            <td><span class="etiqueta" title="Fonte: {{ rotulo_fonte(h.fonte) }}">{{ h.origem }}</span></td>
             <td>{{ h.cliente_nome or '—' }}</td>
             <td>{{ h.descricao or h.canal or '—' }}</td>
             <td>{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>

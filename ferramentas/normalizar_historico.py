@@ -220,7 +220,7 @@ def imprimir_faturamento(linhas: list, rotulo: str):
     secao(f"Faturamento por ano — {rotulo} (pedidos finalizados, data do evento)")
     for ano, f in linhas:
         origens = "; ".join(f"{o}: {moeda(v['total'])} ({v['quantidade']})"
-                            for o, v in sorted(f["por_origem"].items()))
+                            for o, v in sorted(f["por_fonte"].items()))
         print(f"  {ano}: {moeda(f['total'])} — {f['quantidade']} pedidos"
               f" ({f['sem_valor']} sem valor) | {origens}")
 
@@ -264,6 +264,10 @@ def executar(caminho: str, amostra: int, aplicar: bool):
 
     if aplicar:
         backup = f"{caminho}.backup-antes-normalizacao-{ts}"
+        n = 1
+        while Path(backup).exists():  # nunca sobrescreve um backup anterior
+            n += 1
+            backup = f"{caminho}.backup-antes-normalizacao-{ts}-{n}"
         copiar_banco(caminho, backup)
         print(f"Backup criado e conferido: {backup}")
         alvo = caminho

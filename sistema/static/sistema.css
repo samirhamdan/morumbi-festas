@@ -3016,6 +3016,7 @@ a.cat-card:hover {
 .ped-filtro--busca { width: 290px; }
 .ped-filtro--comercial, .ped-filtro--origem { width: 135px; }
 .ped-filtro--operacional { width: 150px; }
+.ped-filtro--canal { width: 120px; }
 .ped-filtro--periodo { width: 220px; }
 .ped-datas { display: flex; gap: 6px; margin-top: 4px; }
 .ped-datas[hidden] { display: none; }
@@ -3062,6 +3063,9 @@ a.cat-card:hover {
 .ped-col-cliente { font-weight: var(--peso-semi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ped-col-cliente a { color: var(--ped-texto); }
 .ped-col-origem { font-size: 11px; color: var(--ped-apoio); }
+/* Sprint 2.1: canal abaixo da operação e número na planilha abaixo do pedido */
+.ped-canal, .ped-num-origem { display: block; font-size: 10px; font-weight: var(--peso-normal, 400); color: var(--ped-apoio); }
+.ped-canal { color: var(--ped-texto); }
 .ped-linha--historico .ped-col-num a { color: var(--ped-apoio); }
 
 /* Serviços: chips alinhados à esquerda, com quebra de linha, nunca cortados */
@@ -3212,6 +3216,11 @@ a.ped-pagina:hover { background: var(--ped-chip); text-decoration: none; }
 .ped-linhas dd.ped-valor { color: var(--ped-roxo); }
 
 .ped-dica { font-size: 12px; color: var(--ped-apoio); margin: 0 0 10px; }
+.ped-aviso--pendente { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.ped-aviso--pendente p { margin: 0; flex: 1 1 320px; }
+.ped-tecnico { margin-top: 12px; border-top: 1px solid var(--ped-borda); padding-top: 10px; }
+.ped-tecnico summary { cursor: pointer; font-size: 11px; font-weight: var(--peso-semi); color: var(--ped-apoio); }
+.ped-tecnico .ped-linhas { margin-top: 8px; }
 .ped-acoes-sec { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; margin-top: 12px; }
 .ped-acao-form { flex: 1 1 100%; text-align: center; }
 .ped-acao-form summary {
@@ -3255,7 +3264,7 @@ a.ped-pagina:hover { background: var(--ped-chip); text-decoration: none; }
   .pagina.ped { padding: var(--esp-4); }
   .ped-cab, .ped-det-cab { flex-direction: column; align-items: stretch; }
   .ped-det-acoes { justify-content: flex-start; }
-  .ped-filtro--comercial, .ped-filtro--operacional, .ped-filtro--periodo, .ped-filtro--origem { width: calc(50% - 6px); }
+  .ped-filtro--comercial, .ped-filtro--operacional, .ped-filtro--periodo, .ped-filtro--origem, .ped-filtro--canal { width: calc(50% - 6px); }
   .ped-abas { gap: 4px; }
   .ped-aba { min-width: 0; padding: 0 10px; }
   .ped-info { grid-template-columns: repeat(2, minmax(0, 1fr)); }

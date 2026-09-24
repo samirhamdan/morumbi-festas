@@ -107,6 +107,7 @@ def criar_app() -> Flask:
             "grupo_ativo": _grupo_de(request.endpoint or ""),
             "css_ver": _css_ver,
             "pode": _pode,
+            "rotulo_fonte": dados.rotulo_fonte,
         }
 
     # ------------------------------------------------------------------
@@ -1041,6 +1042,7 @@ def criar_app() -> Flask:
             "status_comercial": a.get("status_comercial", ""),
             "status_operacional": a.get("status_operacional", ""),
             "origem": a.get("origem", ""),
+            "canal": a.get("canal", ""),
             "periodo": a.get("periodo", ""),
             "inicio": a.get("inicio", ""),
             "fim": a.get("fim", ""),
@@ -1059,6 +1061,7 @@ def criar_app() -> Flask:
             q=filtros["q"], status_comercial=filtros["status_comercial"],
             status_operacional=filtros["status_operacional"],
             inicio=inicio, fim=fim, origem=filtros["origem"],
+            canal=filtros["canal"] if filtros["canal"] in dados.CANAIS else "",
             aba=a.get("aba", "todos"), pagina=a.get("pagina", 1, type=int),
             por_pagina=a.get("por_pagina", 10, type=int),
             ordem=a.get("ordem", "evento"), direcao=a.get("dir", "desc"))
@@ -1072,7 +1075,7 @@ def criar_app() -> Flask:
             res=res, filtros=filtros, erro_periodo=erro_periodo, url_lista=url_lista,
             ordem=a.get("ordem", "evento"), direcao=a.get("dir", "desc"),
             abas=dados.ABAS_PEDIDOS, periodos=dados.PERIODOS_PEDIDOS,
-            origens=dados.origens_pedidos_unificados(),
+            origens=dados.origens_pedidos_unificados(), canais=dados.CANAIS,
             status_comercial_opcoes=dados.STATUS_PEDIDO_COMERCIAL,
             status_operacional_opcoes=dados.STATUS_PEDIDO_OPERACIONAL,
             rot_com=dados.ROTULOS_COMERCIAL, rot_op=dados.ROTULOS_OPERACIONAL,
@@ -1094,12 +1097,28 @@ def criar_app() -> Flask:
     @app.route("/pedido/historico/<int:id_>")
     @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
     def ver_pedido_historico(id_):
+        # importado que já virou pedido atual: o pedido é a única fonte
+        pedido_id = dados.pedido_do_historico(id_)
+        if pedido_id:
+            return redirect(url_for("ver_pedido", id_=pedido_id))
         ped = dados.buscar_historico_detalhe(id_)
         if not ped:
             abort(404)
         return render_template("pedido_festas.html", pedido=ped,
                                rot_com=dados.ROTULOS_COMERCIAL,
                                rot_op=dados.ROTULOS_OPERACIONAL)
+
+    @app.route("/pedido/historico/<int:id_>/converter", methods=["POST"])
+    @auth.exige_perfil("admin")
+    def converter_historico(id_):
+        try:
+            pedido_id = dados.converter_historico_em_pedido(
+                id_, session.get("usuario_id"))
+        except ValueError as e:
+            flash(str(e), "erro")
+            return redirect(url_for("ver_pedido_historico", id_=id_))
+        flash("Festa importada convertida em pedido atual.", "ok")
+        return redirect(url_for("ver_pedido", id_=pedido_id))
 
     def _voltar_pedido(id_):
         voltar = request.form.get("voltar") or ""
@@ -1146,7 +1165,8 @@ def criar_app() -> Flask:
                                status_comercial=dados.STATUS_PEDIDO_COMERCIAL,
                                status_operacional=dados.STATUS_PEDIDO_OPERACIONAL,
                                rot_com=dados.ROTULOS_COMERCIAL,
-                               rot_op=dados.ROTULOS_OPERACIONAL)
+                               rot_op=dados.ROTULOS_OPERACIONAL,
+                               canais=dados.CANAIS)
 
     @app.route("/pedido/<int:id_>/cancelar", methods=["POST"])
     @auth.exige_perfil("admin", "comercial")

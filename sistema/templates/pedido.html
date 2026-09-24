@@ -103,6 +103,16 @@
           <small>Os status mudam pelas ações do pedido.</small></p>
         {% endif %}
 
+        <label class="campo" id="campo-canal">
+          <span>Canal (como o cliente chegou)</span>
+          <select name="canal">
+            <option value="">Não informado</option>
+            {% for c in canais %}
+            <option value="{{ c }}" {{ 'selected' if atual.get('canal') == c }}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
         <label class="campo" id="campo-forma_pagamento">
           <span>Forma de pagamento</span>
           <input type="text" name="forma_pagamento" maxlength="200" list="formas-pagamento" value="{{ atual.get('forma_pagamento') or '' }}">

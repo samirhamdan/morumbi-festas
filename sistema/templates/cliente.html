@@ -186,9 +186,9 @@
         {% for h in historico %}
         <tr>
           <td>{{ h.data_evento or '—' }}</td>
-          <td><span class="etiqueta cinza">{{ h.origem or '—' }}</span></td>
+          <td><span class="etiqueta cinza" title="Fonte: {{ rotulo_fonte(h.origem) }}">{{ h.operacao }}</span></td>
           <td>{{ h.descricao or '—' }}</td>
-          <td>{{ h.canal or '—' }}</td>
+          <td title="{{ h.canal or '' }}">{{ h.canal_padrao or '—' }}</td>
           <td class="num">{{ "R$ %.2f"|format(h.valor) if h.valor else '—' }}</td>
           <td><span class="etiqueta {{ 'verde' if h.situacao == 'finalizado' else 'vermelho' if h.situacao == 'cancelado' else '' }}"
                     title="Status na origem: {{ h.status_origem or '—' }}">{{ h.situacao }}</span></td>

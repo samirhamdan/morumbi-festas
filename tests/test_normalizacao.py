@@ -84,7 +84,8 @@ class TesteCenariosObrigatorios:
         assert dados.alertas_dashboard() == []
         r = _unificado("historico", imp)
         assert (r["status_comercial"], r["historico"]) == ("finalizado", True)
-        assert r["origem"] == "Formulario Festas"
+        # Sprint 2.1: operação Morumbi Festas; a planilha é só a fonte técnica
+        assert (r["origem"], r["fonte"]) == ("Morumbi Festas", "Formulario Festas")
 
     def test_2_historico_com_valor_entra_no_faturamento(self, app):
         cli = _cliente()
@@ -316,7 +317,8 @@ class TestePeriodos:
         cli = _cliente()
         _importado(cli, "2025-03-10", status="entregue", valor=180)
         r = admin.get("/faturamento?periodo=personalizado&inicio=2025-03-01&fim=2025-03-31")
-        assert "180,00" in r.text and "Formulario Festas" in r.text
+        assert "180,00" in r.text and "Morumbi Festas" in r.text
+        assert "Fonte do registro: Formulário Festas" in r.text
         corpo = admin.get("/api/faturamento?periodo=personalizado"
                           "&inicio=2025-01-01&fim=2025-12-31").get_json()
         assert corpo["total"] == 180 and corpo["periodo"] == "personalizado"
@@ -458,7 +460,7 @@ class TesteDataManual:
         dados.atualizar_todas_classificacoes()
         r = admin.get("/faturamento")
         assert "com data do evento no futuro" in r.text
-        assert "Formulario Festas #351" in r.text
+        assert "Formulário Festas #351" in r.text
         assert "inicio=2035-01-25" in r.text
 
         r = admin.post(f"/faturamento/historico/{imp}",

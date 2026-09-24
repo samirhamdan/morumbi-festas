@@ -42,10 +42,26 @@ ORIGENS_SOMENTE_LEITURA = ("Morumbi 3D",)
 # (o Morumbi 3D é outro negócio). Para voltar a exibir, esvazie a tupla.
 ORIGENS_OCULTAS = ("Morumbi 3D",)
 
-# Campos de texto livre do pedido criados no Sprint 2.
+# Campos de texto livre do pedido (Sprint 2; canal no Sprint 2.1).
 CAMPOS_TEXTO_PEDIDO = (
     "local_evento", "hora_retirada", "hora_devolucao", "responsavel",
-    "forma_pagamento", "condicao_pagamento",
+    "forma_pagamento", "condicao_pagamento", "canal",
+)
+
+# Sprint 2.1 — operação, canal e fonte são conceitos separados.
+# Operação: o negócio a que o pedido pertence. A planilha "Formulario Festas"
+# é só a fonte técnica da importação; os pedidos dela são da Morumbi Festas.
+OPERACAO_PRINCIPAL = "Morumbi Festas"
+# Fontes que são outra operação (as demais pertencem à operação principal).
+OPERACAO_PROPRIA_DA_FONTE = {"Morumbi 3D": "Morumbi 3D"}
+ROTULOS_FONTE = {"Formulario Festas": "Formulário Festas"}
+# Canal de aquisição: como o cliente chegou.
+CANAIS = ("Google", "Instagram", "WhatsApp", "Facebook", "Formulário",
+          "Indicação", "Site", "Outro")
+_CANAL_POR_TRECHO = (
+    ("google", "Google"), ("insta", "Instagram"), ("whats", "WhatsApp"),
+    ("zap", "WhatsApp"), ("face", "Facebook"), ("indic", "Indicação"),
+    ("amig", "Indicação"), ("formul", "Formulário"), ("site", "Site"),
 )
 
 CAMINHO_BD = os.environ.get("FESTAS_DADOS", "morumbi_festas.db")
@@ -71,6 +87,17 @@ def _origem_visivel(alias: str = "h") -> str:
     return f"COALESCE({campo}, '') NOT IN ({lista})"
 
 
+def _historico_visivel(alias: str = "h") -> str:
+    """Importado visível que ainda não virou pedido atual (Sprint 2.1).
+
+    O registro promovido continua em eventos_historico, intacto, mas passa a
+    ser representado só pelo pedido: nada aparece nem é somado duas vezes.
+    """
+    campo = f"{alias}.id" if alias else "eventos_historico.id"
+    return (f"{_origem_visivel(alias)} AND {campo} NOT IN"
+            " (SELECT historico_id FROM pedidos WHERE historico_id IS NOT NULL)")
+
+
 def _em_operacao(alias: str = "p") -> str:
     campo = f"{alias}.status_comercial" if alias else "status_comercial"
     return f"{campo} NOT IN ('cancelado', 'finalizado')"
@@ -86,12 +113,38 @@ def somente_digitos(texto) -> str:
     return re.sub(r"\D", "", str(texto or ""))
 
 
+def canal_canonico(texto) -> str:
+    """Texto livre do canal ('pesquisa no google') -> canal padrão ('Google')."""
+    t = normalizar_texto(texto).strip()
+    if not t:
+        return ""
+    for trecho, canal in _CANAL_POR_TRECHO:
+        if trecho in t:
+            return canal
+    return "Outro"
+
+
+def operacao_da_fonte(fonte) -> str:
+    return OPERACAO_PROPRIA_DA_FONTE.get(fonte or "", OPERACAO_PRINCIPAL)
+
+
+def rotulo_fonte(fonte) -> str:
+    return ROTULOS_FONTE.get(fonte or "", fonte or "")
+
+
+def _operacao_sql(campo: str) -> str:
+    casos = " ".join(f"WHEN '{f}' THEN '{o}'"
+                     for f, o in OPERACAO_PROPRIA_DA_FONTE.items())
+    return f"CASE COALESCE({campo}, '') {casos} ELSE '{OPERACAO_PRINCIPAL}' END"
+
+
 def preparar_conexao(conn):
     conn.row_factory = sqlite3.Row
     conn.create_function("situacao_historico", 3, situacao_historico,
                          deterministic=True)
     conn.create_function("normalizar", 1, normalizar_texto, deterministic=True)
     conn.create_function("digitos", 1, somente_digitos, deterministic=True)
+    conn.create_function("canal_canonico", 1, canal_canonico, deterministic=True)
     return conn
 
 
@@ -351,6 +404,17 @@ def inicializar():
             if coluna not in cols_pedido:
                 conn.execute(
                     f"ALTER TABLE pedidos ADD COLUMN {coluna} TEXT DEFAULT ''")
+
+        # Sprint 2.1: vínculo do pedido atual com o registro importado de
+        # origem (fonte técnica preservada) e valor informado na importação.
+        for coluna, tipo in (("fonte", "TEXT DEFAULT ''"), ("fonte_id", "INTEGER"),
+                             ("historico_id", "INTEGER"),
+                             ("valor_informado", "REAL")):
+            if coluna not in cols_pedido:
+                conn.execute(f"ALTER TABLE pedidos ADD COLUMN {coluna} {tipo}")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_pedidos_historico_id"
+            " ON pedidos (historico_id) WHERE historico_id IS NOT NULL")
 
         # Migracao: eventos historicos importados do 3D
         tabelas = {r[0] for r in conn.execute(
@@ -1338,6 +1402,19 @@ def _data_pedido_sql(alias: str = "p") -> str:
             f" NULLIF({a}.data_retirada, ''))")
 
 
+def _total_pedido_sql(alias: str = "p") -> str:
+    """Soma dos itens; sem itens, o valor informado na importação (ou NULL)."""
+    return (f"COALESCE((SELECT SUM(i.quantidade * i.preco_unitario)"
+            f" FROM itens_pedido i WHERE i.pedido_id = {alias}.id),"
+            f" NULLIF({alias}.valor_informado, 0))")
+
+
+def total_do_pedido(ped: dict) -> float:
+    if ped.get("itens"):
+        return sum(i["quantidade"] * i["preco_unitario"] for i in ped["itens"])
+    return ped.get("valor_informado") or 0
+
+
 def faturamento_periodo(inicio: str, fim: str) -> dict:
     """Soma dos pedidos finalizados (atuais e históricos) com data em [inicio, fim].
 
@@ -1348,9 +1425,8 @@ def faturamento_periodo(inicio: str, fim: str) -> dict:
         peds = conn.execute(
             "SELECT * FROM ("
             " SELECT p.id, p.cliente_id, c.nome AS cliente_nome, p.historico,"
-            f"  {_data_pedido_sql()} AS data,"
-            "  (SELECT SUM(i.quantidade * i.preco_unitario) FROM itens_pedido i"
-            "   WHERE i.pedido_id = p.id) AS valor"
+            f"  {_data_pedido_sql()} AS data, p.fonte, p.fonte_id,"
+            f"  {_total_pedido_sql()} AS valor"
             " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
             f" WHERE p.status_comercial IN ({faturados})"
             ") WHERE data BETWEEN ? AND ? ORDER BY data, id",
@@ -1360,25 +1436,31 @@ def faturamento_periodo(inicio: str, fim: str) -> dict:
             " c.nome AS cliente_nome, h.data_evento AS data, h.valor"
             " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
             " WHERE situacao_historico(h.origem, h.status_origem, h.data_evento) = 'finalizado'"
-            f" AND {_origem_visivel()}"
+            f" AND {_historico_visivel()}"
             " AND h.data_evento BETWEEN ? AND ? ORDER BY h.data_evento, h.id",
             (inicio, fim)).fetchall()
 
+    # origem = operação (Morumbi Festas); fonte = de onde o registro veio.
     registros = [{"tipo": "pedido", "id": r["id"], "numero": r["id"],
-                  "origem": "Morumbi Festas", "historico": bool(r["historico"]),
+                  "origem": OPERACAO_PRINCIPAL, "fonte": r["fonte"] or "",
+                  "numero_origem": r["fonte_id"],
+                  "historico": bool(r["historico"]),
                   "cliente_id": r["cliente_id"], "cliente_nome": r["cliente_nome"],
                   "data": r["data"], "valor": r["valor"] or None} for r in peds]
     registros += [{"tipo": "historico", "id": r["id"],
                    "numero": r["origem_id"] or r["id"],
-                   "origem": r["origem"] or "Histórico importado", "historico": True,
+                   "origem": operacao_da_fonte(r["origem"]), "fonte": r["origem"] or "",
+                   "numero_origem": r["origem_id"], "historico": True,
                    "cliente_id": r["cliente_id"], "cliente_nome": r["cliente_nome"],
                    "data": r["data"], "valor": r["valor"] or None} for r in hists]
     registros.sort(key=lambda r: (r["data"], r["tipo"], r["id"]))
 
-    por_origem: dict = {}
+    por_fonte: dict = {}
     for r in registros:
-        o = por_origem.setdefault(r["origem"], {"total": 0.0, "quantidade": 0,
-                                                "sem_valor": 0})
+        rotulo = ("Registrados no sistema" if r["tipo"] == "pedido"
+                  else f"Importados · {rotulo_fonte(r['fonte'])}")
+        o = por_fonte.setdefault(rotulo, {"total": 0.0, "quantidade": 0,
+                                          "sem_valor": 0})
         o["quantidade"] += 1
         if r["valor"] is None:
             o["sem_valor"] += 1
@@ -1386,10 +1468,10 @@ def faturamento_periodo(inicio: str, fim: str) -> dict:
             o["total"] += r["valor"]
     return {
         "inicio": inicio, "fim": fim,
-        "total": sum(o["total"] for o in por_origem.values()),
+        "total": sum(o["total"] for o in por_fonte.values()),
         "quantidade": len(registros),
-        "sem_valor": sum(o["sem_valor"] for o in por_origem.values()),
-        "por_origem": por_origem,
+        "sem_valor": sum(o["sem_valor"] for o in por_fonte.values()),
+        "por_fonte": por_fonte,
         "registros": registros,
     }
 
@@ -1991,8 +2073,7 @@ def listar_pedidos(status_comercial: str | None = None,
             ped["itens"] = [dict(r) for r in conn.execute(
                 "SELECT * FROM itens_pedido WHERE pedido_id=? ORDER BY id",
                 (ped["id"],)).fetchall()]
-            ped["total"] = sum(
-                i["quantidade"] * i["preco_unitario"] for i in ped["itens"])
+            ped["total"] = total_do_pedido(ped)
         return peds
 
 
@@ -2008,8 +2089,7 @@ def buscar_pedido_festas(id_: int) -> dict | None:
         ped["itens"] = [dict(r) for r in conn.execute(
             "SELECT * FROM itens_pedido WHERE pedido_id=? ORDER BY id",
             (ped["id"],)).fetchall()]
-        ped["total"] = sum(
-            i["quantidade"] * i["preco_unitario"] for i in ped["itens"])
+        ped["total"] = total_do_pedido(ped)
         return ped
 
 
@@ -2109,6 +2189,8 @@ def _validar_dados_pedido(d: dict):
     for campo in CAMPOS_TEXTO_PEDIDO:
         if len(d.get(campo) or "") > 200:
             raise ErroDeCampo(campo, "Texto muito longo (máximo 200 caracteres).")
+    if d.get("canal") and d["canal"] not in CANAIS:
+        raise ErroDeCampo("canal", "Canal inválido.")
     if (d.get("data_retirada") and d.get("data_devolucao")
             and d["data_retirada"] > d["data_devolucao"]):
         raise ErroDeCampo("data_devolucao",
@@ -2213,6 +2295,9 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
     data_dev = dados_.get("data_devolucao")
     agora_ = formato.agora()
     extras = [dados_.get(c, "") for c in CAMPOS_TEXTO_PEDIDO]
+    # Histórico é pedido encerrado: se o administrador reabre o status,
+    # a marca sai junto (Sprint 2.1).
+    historico = int(bool(atual and atual["historico"] and sc in FORA_DA_OPERACAO))
 
     with conectar() as conn:
         if data_ret and data_dev and sc not in FORA_DA_OPERACAO:
@@ -2224,10 +2309,10 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
                 " data_retirada=?, data_devolucao=?,"
                 " status_comercial=?, status_operacional=?, observacoes=?,"
                 + "".join(f" {c}=?," for c in CAMPOS_TEXTO_PEDIDO) +
-                " atualizado_em=? WHERE id=?",
+                " historico=?, atualizado_em=? WHERE id=?",
                 (dados_["cliente_id"], dados_.get("data_evento"), data_ret,
                  data_dev, sc, so, dados_.get("observacoes", ""),
-                 *extras, agora_, id_))
+                 *extras, historico, agora_, id_))
             conn.execute("DELETE FROM itens_pedido WHERE pedido_id=?", (id_,))
             novo_id = id_
         else:
@@ -2252,11 +2337,13 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
 
         if atual:
             novos = dict(dados_, status_comercial=sc, status_operacional=so,
-                         data_retirada=data_ret, data_devolucao=data_dev)
+                         data_retirada=data_ret, data_devolucao=data_dev,
+                         historico=historico)
             mudancas = {}
             for campo in ("cliente_id", "data_evento", "data_retirada",
                           "data_devolucao", "status_comercial",
-                          "status_operacional", "observacoes", *CAMPOS_TEXTO_PEDIDO):
+                          "status_operacional", "observacoes", "historico",
+                          *CAMPOS_TEXTO_PEDIDO):
                 antes, depois = atual.get(campo) or "", novos.get(campo) or ""
                 if str(antes) != str(depois):
                     mudancas[campo] = [antes, depois]
@@ -2290,7 +2377,8 @@ ROTULOS_CAMPO_PEDIDO = {
     "itens": "itens e valores", "local_evento": "local",
     "hora_retirada": "horário da retirada", "hora_devolucao": "horário da devolução",
     "responsavel": "responsável", "forma_pagamento": "forma de pagamento",
-    "condicao_pagamento": "condição de pagamento",
+    "condicao_pagamento": "condição de pagamento", "canal": "canal",
+    "historico": "marca de histórico",
 }
 
 
@@ -2439,7 +2527,7 @@ def listar_eventos_historico(origem: str | None = None,
            " c.nome AS cliente_nome"
            " FROM eventos_historico h"
            " LEFT JOIN clientes c ON c.id = h.cliente_id")
-    conds: list[str] = [_origem_visivel()]
+    conds: list[str] = [_historico_visivel()]
     params: list = []
     if origem:
         conds.append("h.origem = ?")
@@ -2465,12 +2553,13 @@ def eventos_historico(data_inicio: str, data_fim: str) -> list:
     with conectar() as conn:
         rows = conn.execute(
             "SELECT h.id, h.cliente_id, h.data_evento, h.descricao,"
-            " h.observacoes, h.canal, h.valor, h.status_origem,"
-            " h.origem, h.origem_id, c.nome AS cliente_nome"
+            " h.observacoes, canal_canonico(h.canal) AS canal, h.valor,"
+            " h.status_origem, h.origem AS fonte, h.origem_id,"
+            f" {_operacao_sql('h.origem')} AS origem, c.nome AS cliente_nome"
             " FROM eventos_historico h"
             " LEFT JOIN clientes c ON c.id = h.cliente_id"
             " WHERE h.data_evento >= ? AND h.data_evento <= ?"
-            f" AND {_origem_visivel()}"
+            f" AND {_historico_visivel()}"
             " ORDER BY h.data_evento",
             (data_inicio, data_fim)).fetchall()
     return [dict(r) for r in rows]
@@ -2481,8 +2570,10 @@ def eventos_historico_cliente(cliente_id: int) -> list:
         rows = conn.execute(
             "SELECT id, data_evento, descricao, observacoes, canal, valor,"
             " status_origem, origem, origem_id,"
+            f" {_operacao_sql('origem')} AS operacao,"
+            " canal_canonico(canal) AS canal_padrao,"
             " situacao_historico(origem, status_origem, data_evento) AS situacao"
-            f" FROM eventos_historico WHERE cliente_id = ? AND {_origem_visivel('')}"
+            f" FROM eventos_historico WHERE cliente_id = ? AND {_historico_visivel('')}"
             " ORDER BY data_evento DESC",
             (cliente_id,)).fetchall()
     return [dict(r) for r in rows]
@@ -2580,7 +2671,7 @@ def historicos_data_futura() -> list:
             " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
             " WHERE situacao_historico(h.origem, h.status_origem, h.data_evento)"
             "       = 'finalizado'"
-            f" AND {_origem_visivel()}"
+            f" AND {_historico_visivel()}"
             " AND h.data_evento > ? ORDER BY h.data_evento",
             (_hoje_iso(),)).fetchall()]
 
@@ -2590,11 +2681,9 @@ def pedidos_cliente(cliente_id: int) -> list:
         rows = conn.execute(
             "SELECT p.id, p.data_evento, p.data_retirada, p.data_devolucao,"
             " p.status_comercial, p.status_operacional, p.observacoes,"
-            " COALESCE(SUM(i.quantidade * i.preco_unitario), 0) AS valor_total"
+            f" COALESCE({_total_pedido_sql()}, 0) AS valor_total"
             " FROM pedidos p"
-            " LEFT JOIN itens_pedido i ON i.pedido_id = p.id"
             " WHERE p.cliente_id = ?"
-            " GROUP BY p.id"
             " ORDER BY p.data_evento DESC",
             (cliente_id,)).fetchall()
     return [dict(r) for r in rows]
@@ -2605,7 +2694,7 @@ def _festas_realizadas_sql() -> str:
     return (
         "SELECT cliente_id, data_evento FROM eventos_historico"
         " WHERE situacao_historico(origem, status_origem, data_evento) = 'finalizado'"
-        f" AND {_origem_visivel('')}"
+        f" AND {_historico_visivel('')}"
         " UNION ALL"
         " SELECT cliente_id, data_evento FROM pedidos"
         f" WHERE status_comercial IN ({realizados})")
@@ -2679,13 +2768,12 @@ def listar_pedidos_unificados() -> list:
             "SELECT p.id, p.cliente_id, c.nome AS cliente_nome,"
             " p.data_evento, p.data_retirada, p.data_devolucao,"
             " p.status_comercial, p.status_operacional,"
-            " p.observacoes, p.criado_em, p.historico,"
-            " COALESCE(SUM(i.quantidade * i.preco_unitario), 0) AS total,"
-            " COUNT(i.id) AS itens_count"
+            " p.observacoes, p.criado_em, p.historico, p.canal, p.fonte,"
+            f" COALESCE({_total_pedido_sql()}, 0) AS total,"
+            " (SELECT COUNT(*) FROM itens_pedido i WHERE i.pedido_id = p.id)"
+            " AS itens_count"
             " FROM pedidos p"
             " LEFT JOIN clientes c ON c.id = p.cliente_id"
-            " LEFT JOIN itens_pedido i ON i.pedido_id = p.id"
-            " GROUP BY p.id"
         ).fetchall()
         for p in peds:
             p = dict(p)
@@ -2698,7 +2786,9 @@ def listar_pedidos_unificados() -> list:
                 "data_evento": p["data_evento"],
                 "itens_count": p["itens_count"],
                 "total": p["total"],
-                "origem": "Morumbi Festas",
+                "origem": OPERACAO_PRINCIPAL,
+                "fonte": p["fonte"] or "",
+                "canal": p["canal"] or "",
                 "historico": bool(p["historico"]),
                 "status_comercial": p["status_comercial"],
                 "status_operacional": p["status_operacional"],
@@ -2715,7 +2805,7 @@ def listar_pedidos_unificados() -> list:
             " situacao_historico(h.origem, h.status_origem, h.data_evento) AS situacao"
             " FROM eventos_historico h"
             " LEFT JOIN clientes c ON c.id = h.cliente_id"
-            f" WHERE {_origem_visivel()}"
+            f" WHERE {_historico_visivel()}"
         ).fetchall()
         for h in hists:
             h = dict(h)
@@ -2729,8 +2819,10 @@ def listar_pedidos_unificados() -> list:
                 "data_evento": h["data_evento"],
                 "itens_count": 1,
                 "total": h.get("valor") or 0,
-                "origem": h.get("origem") or "Histórico importado",
-                "historico": True,
+                "origem": operacao_da_fonte(h.get("origem")),
+                "fonte": h.get("origem") or "",
+                "canal": canal_canonico(h.get("canal")),
+                "historico": situacao != "pendente",
                 "status_origem": h.get("status_origem") or "",
                 "status_comercial": situacao,
                 "status_operacional": ("finalizado" if situacao == "finalizado"
@@ -2749,12 +2841,12 @@ def listar_pedidos_unificados() -> list:
 
 
 def origens_pedidos_unificados() -> list:
+    """Operações com pedidos visíveis (o filtro Origem é de operação, não de fonte)."""
     with conectar() as conn:
-        origens = ["Morumbi Festas"]
+        origens = [OPERACAO_PRINCIPAL]
         rows = conn.execute(
-            "SELECT DISTINCT origem FROM eventos_historico"
-            f" WHERE origem IS NOT NULL AND {_origem_visivel('')} ORDER BY origem"
-        ).fetchall()
+            f"SELECT DISTINCT {_operacao_sql('origem')} FROM eventos_historico"
+            f" WHERE {_historico_visivel('')}").fetchall()
         for r in rows:
             if r[0] and r[0] not in origens:
                 origens.append(r[0])
@@ -2786,7 +2878,7 @@ def indicadores_pedidos() -> dict:
         ).fetchone()[0]
 
         historico = conn.execute(
-            f"SELECT COUNT(*) FROM eventos_historico WHERE {_origem_visivel('')}"
+            f"SELECT COUNT(*) FROM eventos_historico WHERE {_historico_visivel('')}"
         ).fetchone()[0]
 
     fin = faturamento_mensal(ano, mes)
@@ -3006,9 +3098,12 @@ ABAS_PEDIDOS = (
     ("finalizados", "Finalizados"), ("cancelados", "Cancelados"),
     ("historico", "Histórico"),
 )
+# Aba pelo estado real (Sprint 2.1): importado não é sinônimo de histórico.
+# Em andamento = não cancelado, não finalizado e não encerrado como histórico,
+# inclusive festa importada pendente que ainda não virou pedido atual.
 _CONDICAO_ABA = {
     "todos": "1 = 1",
-    "andamento": ("tipo = 'pedido' AND historico = 0"
+    "andamento": ("historico = 0"
                   " AND status_comercial NOT IN ('cancelado', 'finalizado')"),
     "finalizados": "status_comercial = 'finalizado'",
     "cancelados": "status_comercial = 'cancelado'",
@@ -3037,9 +3132,9 @@ def _sql_base_pedidos() -> str:
         " c.telefone AS cliente_telefone,"
         " p.data_evento, p.data_retirada, p.data_devolucao,"
         " p.status_comercial, p.status_operacional, p.historico,"
-        " 'Morumbi Festas' AS origem,"
-        " (SELECT SUM(i.quantidade * i.preco_unitario) FROM itens_pedido i"
-        "  WHERE i.pedido_id = p.id) AS total,"
+        f" '{OPERACAO_PRINCIPAL}' AS origem, COALESCE(p.canal, '') AS canal,"
+        " COALESCE(p.fonte, '') AS fonte, p.fonte_id AS numero_origem,"
+        f" {_total_pedido_sql()} AS total,"
         " (SELECT SUM(i.quantidade) FROM itens_pedido i"
         "  WHERE i.pedido_id = p.id AND i.tipo != 'servico') AS itens,"
         " (SELECT GROUP_CONCAT(i.descricao, '|') FROM itens_pedido i"
@@ -3055,17 +3150,20 @@ def _sql_base_pedidos() -> str:
         f" {sit},"
         f" CASE {sit} WHEN 'finalizado' THEN 'finalizado'"
         "  WHEN 'cancelado' THEN 'cancelado' END,"
-        " 1, COALESCE(h.origem, 'Histórico importado'),"
+        f" CASE {sit} WHEN 'pendente' THEN 0 ELSE 1 END,"
+        f" {_operacao_sql('h.origem')}, canal_canonico(h.canal),"
+        " COALESCE(h.origem, ''), h.origem_id,"
         " NULLIF(h.valor, 0), NULL, NULL, h.descricao,"
         " COALESCE(h.observacoes, ''), h.criado_em"
         " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
-        f" WHERE {_origem_visivel()}")
+        f" WHERE {_historico_visivel()}")
 
 
 def consultar_pedidos(q: str = "", status_comercial: str = "",
                       status_operacional: str = "", inicio: str | None = None,
                       fim: str | None = None, origem: str = "",
                       aba: str = "todos", pagina: int = 1,
+                      canal: str = "",
                       por_pagina: int = 10, ordem: str = "evento",
                       direcao: str = "desc") -> dict:
     """Lista paginada no banco; contagens por aba respeitam os filtros."""
@@ -3080,8 +3178,9 @@ def consultar_pedidos(q: str = "", status_comercial: str = "",
         params += [like, like, like]
         numero = termo.lstrip("#")
         if numero.isdigit():
-            partes.append("numero = ?")
-            params.append(int(numero))
+            # também pelo número que o pedido tinha na planilha importada
+            partes.append("(numero = ? OR numero_origem = ?)")
+            params += [int(numero), int(numero)]
         if len(somente_digitos(termo)) >= 4:
             partes.append("digitos(COALESCE(cliente_whatsapp, '') || ' '"
                           " || COALESCE(cliente_telefone, '')) LIKE ?")
@@ -3099,6 +3198,9 @@ def consultar_pedidos(q: str = "", status_comercial: str = "",
     if origem:
         conds.append("origem = ?")
         params.append(origem)
+    if canal:
+        conds.append("canal = ?")
+        params.append(canal)
     onde = " AND ".join(conds) or "1 = 1"
     aba = aba if aba in _CONDICAO_ABA else "todos"
     por_pagina = por_pagina if por_pagina in POR_PAGINA_PEDIDOS else 10
@@ -3124,6 +3226,7 @@ def consultar_pedidos(q: str = "", status_comercial: str = "",
     for r in rows:
         d = dict(r)
         d["servicos"] = [s for s in (d["servicos"] or "").split("|") if s]
+        d["fonte_rotulo"] = rotulo_fonte(d["fonte"])
         d["acoes"] = acoes_permitidas(d)
         registros.append(d)
     return {"registros": registros, "contagens": contagens, "total": total,
@@ -3135,7 +3238,8 @@ def consultar_pedidos(q: str = "", status_comercial: str = "",
 def acoes_permitidas(p: dict) -> set:
     """Ações de negócio válidas para o estado do pedido (perfil à parte)."""
     if p.get("tipo") == "historico":
-        return set()
+        # importado ainda pendente: pode virar pedido atual (Sprint 2.1)
+        return {"converter"} if p.get("status_comercial") == "pendente" else set()
     acoes = {"ver"}
     if p.get("historico"):
         return acoes | {"corrigir"}
@@ -3159,7 +3263,20 @@ def buscar_pedido_detalhe(id_: int) -> dict | None:
             "SELECT id, nome, whatsapp, telefone, total_festas, classificacao"
             " FROM clientes WHERE id = ?", (ped["cliente_id"],)).fetchone()
     ped["cliente"] = dict(c) if c else None
-    ped["origem"] = "Morumbi Festas"
+    ped["origem"] = OPERACAO_PRINCIPAL
+    ped["canal"] = ped.get("canal") or ""
+    ped["fonte_rotulo"] = rotulo_fonte(ped.get("fonte"))
+    ped["numero_origem"] = ped.get("fonte_id")
+    ped["canal_original"] = ""
+    if ped.get("historico_id"):
+        with conectar() as conn:
+            h = conn.execute("SELECT canal, status_origem, criado_em"
+                             " FROM eventos_historico WHERE id = ?",
+                             (ped["historico_id"],)).fetchone()
+        if h:
+            ped["canal_original"] = h["canal"] or ""
+            ped["status_na_origem"] = h["status_origem"] or ""
+            ped["importado_em"] = h["criado_em"]
     ped["tipo"] = "pedido"
     ped["produtos"] = [i for i in ped["itens"] if i["tipo"] != "servico"]
     ped["servicos"] = [i["descricao"] for i in ped["itens"] if i["tipo"] == "servico"]
@@ -3187,16 +3304,26 @@ def buscar_historico_detalhe(id_: int) -> dict | None:
             " FROM clientes WHERE id = ?", (h["cliente_id"],)).fetchone()
     h["cliente"] = dict(c) if c else None
     h["tipo"] = "historico"
-    h["historico"] = 1
+    # pendente = festa ainda não encerrada: não é histórico nem modo consulta
+    h["historico"] = 0 if h["situacao"] == "pendente" else 1
     h["numero"] = h["origem_id"] or h["id"]
+    h["fonte"] = h["origem"]
+    h["fonte_rotulo"] = rotulo_fonte(h["origem"])
+    h["numero_origem"] = h["origem_id"]
+    h["origem"] = operacao_da_fonte(h["origem"])
+    h["canal_original"] = h["canal"] or ""
+    h["canal"] = canal_canonico(h["canal"])
+    h["status_na_origem"] = h["status_origem"] or ""
+    h["importado_em"] = h["criado_em"]
     h["status_comercial"] = h["situacao"]
     h["status_operacional"] = "finalizado" if h["situacao"] == "finalizado" else None
     h["valor"] = h["valor"] or None
-    h["acoes"] = set()
+    h["acoes"] = acoes_permitidas(h)
+    h["pendencias_conversao"] = motivos_sem_conversao(h)
     h["linha_do_tempo"] = [{
         "quando": h["criado_em"], "titulo": "Registro importado",
         "categoria": "Comercial",
-        "detalhe": f"Origem: {h['origem']} #{h['origem_id']}"
+        "detalhe": f"Fonte: {h['fonte_rotulo']} #{h['origem_id']}"
                    f" · status na origem: {h['status_origem'] or '—'}"}]
     if h["data_evento"]:
         h["linha_do_tempo"].append({
@@ -3249,7 +3376,12 @@ def linha_do_tempo_pedido(ped: dict) -> list:
         eventos.append({"quando": r["criado_em"], "titulo": r["descricao"],
                         "categoria": "Operação" if r["tipo"] == "operacao" else "Comercial",
                         "detalhe": "", "usuario": r["usuario"]})
-    if not any(e["titulo"].startswith("Pedido criado") for e in eventos):
+    if ped.get("historico_id"):
+        eventos.insert(0, {"quando": ped["criado_em"], "titulo": "Registro importado",
+                           "categoria": "Comercial", "usuario": None,
+                           "detalhe": f"Fonte: {rotulo_fonte(ped.get('fonte'))}"
+                                      f" #{ped.get('fonte_id')}"})
+    elif not any(e["titulo"].startswith("Pedido criado") for e in eventos):
         eventos.insert(0, {"quando": ped["criado_em"], "titulo": "Pedido criado",
                            "categoria": "Comercial", "detalhe": "", "usuario": None})
     hoje = _hoje_iso()
@@ -3296,3 +3428,377 @@ def registrar_ocorrencia(id_: int, texto: str, usuario_id=None):
             raise ValueError("Pedido não encontrado.")
         registrar_evento_pedido(conn, id_, "Ocorrência registrada", "Ocorrência",
                                 usuario_id, detalhe=texto)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2.1 — reclassificação pelo estado real do pedido
+#
+# Importado ≠ histórico. Uma festa importada da planilha que ainda vai
+# acontecer (ou aconteceu depois do corte sem encerramento registrado) vira
+# um pedido atual da Morumbi Festas: entra em "Em andamento", na Agenda e,
+# no Sprint 3, na Esteira. O registro importado continua intacto em
+# eventos_historico (fonte, número e canal originais) e fica ligado ao
+# pedido por pedidos.historico_id (índice único: nunca dois pedidos).
+# Nada é inventado: sem itens continua sem itens, sem valor continua sem valor.
+# ---------------------------------------------------------------------------
+
+# Status operacionais que mostram operação real em curso (itens com o
+# cliente ou voltando): um pedido finalizado só pela data de corte com um
+# desses status precisa de conferência manual.
+STATUS_OPERACAO_EM_CURSO = ("entregue", "recolhido", "conferido")
+
+
+def motivos_sem_conversao(h: dict) -> list:
+    """Por que um importado pendente não pode virar pedido atual sozinho."""
+    motivos = []
+    if not h.get("data_evento"):
+        motivos.append("sem data do evento")
+    else:
+        try:
+            date.fromisoformat(h["data_evento"])
+        except ValueError:
+            motivos.append("data do evento inválida")
+    if not h.get("cliente_id") or h.get("cliente_existe") == 0:
+        motivos.append("sem cliente vinculado")
+    if operacao_da_fonte(h.get("fonte") or h.get("origem")) != OPERACAO_PRINCIPAL:
+        motivos.append("não é da operação Morumbi Festas")
+    return motivos
+
+
+def _importados_pendentes(conn) -> list:
+    """Importados visíveis, pendentes e ainda não promovidos, com o motivo
+    de bloqueio (lista vazia = há evidência suficiente para promover)."""
+    rows = conn.execute(
+        "SELECT h.*, c.nome AS cliente_nome,"
+        " CASE WHEN c.id IS NULL THEN 0 ELSE 1 END AS cliente_existe"
+        " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
+        " WHERE situacao_historico(h.origem, h.status_origem, h.data_evento)"
+        "       = 'pendente'"
+        f" AND {_historico_visivel()}"
+        " ORDER BY COALESCE(h.data_evento, '9999'), h.id").fetchall()
+    pendentes = []
+    for r in rows:
+        d = dict(r)
+        d["motivos"] = motivos_sem_conversao(d)
+        pendentes.append(d)
+    return pendentes
+
+
+def _sql_historico_inconsistente() -> str:
+    """Pedidos marcados como históricos cujo estado real não é de histórico."""
+    return (
+        "SELECT p.id, p.cliente_id, p.status_comercial, p.status_operacional,"
+        f" {_data_pedido_sql()} AS data_ref"
+        " FROM pedidos p WHERE p.historico = 1 AND ("
+        "  p.status_comercial NOT IN ('finalizado', 'cancelado')"
+        f"  OR {_data_pedido_sql()} >= '{DATA_CORTE_FINALIZADOS}')")
+
+
+def _promover_importado(conn, h: dict, usuario_id, agora_: str) -> int:
+    obs = " · ".join(t for t in (
+        f"Pedido na planilha: {h['descricao']}" if h.get("descricao") else "",
+        h.get("observacoes") or "") if t)
+    cur = conn.execute(
+        "INSERT INTO pedidos (cliente_id, data_evento, status_comercial,"
+        " status_operacional, observacoes, canal, fonte, fonte_id,"
+        " historico_id, valor_informado, historico, criado_em, atualizado_em)"
+        " VALUES (?, ?, 'confirmado', 'preparacao', ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+        (h["cliente_id"], h["data_evento"], obs, canal_canonico(h.get("canal")),
+         h["origem"], h["origem_id"], h["id"], h.get("valor") or None,
+         h.get("criado_em") or agora_, agora_))
+    pedido_id = cur.lastrowid
+    registrar_evento_pedido(
+        conn, pedido_id, "Reclassificado como pedido atual", "Comercial",
+        usuario_id,
+        detalhe=(f"Festa importada de {rotulo_fonte(h['origem'])}"
+                 f" #{h['origem_id']} com evento em"
+                 f" {formato.fmt_data(h['data_evento'])}: estava em modo consulta."
+                 " Itens e valor não foram inventados."),
+        mudancas={"historico_id": ["", h["id"]]})
+    return pedido_id
+
+
+def pedido_do_historico(historico_id: int) -> int | None:
+    with conectar() as conn:
+        r = conn.execute("SELECT id FROM pedidos WHERE historico_id = ?",
+                         (historico_id,)).fetchone()
+    return r["id"] if r else None
+
+
+def converter_historico_em_pedido(historico_id: int, usuario_id=None) -> int:
+    """Promove um importado pendente (ação do administrador). Idempotente."""
+    existente = pedido_do_historico(historico_id)
+    if existente:
+        return existente
+    agora_ = formato.agora()
+    with conectar() as conn:
+        h = next((p for p in _importados_pendentes(conn)
+                  if p["id"] == historico_id), None)
+        if not h:
+            raise ValueError("Só registros importados pendentes podem virar"
+                             " pedido atual.")
+        if h["motivos"]:
+            raise ValueError("Não é possível converter: "
+                             + ", ".join(h["motivos"]) + ".")
+        pedido_id = _promover_importado(conn, h, usuario_id, agora_)
+        conn.execute(
+            "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
+            " VALUES (?, 'reclassificacao_pedidos', ?, ?, ?)",
+            (usuario_id, f"Importado {rotulo_fonte(h['origem'])}"
+             f" #{h['origem_id']} convertido no pedido #{pedido_id}",
+             json.dumps({"promovidos": [{"historico_id": h["id"],
+                                         "pedido_id": pedido_id}]}),
+             agora_))
+    atualizar_classificacao_cliente(h["cliente_id"])
+    return pedido_id
+
+
+def _finalizados_com_operacao_em_curso(conn) -> list:
+    """Pedidos que a normalização do Sprint 1 finalizou só pela data de corte
+    quando já tinham itens com o cliente ou voltando: conferir à mão."""
+    ids = {}
+    for r in conn.execute("SELECT dados FROM audit_log"
+                          " WHERE tipo = 'normalizacao_historico'"):
+        try:
+            alterados = json.loads(r["dados"] or "{}").get("alterados", [])
+        except (TypeError, ValueError):
+            continue
+        for a in alterados:
+            antes = a.get("antes") or {}
+            if antes.get("status_operacional") in STATUS_OPERACAO_EM_CURSO:
+                ids[a["id"]] = antes["status_operacional"]
+    if not ids:
+        return []
+    marcas = ",".join("?" * len(ids))
+    rows = conn.execute(
+        "SELECT p.id, p.data_evento, p.data_devolucao, p.status_comercial,"
+        " c.nome AS cliente_nome FROM pedidos p"
+        " LEFT JOIN clientes c ON c.id = p.cliente_id"
+        f" WHERE p.id IN ({marcas}) AND p.status_comercial = 'finalizado'",
+        list(ids)).fetchall()
+    return [dict(r, status_antes=ids[r["id"]]) for r in rows]
+
+
+def _chave_telefone(texto) -> str:
+    d = somente_digitos(texto)
+    if len(d) in (12, 13) and d.startswith("55"):
+        d = d[2:]
+    return d if len(d) >= 8 else ""
+
+
+def possiveis_clientes_duplicados(conn) -> list:
+    """Grupos de clientes com mesmo nome completo, telefone ou e-mail.
+
+    Só relatório: nada é mesclado. Mesmo nome é indício, não prova.
+    """
+    clientes = [dict(r) for r in conn.execute(
+        "SELECT id, nome, whatsapp, telefone, email, cpf_cnpj FROM clientes")]
+    pai = {c["id"]: c["id"] for c in clientes}
+
+    def raiz(i):
+        while pai[i] != i:
+            pai[i] = pai[pai[i]]
+            i = pai[i]
+        return i
+
+    motivos: dict = {}
+    indices: dict = {}
+    for c in clientes:
+        nome = " ".join(normalizar_texto(c["nome"]).split())
+        chaves = []
+        if len(nome.split()) >= 2:
+            chaves.append(("mesmo nome", nome))
+        for campo in ("whatsapp", "telefone"):
+            fone = _chave_telefone(c.get(campo))
+            if fone:
+                chaves.append(("mesmo telefone", fone))
+        email = (c.get("email") or "").strip().lower()
+        if email:
+            chaves.append(("mesmo e-mail", email))
+        doc = somente_digitos(c.get("cpf_cnpj"))
+        if len(doc) >= 11:
+            chaves.append(("mesmo CPF/CNPJ", doc))
+        for chave in set(chaves):
+            if chave in indices:
+                a, b = raiz(indices[chave]), raiz(c["id"])
+                if a != b:
+                    pai[b] = a
+                motivos.setdefault(chave, {indices[chave]}).add(c["id"])
+            else:
+                indices[chave] = c["id"]
+
+    grupos: dict = {}
+    for c in clientes:
+        grupos.setdefault(raiz(c["id"]), []).append(c)
+    resultado = []
+    for membros in grupos.values():
+        if len(membros) < 2:
+            continue
+        ids = {m["id"] for m in membros}
+        razoes = sorted({m for (m, _), quem in motivos.items() if quem & ids})
+        resultado.append({"clientes": sorted(membros, key=lambda m: m["id"]),
+                          "motivos": razoes})
+    return sorted(resultado, key=lambda g: g["clientes"][0]["id"])
+
+
+def _vinculos_por_nome_ambiguos(conn) -> list:
+    """Importados ligados a um cliente cujo nome é compartilhado por outro:
+    o importador pode ter escolhido o cliente errado (vínculo por nome)."""
+    nomes: dict = {}
+    for c in conn.execute("SELECT id, nome FROM clientes"):
+        nomes.setdefault(" ".join(normalizar_texto(c["nome"]).split()),
+                         []).append(c["id"])
+    repetidos = {i for ids in nomes.values() if len(ids) > 1 for i in ids}
+    if not repetidos:
+        return []
+    marcas = ",".join("?" * len(repetidos))
+    return [dict(r) for r in conn.execute(
+        "SELECT h.id, h.origem, h.origem_id, h.data_evento, h.cliente_id,"
+        " c.nome AS cliente_nome FROM eventos_historico h"
+        " JOIN clientes c ON c.id = h.cliente_id"
+        f" WHERE h.cliente_id IN ({marcas}) AND {_origem_visivel()}"
+        " ORDER BY h.data_evento", list(repetidos)).fetchall()]
+
+
+def diagnostico_reclassificacao(conn) -> dict:
+    """Relatório somente leitura do Sprint 2.1 (antes e depois da rotina)."""
+    preparar_conexao(conn)
+    hoje = _hoje_iso()
+    um = lambda sql, *p: conn.execute(sql, p).fetchone()[0]  # noqa: E731
+
+    ped = {
+        "total": um("SELECT COUNT(*) FROM pedidos"),
+        "promovidos": um("SELECT COUNT(*) FROM pedidos"
+                         " WHERE historico_id IS NOT NULL"),
+        "historicos": um("SELECT COUNT(*) FROM pedidos WHERE historico = 1"),
+        "finalizados": um("SELECT COUNT(*) FROM pedidos"
+                          " WHERE status_comercial = 'finalizado'"),
+        "cancelados": um("SELECT COUNT(*) FROM pedidos"
+                         " WHERE status_comercial = 'cancelado'"),
+        "em_andamento": um("SELECT COUNT(*) FROM pedidos WHERE historico = 0"
+                           " AND status_comercial NOT IN"
+                           " ('finalizado', 'cancelado')"),
+        "futuros": um("SELECT COUNT(*) FROM pedidos"
+                      " WHERE status_comercial != 'cancelado'"
+                      " AND data_evento >= ?", hoje),
+        "passados_com_operacao_pendente": um(
+            "SELECT COUNT(*) FROM pedidos p WHERE p.historico = 0"
+            " AND p.status_comercial NOT IN ('finalizado', 'cancelado')"
+            f" AND {_data_pedido_sql()} < ?", hoje),
+        "sem_itens_em_andamento": um(
+            "SELECT COUNT(*) FROM pedidos p WHERE p.historico = 0"
+            " AND p.status_comercial NOT IN ('finalizado', 'cancelado')"
+            " AND NOT EXISTS (SELECT 1 FROM itens_pedido i"
+            "                 WHERE i.pedido_id = p.id)"),
+        "historico_inconsistente": [dict(r) for r in conn.execute(
+            _sql_historico_inconsistente())],
+    }
+
+    sit = "situacao_historico(h.origem, h.status_origem, h.data_evento)"
+    imp = {"por_situacao": {"finalizado": 0, "cancelado": 0, "pendente": 0}}
+    for r in conn.execute(f"SELECT {sit} AS s, COUNT(*) FROM eventos_historico h"
+                          f" WHERE {_historico_visivel()} GROUP BY 1"):
+        imp["por_situacao"][r[0]] = r[1]
+    imp["visiveis"] = sum(imp["por_situacao"].values())
+    imp["ocultos"] = um("SELECT COUNT(*) FROM eventos_historico h"
+                        f" WHERE NOT ({_origem_visivel()})")
+    imp["formulario_festas"] = um("SELECT COUNT(*) FROM eventos_historico"
+                                  " WHERE origem = 'Formulario Festas'")
+    imp["futuros"] = um(f"SELECT COUNT(*) FROM eventos_historico h"
+                        f" WHERE {_historico_visivel()} AND {sit} = 'pendente'"
+                        " AND h.data_evento >= ?", hoje)
+    pendentes = _importados_pendentes(conn)
+    imp["a_promover"] = [p for p in pendentes if not p["motivos"]]
+    imp["sem_evidencia"] = [p for p in pendentes if p["motivos"]]
+    imp["finalizados_data_futura"] = [dict(r) for r in conn.execute(
+        "SELECT h.id, h.origem, h.origem_id, h.data_evento, c.nome AS cliente_nome"
+        " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
+        f" WHERE {_historico_visivel()} AND {sit} = 'finalizado'"
+        " AND h.data_evento > ? ORDER BY h.data_evento", (hoje,))]
+
+    canais: dict = {}
+    for r in conn.execute(
+            "SELECT canal_canonico(canal) AS c, COUNT(*) FROM eventos_historico"
+            f" WHERE {_origem_visivel('')} GROUP BY 1"):
+        canais[r[0] or "(não informado)"] = r[1]
+    for r in conn.execute("SELECT COALESCE(NULLIF(canal, ''), '(não informado)'),"
+                          " COUNT(*) FROM pedidos WHERE historico_id IS NULL"
+                          " GROUP BY 1"):
+        canais[r[0]] = canais.get(r[0], 0) + r[1]
+
+    duplicados = possiveis_clientes_duplicados(conn)
+    ambiguos = _vinculos_por_nome_ambiguos(conn)
+    em_curso = _finalizados_com_operacao_em_curso(conn)
+    # registros distintos (um importado pode ter mais de um motivo)
+    manual = len({("h", h["id"]) for h in (imp["sem_evidencia"]
+                                            + imp["finalizados_data_futura"]
+                                            + ambiguos)}
+                 | {("p", p["id"]) for p in em_curso})
+
+    return {
+        "hoje": hoje,
+        "data_corte": DATA_CORTE_FINALIZADOS,
+        "pedidos": ped,
+        "importados": imp,
+        "canais": canais,
+        "clientes_duplicados": duplicados,
+        "vinculos_ambiguos": ambiguos,
+        "finalizados_com_operacao_em_curso": em_curso,
+        "resumo": {
+            "analisados": ped["total"] + imp["visiveis"],
+            "historicos": ped["historicos"] + imp["por_situacao"]["finalizado"],
+            "futuros": ped["futuros"] + imp["futuros"],
+            "a_reclassificar": (len(imp["a_promover"])
+                                + len(ped["historico_inconsistente"])),
+            "reclassificados": ped["promovidos"],
+            "cancelados": ped["cancelados"] + imp["por_situacao"]["cancelado"],
+            "finalizados": ped["finalizados"] + imp["por_situacao"]["finalizado"],
+            "formulario_festas": imp["formulario_festas"],
+            "canal_identificado": sum(n for c, n in canais.items()
+                                      if c != "(não informado)"),
+            "clientes_duplicados": sum(len(g["clientes"]) for g in duplicados),
+            "grupos_duplicados": len(duplicados),
+            "analise_manual": manual,
+        },
+    }
+
+
+def aplicar_reclassificacao(conn, usuario_id=None) -> dict:
+    """Promove importados pendentes com evidência e corrige marcas de histórico
+    inconsistentes. Idempotente: a segunda execução não altera nada."""
+    preparar_conexao(conn)
+    agora_ = formato.agora()
+    promovidos, desmarcados, clientes = [], [], set()
+    with conn:
+        for h in _importados_pendentes(conn):
+            if h["motivos"]:
+                continue
+            pid = _promover_importado(conn, h, usuario_id, agora_)
+            promovidos.append({"historico_id": h["id"], "pedido_id": pid,
+                               "fonte": h["origem"], "numero_origem": h["origem_id"]})
+            clientes.add(h["cliente_id"])
+        for p in conn.execute(_sql_historico_inconsistente()).fetchall():
+            conn.execute("UPDATE pedidos SET historico = 0, atualizado_em = ?"
+                         " WHERE id = ?", (agora_, p["id"]))
+            motivo = ("status " + p["status_comercial"]
+                      if p["status_comercial"] not in FORA_DA_OPERACAO
+                      else f"data {formato.fmt_data(p['data_ref'])}")
+            registrar_evento_pedido(
+                conn, p["id"], "Marcação de histórico corrigida", "Comercial",
+                usuario_id, detalhe=f"Não é histórico ({motivo}).",
+                mudancas={"historico": [1, 0]})
+            desmarcados.append(p["id"])
+            clientes.add(p["cliente_id"])
+        if promovidos or desmarcados:
+            conn.execute(
+                "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
+                " VALUES (?, 'reclassificacao_pedidos', ?, ?, ?)",
+                (usuario_id,
+                 f"Reclassificação: {len(promovidos)} importados viraram pedidos"
+                 f" atuais; {len(desmarcados)} marcações de histórico corrigidas",
+                 json.dumps({"promovidos": promovidos, "desmarcados": desmarcados},
+                            ensure_ascii=False),
+                 agora_))
+    for cid in clientes:
+        atualizar_classificacao_cliente(cid)
+    return {"promovidos": promovidos, "desmarcados": desmarcados}

@@ -43,7 +43,7 @@
         {% endif %}
       </div>
     </div>
-    {% for origem, o in fat.por_origem|dictsort %}
+    {% for origem, o in fat.por_fonte|dictsort %}
     <div class="dash-card dash-card--roxo">
       <div class="dash-card-info">
         <span class="dash-card-valor" style="font-size:var(--texto-xl)">{{ o.total|dinheiro }}</span>
@@ -61,7 +61,7 @@
       — provável erro de digitação. Abra e corrija a data:
       <ul class="fat-datas">
         {% for h in datas_futuras %}
-        <li><a href="{{ url_for('faturamento', periodo='personalizado', inicio=h.data_evento, fim=h.data_evento) }}">{{ h.origem }} #{{ h.origem_id }} · {{ h.cliente_nome or 'sem cliente' }} · {{ data_br(h.data_evento) }}</a></li>
+        <li><a href="{{ url_for('faturamento', periodo='personalizado', inicio=h.data_evento, fim=h.data_evento) }}">{{ rotulo_fonte(h.origem) }} #{{ h.origem_id }} · {{ h.cliente_nome or 'sem cliente' }} · {{ data_br(h.data_evento) }}</a></li>
         {% endfor %}
       </ul>
     </div>
@@ -102,14 +102,15 @@
             {% if r.historico %}<span class="etiqueta cinza">histórico</span>{% endif %}
           </td>
           <td data-rotulo="Cliente">{{ r.cliente_nome or '—' }}</td>
-          {% set editavel = r.tipo == 'historico' and r.origem not in origens_editaveis_bloqueadas %}
+          {% set editavel = r.tipo == 'historico' and r.fonte not in origens_editaveis_bloqueadas %}
           <td data-rotulo="Data do evento">
             {% if editavel %}
             <input type="date" name="data_evento" form="h-{{ r.id }}" value="{{ r.data }}" required
                    class="fat-data" aria-label="Data do evento do pedido #{{ r.numero }}">
             {% else %}{{ data_br(r.data) }}{% endif %}
           </td>
-          <td data-rotulo="Origem"><span class="etiqueta {{ 'roxo' if r.origem == 'Morumbi Festas' else 'cinza' }}">{{ r.origem }}</span></td>
+          <td data-rotulo="Origem"><span class="etiqueta {{ 'roxo' if r.origem == 'Morumbi Festas' else 'cinza' }}">{{ r.origem }}</span>
+            {%- if r.fonte %} <span class="etiqueta cinza" title="Fonte do registro: {{ rotulo_fonte(r.fonte) }}{% if r.numero_origem %} #{{ r.numero_origem }}{% endif %}">importado</span>{% endif %}</td>
           <td data-rotulo="Valor" style="text-align:right;font-variant-numeric:tabular-nums">
             {% if editavel %}
             <form method="post" action="{{ url_for('salvar_historico', id_=r.id) }}" class="fat-valor" id="h-{{ r.id }}">

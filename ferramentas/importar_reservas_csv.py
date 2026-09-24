@@ -121,12 +121,20 @@ def _mapa_email(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def _mapa_nome(conn: sqlite3.Connection) -> dict[str, int]:
+    """Nome normalizado -> cliente. Nomes repetidos ficam de fora: sem prova
+    de identidade a reserva vai para SEM CORRESPONDENCIA (nunca por palpite)."""
     rows = conn.execute("SELECT id, nome FROM clientes").fetchall()
-    mapa = {}
+    mapa: dict[str, int] = {}
+    repetidos: set[str] = set()
     for r in rows:
         chave = _normalizar(r["nome"])
-        if chave and chave not in mapa:
-            mapa[chave] = r["id"]
+        if not chave:
+            continue
+        if chave in mapa and mapa[chave] != r["id"]:
+            repetidos.add(chave)
+        mapa.setdefault(chave, r["id"])
+    for chave in repetidos:
+        del mapa[chave]
     return mapa
 
 
@@ -316,3 +324,6 @@ if __name__ == "__main__":
 
     print(f"  Classificacoes atualizadas: {resultado['clientes_atualizados']}")
     print("  Concluido.")
+    print("\n  Festas futuras importadas aparecem em Pedidos > Em andamento como"
+          " importadas.\n  Para converte-las em pedidos atuais, rode"
+          " ferramentas/reclassificar_pedidos.py.")

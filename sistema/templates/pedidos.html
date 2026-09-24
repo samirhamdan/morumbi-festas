@@ -64,6 +64,15 @@
         {% endfor %}
       </select>
     </label>
+    <label class="ped-filtro ped-filtro--canal">
+      <span>Canal</span>
+      <select name="canal">
+        <option value="">Todos</option>
+        {% for c in canais %}
+        <option value="{{ c }}" {{ 'selected' if filtros.canal == c }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <input type="hidden" name="aba" value="{{ res.aba if res.aba != 'todos' }}">
     <input type="hidden" name="ordem" value="{{ ordem if ordem != 'evento' }}">
     <input type="hidden" name="dir" value="{{ direcao if direcao != 'desc' }}">

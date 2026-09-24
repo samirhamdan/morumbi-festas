@@ -43,7 +43,8 @@
     <tbody>
       {% for r in res.registros %}
       <tr class="{{ 'ped-linha--historico' if r.historico }}">
-        <td data-rotulo="Pedido" class="ped-col-num"><a href="{{ link_pedido(r) }}">#{{ r.numero }}</a></td>
+        <td data-rotulo="Pedido" class="ped-col-num"><a href="{{ link_pedido(r) }}">#{{ r.numero }}</a>
+          {%- if r.tipo == 'pedido' and r.numero_origem %}<span class="ped-num-origem" title="Número na planilha {{ r.fonte_rotulo }}">planilha #{{ r.numero_origem }}</span>{% endif %}</td>
         <td data-rotulo="Cliente" class="ped-col-cliente">
           {% if r.cliente_id and pode('editar_cliente') %}
           <a href="{{ url_for('editar_cliente', id_=r.cliente_id) }}">{{ r.cliente_nome or '—' }}</a>
@@ -57,7 +58,7 @@
             {% for s in r.servicos %}<span class="ped-chip">{{ s }}</span>{% else %}<span class="ped-nada">—</span>{% endfor %}
           </div>
         </td>
-        <td data-rotulo="Origem" class="ped-col-origem">{{ r.origem }}</td>
+        <td data-rotulo="Origem" class="ped-col-origem">{{ r.origem }}{% if r.canal %}<span class="ped-canal">{{ r.canal }}</span>{% endif %}</td>
         <td data-rotulo="Comercial"><span class="ped-badge ped-c-{{ r.status_comercial }}">{{ rot_com.get(r.status_comercial, r.status_comercial) }}</span></td>
         <td data-rotulo="Operacional"><span class="ped-badge ped-badge--largo ped-o-{{ r.status_operacional or 'nenhum' }}">{{ rot_op.get(r.status_operacional, '—') }}</span></td>
         <td class="ped-col-acoes">
@@ -80,6 +81,11 @@
               <form method="post" action="{{ url_for('finalizar_pedido_rota', id_=r.id) }}">
                 <input type="hidden" name="voltar" value="{{ url_for('ver_pedido', id_=r.id) }}">
                 <button type="submit">Finalizar</button>
+              </form>
+              {% endif %}
+              {% if 'converter' in r.acoes and perfil == 'admin' %}
+              <form method="post" action="{{ url_for('converter_historico', id_=r.id) }}">
+                <button type="submit">Converter em pedido atual</button>
               </form>
               {% endif %}
               {% if 'cancelar' in r.acoes and pode('cancelar_pedido_rota') %}
