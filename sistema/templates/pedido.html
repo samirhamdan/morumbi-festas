@@ -8,17 +8,19 @@
 <main id="conteudo" class="pagina">
   <div class="cabecalho-lista">
     <h2 class="secao">{{ 'Pedido #%d'|format(atual.id) if atual.get('id') else 'Novo Pedido' }}</h2>
-    {% if atual.get('id') and atual.get('status_comercial') != 'cancelado' %}
-    <form method="post" action="{{ url_for('cancelar_pedido_rota', id_=atual.id) }}"
-          onsubmit="return confirm('Cancelar este pedido? Esta ação não pode ser desfeita.')" style="display:inline">
-      <button type="submit" class="botao perigoso">Cancelar pedido</button>
-    </form>
+    {% if atual.get('id') %}
+    <a class="botao vazado" href="{{ url_for('ver_pedido', id_=atual.id) }}">Voltar ao pedido</a>
     {% endif %}
   </div>
 
   {% include "_erro.html" %}
 
+  {% if atual.get('historico') %}
+  <div class="avisos"><div class="aviso mal">Pedido histórico: correção administrativa. Todas as alterações ficam registradas na auditoria.</div></div>
+  {% endif %}
+
   <form method="post" class="formulario" data-avisar id="form-pedido">
+    <input type="hidden" name="versao" value="{{ atual.get('atualizado_em', '') }}">
     <div class="duas-colunas">
       <div>
         <h3 class="form-secao" style="border-top:none;padding-top:0">Dados do pedido</h3>
@@ -31,43 +33,88 @@
             <option value="{{ c.id }}" {{ 'selected' if atual.get('cliente_id') == c.id }}>{{ c.nome }}</option>
             {% endfor %}
           </select>
+          {% if pode('editar_cliente') %}
+          <small><a href="{{ url_for('editar_cliente') }}" target="_blank" rel="noopener">Cadastrar novo cliente</a> (depois recarregue esta página)</small>
+          {% endif %}
         </label>
 
         <label class="campo" id="campo-data_evento">
           <span>Data do evento</span>
-          <input type="date" name="data_evento" value="{{ atual.get('data_evento', '') }}">
+          <input type="date" name="data_evento" value="{{ atual.get('data_evento') or '' }}">
         </label>
 
-        <label class="campo" id="campo-data_retirada">
-          <span>Data de retirada</span>
-          <input type="date" name="data_retirada" value="{{ atual.get('data_retirada', '') }}">
+        <label class="campo" id="campo-local_evento">
+          <span>Local do evento</span>
+          <input type="text" name="local_evento" maxlength="200" value="{{ atual.get('local_evento') or '' }}" placeholder="Endereço ou salão">
         </label>
 
-        <label class="campo" id="campo-data_devolucao">
-          <span>Data de devolução</span>
-          <input type="date" name="data_devolucao" value="{{ atual.get('data_devolucao', '') }}">
+        <div class="campo-duplo">
+          <label class="campo" id="campo-data_retirada">
+            <span>Retirada / entrega</span>
+            <input type="date" name="data_retirada" value="{{ atual.get('data_retirada') or '' }}">
+          </label>
+          <label class="campo" id="campo-hora_retirada">
+            <span>Horário</span>
+            <input type="time" name="hora_retirada" value="{{ atual.get('hora_retirada') or '' }}">
+          </label>
+        </div>
+
+        <div class="campo-duplo">
+          <label class="campo" id="campo-data_devolucao">
+            <span>Devolução / recolhimento</span>
+            <input type="date" name="data_devolucao" value="{{ atual.get('data_devolucao') or '' }}">
+          </label>
+          <label class="campo" id="campo-hora_devolucao">
+            <span>Horário</span>
+            <input type="time" name="hora_devolucao" value="{{ atual.get('hora_devolucao') or '' }}">
+          </label>
+        </div>
+
+        <label class="campo" id="campo-responsavel">
+          <span>Responsável pela logística</span>
+          <input type="text" name="responsavel" maxlength="200" value="{{ atual.get('responsavel') or '' }}">
         </label>
       </div>
 
       <div>
-        <h3 class="form-secao" style="border-top:none;padding-top:0">Status</h3>
+        <h3 class="form-secao" style="border-top:none;padding-top:0">Comercial</h3>
 
+        {% if pode_alterar_status %}
         <label class="campo" id="campo-status_comercial">
-          <span>Status comercial</span>
+          <span>Status comercial (correção administrativa)</span>
           <select name="status_comercial">
             {% for s in status_comercial %}
-            <option value="{{ s }}" {{ 'selected' if atual.get('status_comercial', 'confirmado') == s }}>{{ s|capitalize }}</option>
+            <option value="{{ s }}" {{ 'selected' if (atual.get('status_comercial') or 'confirmado') == s }}>{{ rot_com.get(s, s) }}</option>
             {% endfor %}
           </select>
         </label>
 
         <label class="campo" id="campo-status_operacional">
-          <span>Status operacional</span>
+          <span>Status operacional (correção administrativa)</span>
           <select name="status_operacional">
             {% for s in status_operacional %}
-            <option value="{{ s }}" {{ 'selected' if atual.get('status_operacional', 'preparacao') == s }}>{{ s|capitalize }}</option>
+            <option value="{{ s }}" {{ 'selected' if (atual.get('status_operacional') or 'preparacao') == s }}>{{ rot_op.get(s, s) }}</option>
             {% endfor %}
           </select>
+        </label>
+        {% elif atual.get('id') %}
+        <p class="campo"><span>Status</span>
+          {{ rot_com.get(atual.status_comercial, atual.status_comercial) }} • {{ rot_op.get(atual.status_operacional, atual.status_operacional) }}
+          <small>Os status mudam pelas ações do pedido.</small></p>
+        {% endif %}
+
+        <label class="campo" id="campo-forma_pagamento">
+          <span>Forma de pagamento</span>
+          <input type="text" name="forma_pagamento" maxlength="200" list="formas-pagamento" value="{{ atual.get('forma_pagamento') or '' }}">
+          <datalist id="formas-pagamento">
+            <option value="Pix"><option value="Dinheiro"><option value="Cartão de crédito">
+            <option value="Cartão de débito"><option value="Transferência"><option value="Boleto">
+          </datalist>
+        </label>
+
+        <label class="campo" id="campo-condicao_pagamento">
+          <span>Condição de pagamento</span>
+          <input type="text" name="condicao_pagamento" maxlength="200" value="{{ atual.get('condicao_pagamento') or '' }}" placeholder="Ex.: 50% na reserva, 50% na entrega">
         </label>
 
         <label class="campo" id="campo-observacoes">
@@ -111,6 +158,9 @@
 
     <div style="margin:12px 0">
       <button type="button" class="botao vazado" id="btn-adicionar-item">Adicionar item</button>
+      <span style="margin-left:8px;color:var(--suave);font-size:13px">
+        Serviços (entrega, montagem, desmontagem, recolhimento…) entram como itens do tipo Serviço.
+      </span>
     </div>
 
     <div class="acoes-formulario sticky">

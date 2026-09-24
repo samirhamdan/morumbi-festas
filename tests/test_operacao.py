@@ -114,10 +114,12 @@ class TesteAvancarStatus:
         dados.avancar_status_operacional(ped["id"], "Item quebrado")
         with dados.conectar() as conn:
             logs = conn.execute(
-                "SELECT * FROM audit_log WHERE tipo='operacao'"
+                "SELECT * FROM audit_log WHERE tipo='pedido_evento'"
+                " AND descricao LIKE '%Itens separados%'"
             ).fetchall()
             assert len(logs) == 1
             assert "Item quebrado" in logs[0]["dados"]
+            assert '"status_operacional": ["preparacao", "separado"]' in logs[0]["dados"]
 
 
 # --- rotas operacao ---

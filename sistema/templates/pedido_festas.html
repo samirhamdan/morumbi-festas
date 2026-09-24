@@ -1,89 +1,246 @@
 {% extends "base.html" %}
-{% block titulo %}Pedido #{{ pedido.id }} — Morumbi Festas{% endblock %}
+{% block titulo %}Pedido #{{ pedido.numero or pedido.id }} — Morumbi Festas{% endblock %}
 {% block corpo %}bancada{% endblock %}
 {% block conteudo %}
 
 {% include "_topo.html" %}
 
-<main id="conteudo" class="pagina">
-  <div class="cabecalho-lista">
-    <h2 class="secao">Pedido #{{ pedido.id }}</h2>
-    <span>
-      <a class="botao vazado" href="{{ url_for('editar_pedido', id_=pedido.id) }}">Editar</a>
-      <a class="botao vazado" href="{{ url_for('lista_pedidos') }}">Voltar</a>
-    </span>
-  </div>
+{% macro quando(v) -%}
+{{ v[8:10] }}/{{ v[5:7] }}{% if v|length > 10 and v[11:16] != '00:00' %} • {{ v[11:16] }}{% endif %}
+{%- endmacro %}
+{% macro data_hora(data, hora) -%}
+{% if data %}{{ data|data }}{% if hora %} • {{ hora }}{% endif %}{% else %}—{% endif %}
+{%- endmacro %}
 
+{% set p = pedido %}
+{% set eh_pedido = p.tipo == 'pedido' %}
+{% set cor_categoria = {'Comercial': 'verde', 'Operação': 'azul', 'Agenda': 'laranja', 'Ocorrência': 'vermelho'} %}
+{% set data_agenda = p.data_evento or p.data_retirada %}
+
+<main id="conteudo" class="pagina ped ped-detalhe">
+  <a class="ped-voltar" href="{{ url_for('lista_pedidos') }}">← Pedidos</a>
   {% include "_erro.html" %}
 
-  <div class="duas-colunas">
-    <div>
-      <div class="cartao">
-        <h3 class="form-secao" style="border-top:none;padding-top:0">Dados do pedido</h3>
-        <dl class="detalhe-lista">
-          <dt>Cliente</dt>
-          <dd>{{ pedido.cliente_nome or '—' }}</dd>
-          <dt>Status comercial</dt>
-          <dd><span class="etiqueta roxo">{{ pedido.status_comercial }}</span></dd>
-          <dt>Status operacional</dt>
-          <dd><span class="etiqueta cinza">{{ pedido.status_operacional }}</span></dd>
-          {% if pedido.data_evento %}
-          <dt>Data do evento</dt>
-          <dd>{{ pedido.data_evento|data }}</dd>
-          {% endif %}
-          {% if pedido.data_retirada %}
-          <dt>Data de retirada</dt>
-          <dd>{{ pedido.data_retirada|data }}</dd>
-          {% endif %}
-          {% if pedido.data_devolucao %}
-          <dt>Data de devolução</dt>
-          <dd>{{ pedido.data_devolucao|data }}</dd>
-          {% endif %}
-          <dt>Criado em</dt>
-          <dd>{{ pedido.criado_em|datahora }}</dd>
-          {% if pedido.observacoes %}
-          <dt>Observacoes</dt>
-          <dd>{{ pedido.observacoes }}</dd>
-          {% endif %}
-        </dl>
+  <div class="ped-det-cab">
+    <div class="ped-det-titulos">
+      <h1 class="ped-titulo">{{ 'Pedido' if eh_pedido else 'Pedido importado' }} #{{ p.numero or p.id }}</h1>
+      <p class="ped-sub">{{ (p.cliente.nome if p.cliente else None) or 'Cliente não vinculado' }}{% if p.data_evento %} • Festa em {{ p.data_evento|data }}{% endif %}</p>
+      <div class="ped-det-status">
+        <span class="ped-badge ped-c-{{ p.status_comercial }}">{{ rot_com.get(p.status_comercial, p.status_comercial) }}</span>
+        {% if p.status_operacional %}<span class="ped-badge ped-o-{{ p.status_operacional }}">{{ rot_op.get(p.status_operacional, p.status_operacional) }}</span>{% endif %}
+        <span class="ped-badge ped-badge--origem">{{ p.origem }}</span>
+        {% if p.historico %}<span class="ped-badge ped-badge--historico">Histórico</span>{% endif %}
       </div>
     </div>
+    <div class="ped-det-acoes">
+      {% if eh_pedido and 'editar' in p.acoes and pode('editar_pedido') %}
+      <a class="ped-botao-sec" href="{{ url_for('editar_pedido', id_=p.id) }}">Editar pedido</a>
+      {% elif eh_pedido and 'corrigir' in p.acoes and perfil == 'admin' %}
+      <a class="ped-botao-sec" href="{{ url_for('editar_pedido', id_=p.id) }}">Correção administrativa</a>
+      {% endif %}
+      {% if eh_pedido and data_agenda and pode('agenda') %}
+      <a class="ped-botao-sec" href="{{ url_for('agenda', visao='diaria', ano=data_agenda[:4]|int, mes=data_agenda[5:7]|int, dia=data_agenda[8:10]|int, destaque=p.id) }}#pedido-{{ p.id }}">Ver na agenda</a>
+      {% endif %}
+      {% if 'finalizar' in p.acoes and pode('finalizar_pedido_rota') %}
+      <form method="post" action="{{ url_for('finalizar_pedido_rota', id_=p.id) }}">
+        <input type="hidden" name="voltar" value="{{ request.path }}">
+        <button type="submit" class="ped-botao ped-botao--p">Finalizar</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
 
-    <div>
-      <div class="cartao">
-        <h3 class="form-secao" style="border-top:none;padding-top:0">Itens</h3>
-        {% if pedido.itens %}
-        <table class="tabela" style="margin-top:0">
-          <thead><tr>
-            <th>Descrição</th>
-            <th>Tipo</th>
-            <th>Qtd</th>
-            <th>Preco un.</th>
-            <th>Subtotal</th>
-          </tr></thead>
+  {% if p.historico %}
+  <p class="ped-aviso">Pedido histórico em modo consulta: não gera operação, tarefas nem bloqueio de estoque{% if p.tipo == 'historico' %}. Registro importado de {{ p.origem }}{% endif %}.</p>
+  {% endif %}
+
+  <div class="ped-det-colunas">
+    <div class="ped-det-coluna">
+
+      <section class="ped-bloco" aria-labelledby="t-info">
+        <h2 id="t-info" class="ped-bloco-titulo">Informações do pedido</h2>
+        <dl class="ped-info">
+          <div><dt>Cliente</dt><dd>{{ (p.cliente.nome if p.cliente else None) or '—' }}</dd></div>
+          <div><dt>Data do evento</dt><dd>{{ p.data_evento|data }}</dd></div>
+          {% if eh_pedido %}
+          <div><dt>Retirada / entrega</dt><dd>{{ data_hora(p.data_retirada, p.hora_retirada) }}</dd></div>
+          <div><dt>Devolução</dt><dd>{{ data_hora(p.data_devolucao, p.hora_devolucao) }}</dd></div>
+          <div><dt>Forma de pagamento</dt><dd>{{ p.forma_pagamento or '—' }}</dd></div>
+          {% else %}
+          <div><dt>Descrição</dt><dd>{{ p.descricao or '—' }}</dd></div>
+          <div><dt>Canal</dt><dd>{{ p.canal or '—' }}</dd></div>
+          {% endif %}
+        </dl>
+        {% if p.observacoes %}
+        <p class="ped-obs"><span>Observações</span>{{ p.observacoes }}</p>
+        {% endif %}
+      </section>
+
+      <section class="ped-bloco" aria-labelledby="t-itens">
+        <h2 id="t-itens" class="ped-bloco-titulo">Itens contratados</h2>
+        {% if eh_pedido and p.itens %}
+        <table class="ped-itens">
+          <colgroup><col class="i-item"><col class="i-qtd"><col class="i-periodo"><col class="i-valor"><col class="i-situacao"></colgroup>
+          <thead><tr><th scope="col">Item</th><th scope="col">Qtd.</th><th scope="col">Período</th><th scope="col">Valor</th><th scope="col">Situação</th></tr></thead>
           <tbody>
-            {% for item in pedido.itens %}
+            {% for i in p.itens %}
             <tr>
-              <td data-rotulo="Descrição">{{ item.descricao }}</td>
-              <td data-rotulo="Tipo">{{ item.tipo }}</td>
-              <td data-rotulo="Qtd">{{ item.quantidade }}</td>
-              <td data-rotulo="Preco un.">{{ item.preco_unitario|dinheiro }}</td>
-              <td data-rotulo="Subtotal">{{ (item.quantidade * item.preco_unitario)|dinheiro }}</td>
+              <td data-rotulo="Item" class="ped-item-nome">{{ i.descricao }}{% if i.tipo != 'produto' %} <span class="ped-item-tipo">{{ 'kit' if i.tipo == 'kit' else 'serviço' }}</span>{% endif %}</td>
+              <td data-rotulo="Qtd.">{{ i.quantidade }}</td>
+              <td data-rotulo="Período">
+                {% if p.data_retirada and p.data_devolucao %}
+                  {% if p.data_retirada[5:7] == p.data_devolucao[5:7] %}{{ p.data_retirada[8:10] }}–{{ p.data_devolucao[8:10] }}/{{ p.data_devolucao[5:7] }}
+                  {% else %}{{ p.data_retirada[8:10] }}/{{ p.data_retirada[5:7] }}–{{ p.data_devolucao[8:10] }}/{{ p.data_devolucao[5:7] }}{% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td data-rotulo="Valor">{{ (i.quantidade * i.preco_unitario)|dinheiro }}</td>
+              <td data-rotulo="Situação" class="ped-item-situacao ped-t-{{ p.status_operacional }}">{{ rot_op.get(p.status_operacional, '—') }}</td>
             </tr>
             {% endfor %}
           </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="4" style="text-align:right;font-weight:700">Total</td>
-              <td style="font-weight:700">{{ pedido.total|dinheiro }}</td>
-            </tr>
-          </tfoot>
         </table>
+        {% elif eh_pedido %}
+        <p class="ped-nada">Nenhum item cadastrado.</p>
         {% else %}
-        <p style="color:var(--suave)">Nenhum item.</p>
+        <p class="ped-nada">Os itens não foram registrados na origem ({{ p.origem }}).</p>
         {% endif %}
-      </div>
+        <div class="ped-total">
+          <span>Total do pedido</span>
+          <strong>{{ (p.total if eh_pedido else p.valor)|dinheiro if (p.total if eh_pedido else p.valor) else 'Valor não informado' }}</strong>
+        </div>
+      </section>
+
+      <section class="ped-bloco" aria-labelledby="t-tempo">
+        <h2 id="t-tempo" class="ped-bloco-titulo">Linha do tempo</h2>
+        <ol class="ped-tempo">
+          {% for e in p.linha_do_tempo %}
+          <li class="ped-tempo-{{ cor_categoria.get(e.categoria, 'cinza') }}">
+            <div class="ped-tempo-linha">
+              <span class="ped-tempo-data">{{ quando(e.quando) }}</span>
+              <span class="ped-tempo-titulo">{{ e.titulo }}</span>
+              <span class="ped-tempo-tag">{{ e.categoria }}</span>
+            </div>
+            {% if e.detalhe or e.usuario %}
+            <p class="ped-tempo-desc">{{ e.detalhe }}{% if e.detalhe and e.usuario %} · {% endif %}{% if e.usuario %}por {{ e.usuario }}{% endif %}</p>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </section>
+    </div>
+
+    <div class="ped-det-coluna ped-det-coluna--lateral">
+      <section class="ped-bloco" aria-labelledby="t-cliente">
+        <h2 id="t-cliente" class="ped-bloco-titulo">Cliente</h2>
+        {% if p.cliente %}
+        <div class="ped-cliente">
+          <span class="ped-avatar" aria-hidden="true">{{ p.cliente.nome[:1]|upper }}</span>
+          <div class="ped-cliente-info">
+            <strong>{{ p.cliente.nome }}</strong>
+            <span>{{ p.cliente.whatsapp or p.cliente.telefone or 'Sem telefone' }}</span>
+            <span class="ped-cliente-hist">{{ p.cliente.total_festas }} festa{{ 's' if p.cliente.total_festas != 1 }} realizada{{ 's' if p.cliente.total_festas != 1 }} • {{ p.cliente.classificacao }}</span>
+          </div>
+          {% if pode('editar_cliente') %}
+          <a class="ped-link" href="{{ url_for('editar_cliente', id_=p.cliente.id) }}">Ver cliente →</a>
+          {% endif %}
+        </div>
+        {% else %}
+        <p class="ped-nada">Cliente não vinculado.</p>
+        {% endif %}
+      </section>
+
+      {% if eh_pedido %}
+      <section class="ped-bloco" aria-labelledby="t-log">
+        <h2 id="t-log" class="ped-bloco-titulo">Logística</h2>
+        <dl class="ped-linhas">
+          <div><dt>Retirada / entrega</dt><dd>{{ data_hora(p.data_retirada, p.hora_retirada) }}</dd></div>
+          <div><dt>Local</dt><dd>{{ p.local_evento or '—' }}</dd></div>
+          <div><dt>Devolução</dt><dd>{{ data_hora(p.data_devolucao, p.hora_devolucao) }}</dd></div>
+          <div><dt>Responsável</dt><dd>{{ p.responsavel or '—' }}</dd></div>
+          {% if p.servicos %}
+          <div><dt>Serviços</dt><dd class="ped-chips">{% for s in p.servicos %}<span class="ped-chip">{{ s }}</span>{% endfor %}</dd></div>
+          {% endif %}
+        </dl>
+      </section>
+      {% endif %}
+
+      <section class="ped-bloco" aria-labelledby="t-com">
+        <h2 id="t-com" class="ped-bloco-titulo">Comercial</h2>
+        <dl class="ped-linhas">
+          <div><dt>Status</dt><dd>{{ rot_com.get(p.status_comercial, p.status_comercial) }}</dd></div>
+          <div><dt>Origem</dt><dd>{{ p.origem }}</dd></div>
+          <div><dt>Valor</dt><dd class="ped-valor">{{ (p.total if eh_pedido else p.valor)|dinheiro if (p.total if eh_pedido else p.valor) else '—' }}</dd></div>
+          {% if eh_pedido %}
+          <div><dt>Pagamento</dt><dd>{{ p.forma_pagamento or '—' }}{% if p.condicao_pagamento %} • {{ p.condicao_pagamento }}{% endif %}</dd></div>
+          {% endif %}
+          {% if p.status_comercial == 'cancelado' and p.motivo_cancelamento %}
+          <div><dt>Motivo do cancelamento</dt><dd>{{ p.motivo_cancelamento }}</dd></div>
+          {% endif %}
+        </dl>
+      </section>
+
+      <section class="ped-bloco" aria-labelledby="t-acao">
+        <h2 id="t-acao" class="ped-bloco-titulo">Próxima ação</h2>
+        {% if p.proxima_acao %}
+          <p class="ped-dica">{{ p.proxima_acao[1] }}</p>
+          {% if 'finalizar' in p.acoes and pode('finalizar_pedido_rota') %}
+          <form method="post" action="{{ url_for('finalizar_pedido_rota', id_=p.id) }}">
+            <input type="hidden" name="voltar" value="{{ request.path }}">
+            <button type="submit" class="ped-botao ped-botao--bloco">Finalizar</button>
+          </form>
+          {% elif 'avancar' in p.acoes and pode('avancar_pedido') %}
+          <form method="post" action="{{ url_for('avancar_pedido', id_=p.id) }}">
+            <input type="hidden" name="voltar" value="{{ request.path }}">
+            <button type="submit" class="ped-botao ped-botao--bloco">{{ p.proxima_acao[0] }}</button>
+          </form>
+          {% else %}
+          <p class="ped-nada">A próxima etapa é registrada pela equipe de operação.</p>
+          {% endif %}
+        {% elif p.historico %}
+          <p class="ped-dica">Modo consulta: pedidos históricos não têm ações operacionais.</p>
+        {% elif p.status_comercial == 'cancelado' %}
+          <p class="ped-dica">Pedido cancelado. Não conta como festa realizada nem entra no faturamento.</p>
+        {% elif p.status_comercial == 'finalizado' %}
+          <p class="ped-dica">Pedido finalizado. O processo foi encerrado.</p>
+        {% endif %}
+
+        {% if eh_pedido and ('ocorrencia' in p.acoes or 'cancelar' in p.acoes) %}
+        <div class="ped-acoes-sec">
+          {% if 'ocorrencia' in p.acoes and pode('ocorrencia_pedido') %}
+          <details class="ped-acao-form" id="ocorrencia">
+            <summary>Registrar ocorrência</summary>
+            <form method="post" action="{{ url_for('ocorrencia_pedido', id_=p.id) }}">
+              <input type="hidden" name="voltar" value="{{ request.path }}">
+              <label class="sr" for="texto-ocorrencia">Descrição da ocorrência</label>
+              <textarea id="texto-ocorrencia" name="texto" rows="3" maxlength="1000" required placeholder="O que aconteceu?"></textarea>
+              <button type="submit" class="ped-botao-sec">Registrar</button>
+            </form>
+          </details>
+          {% endif %}
+          {% if 'cancelar' in p.acoes and pode('cancelar_pedido_rota') %}
+          <details class="ped-acao-form ped-acao-form--perigo" id="cancelar">
+            <summary>Cancelar pedido</summary>
+            <form method="post" action="{{ url_for('cancelar_pedido_rota', id_=p.id) }}"
+                  onsubmit="return confirm('Cancelar o pedido #{{ p.id }}? Ele deixa de reservar estoque e não entra no faturamento.')">
+              <input type="hidden" name="voltar" value="{{ request.path }}">
+              <label class="sr" for="motivo-cancelamento">Motivo do cancelamento</label>
+              <textarea id="motivo-cancelamento" name="motivo" rows="2" maxlength="500" placeholder="Motivo (opcional)"></textarea>
+              <button type="submit" class="ped-botao-perigo">Confirmar cancelamento</button>
+            </form>
+          </details>
+          {% endif %}
+        </div>
+        {% endif %}
+      </section>
     </div>
   </div>
+
+  <p class="ped-rodape">Histórico: consulta + histórico do cliente + BI&nbsp;&nbsp;•&nbsp;&nbsp;Operação atual: Agenda + Esteira + tarefas</p>
 </main>
+<script>
+(function(){
+  var alvo = location.hash && document.getElementById(location.hash.slice(1));
+  if (alvo && alvo.tagName === 'DETAILS') { alvo.open = true; alvo.querySelector('textarea').focus(); }
+})();
+</script>
 {% endblock %}

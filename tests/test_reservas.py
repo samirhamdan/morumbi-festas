@@ -349,6 +349,8 @@ class TesteRotasPedido:
         _pedido_via_form(admin, cli["id"], itens=[
             {"descricao": "Teste", "quantidade": 1, "preco_unitario": "10.00"},
         ], data_ret="2026-11-01", data_dev="2026-11-03")
-        r = admin.get("/pedidos")
-        assert "Retirada" in r.text
-        assert "Devolução" in r.text
+        ped = dados.listar_pedidos()[0]
+        assert f"#{ped['id']}" in admin.get("/pedidos").text
+        r = admin.get(f"/pedido/{ped['id']}")
+        assert "Retirada / entrega" in r.text and "01/11/2026" in r.text
+        assert "Devolução" in r.text and "03/11/2026" in r.text

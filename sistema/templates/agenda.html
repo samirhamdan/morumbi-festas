@@ -164,7 +164,8 @@
         </thead>
         <tbody>
           {% for ev in lista %}
-          <tr>
+          {% set destacado = ev.id == (request.args.get('destaque') or 0)|int %}
+          <tr{% if destacado %} class="ag-destaque" id="pedido-{{ ev.id }}" aria-current="true"{% endif %}>
             <td><a href="{{ url_for('ver_pedido', id_=ev.id) }}">#{{ ev.id }}</a></td>
             <td>{{ ev.cliente_nome or '—' }}</td>
             <td><span class="etiqueta {{ 'verde' if ev.status_comercial == 'confirmado' else 'azul' if ev.status_comercial == 'entregue' else '' }}">{{ ev.status_comercial }}</span></td>

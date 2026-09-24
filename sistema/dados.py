@@ -2,8 +2,10 @@
 
 import json
 import os
+import re
 import sqlite3
-from datetime import date, datetime
+import unicodedata
+from datetime import date, datetime, timedelta
 
 from sistema import formato
 
@@ -40,6 +42,12 @@ ORIGENS_SOMENTE_LEITURA = ("Morumbi 3D",)
 # (o Morumbi 3D é outro negócio). Para voltar a exibir, esvazie a tupla.
 ORIGENS_OCULTAS = ("Morumbi 3D",)
 
+# Campos de texto livre do pedido criados no Sprint 2.
+CAMPOS_TEXTO_PEDIDO = (
+    "local_evento", "hora_retirada", "hora_devolucao", "responsavel",
+    "forma_pagamento", "condicao_pagamento",
+)
+
 CAMINHO_BD = os.environ.get("FESTAS_DADOS", "morumbi_festas.db")
 
 
@@ -68,10 +76,22 @@ def _em_operacao(alias: str = "p") -> str:
     return f"{campo} NOT IN ('cancelado', 'finalizado')"
 
 
+def normalizar_texto(texto) -> str:
+    """Minúsculas e sem acentos, para busca ('Thaís' encontra 'thais')."""
+    t = unicodedata.normalize("NFKD", str(texto or "").lower())
+    return "".join(c for c in t if not unicodedata.combining(c))
+
+
+def somente_digitos(texto) -> str:
+    return re.sub(r"\D", "", str(texto or ""))
+
+
 def preparar_conexao(conn):
     conn.row_factory = sqlite3.Row
     conn.create_function("situacao_historico", 3, situacao_historico,
                          deterministic=True)
+    conn.create_function("normalizar", 1, normalizar_texto, deterministic=True)
+    conn.create_function("digitos", 1, somente_digitos, deterministic=True)
     return conn
 
 
@@ -326,6 +346,11 @@ def inicializar():
             conn.execute(
                 "ALTER TABLE pedidos ADD COLUMN historico"
                 " INTEGER NOT NULL DEFAULT 0")
+        # Sprint 2: dados de logística e pagamento do pedido (opcionais)
+        for coluna in CAMPOS_TEXTO_PEDIDO:
+            if coluna not in cols_pedido:
+                conn.execute(
+                    f"ALTER TABLE pedidos ADD COLUMN {coluna} TEXT DEFAULT ''")
 
         # Migracao: eventos historicos importados do 3D
         tabelas = {r[0] for r in conn.execute(
@@ -1395,6 +1420,11 @@ def intervalo_periodo(chave: str, hoje: date,
         return _intervalo_mes(ano, mes)
     if chave == "este_ano":
         return f"{hoje.year}-01-01", f"{hoje.year}-12-31"
+    if chave == "hoje":
+        return hoje.isoformat(), hoje.isoformat()
+    if chave == "semana":
+        seg = hoje - timedelta(days=hoje.weekday())
+        return seg.isoformat(), (seg + timedelta(days=6)).isoformat()
     if chave == "personalizado":
         try:
             d_ini = date.fromisoformat(inicio or "")
@@ -1983,7 +2013,7 @@ def buscar_pedido_festas(id_: int) -> dict | None:
         return ped
 
 
-def converter_orcamento_em_pedido(orcamento_id: int) -> int:
+def converter_orcamento_em_pedido(orcamento_id: int, usuario_id=None) -> int:
     orc = buscar_orcamento(orcamento_id)
     if not orc:
         raise ValueError("Orçamento não encontrado.")
@@ -2013,6 +2043,9 @@ def converter_orcamento_em_pedido(orcamento_id: int) -> int:
             conn.execute(
                 "UPDATE leads SET status='contratado', atualizado_em=?"
                 " WHERE id=?", (agora_, orc["lead_id"]))
+        registrar_evento_pedido(
+            conn, pedido_id, "Pedido criado", "Comercial", usuario_id,
+            detalhe=f"Convertido do orçamento #{orcamento_id}.")
         return pedido_id
 
 
@@ -2023,15 +2056,69 @@ def campos_pedido_festas(form) -> dict:
         except (TypeError, ValueError):
             return None
 
-    return {
+    d = {
         "cliente_id": _int(form.get("cliente_id")),
         "data_evento": (form.get("data_evento") or "").strip() or None,
         "data_retirada": (form.get("data_retirada") or "").strip() or None,
         "data_devolucao": (form.get("data_devolucao") or "").strip() or None,
-        "status_comercial": form.get("status_comercial", "confirmado"),
-        "status_operacional": form.get("status_operacional", "preparacao"),
+        "status_comercial": form.get("status_comercial") or None,
+        "status_operacional": form.get("status_operacional") or None,
         "observacoes": (form.get("observacoes") or "").strip(),
+        "versao": (form.get("versao") or "").strip() or None,
     }
+    for campo in CAMPOS_TEXTO_PEDIDO:
+        d[campo] = (form.get(campo) or "").strip()
+    return d
+
+
+def _validar_itens(itens: list) -> list:
+    validos = []
+    for n, item in enumerate(itens):
+        descricao = (item.get("descricao") or "").strip()
+        if not descricao:
+            continue
+        campo = f"item_descricao_{n}"
+        tipo = item.get("tipo") or "produto"
+        if tipo not in TIPOS_ITEM:
+            raise ErroDeCampo(campo, f"Tipo de item inválido: {tipo}.")
+        try:
+            qtd = int(item.get("quantidade") or 1)
+            preco = float(str(item.get("preco_unitario") or 0).replace(",", "."))
+        except ValueError:
+            raise ErroDeCampo(campo, f"Quantidade ou valor inválido em '{descricao}'.")
+        if qtd < 1:
+            raise ErroDeCampo(campo, f"Quantidade de '{descricao}' deve ser ao menos 1.")
+        if preco < 0:
+            raise ErroDeCampo(campo, f"Valor de '{descricao}' não pode ser negativo.")
+        validos.append({"tipo": tipo, "item_id": item.get("item_id"),
+                        "descricao": descricao, "quantidade": qtd,
+                        "preco_unitario": round(preco, 2)})
+    return validos
+
+
+def _validar_dados_pedido(d: dict):
+    for campo in ("data_evento", "data_retirada", "data_devolucao"):
+        if d.get(campo):
+            try:
+                date.fromisoformat(d[campo])
+            except ValueError:
+                raise ErroDeCampo(campo, "Data inválida.")
+    for campo in ("hora_retirada", "hora_devolucao"):
+        if d.get(campo) and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", d[campo]):
+            raise ErroDeCampo(campo, "Horário inválido (use HH:MM).")
+    for campo in CAMPOS_TEXTO_PEDIDO:
+        if len(d.get(campo) or "") > 200:
+            raise ErroDeCampo(campo, "Texto muito longo (máximo 200 caracteres).")
+    if (d.get("data_retirada") and d.get("data_devolucao")
+            and d["data_retirada"] > d["data_devolucao"]):
+        raise ErroDeCampo("data_devolucao",
+                          "Data de devolução deve ser posterior à retirada.")
+
+
+def _assinatura_itens(itens: list) -> list:
+    return sorted(f"{i['tipo']}:{i['descricao']} x{int(i['quantidade'])}"
+                  f" @ {float(i['preco_unitario']):.2f}" for i in itens)
+
 
 
 def _verificar_disponibilidade_itens(conn, itens: list, data_retirada: str,
@@ -2073,69 +2160,138 @@ def _verificar_disponibilidade_itens(conn, itens: list, data_retirada: str,
                 f" Disponivel: {livre}, solicitado: {qtd}.")
 
 
-def salvar_pedido_festas(dados_: dict, itens: list,
-                         id_: int | None = None) -> int:
+def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
+                         usuario_id=None, pode_alterar_status: bool = True) -> int:
+    """Cria ou edita um pedido com validação no servidor e registro das mudanças.
+
+    pode_alterar_status=False (perfis não administradores) mantém os status
+    atuais; status mudam pelas ações do pedido (avançar, finalizar, cancelar).
+    """
     if not dados_.get("cliente_id"):
         raise ErroDeCampo("cliente_id", "Cliente é obrigatório.")
+    _validar_dados_pedido(dados_)
+    itens = _validar_itens(itens)
 
-    sc = dados_.get("status_comercial", "confirmado")
+    atual = None
+    with conectar() as conn:
+        if not conn.execute("SELECT 1 FROM clientes WHERE id = ?",
+                            (dados_["cliente_id"],)).fetchone():
+            raise ErroDeCampo("cliente_id", "Cliente não encontrado.")
+        if id_:
+            r = conn.execute("SELECT * FROM pedidos WHERE id = ?", (id_,)).fetchone()
+            if not r:
+                raise ValueError("Pedido não encontrado.")
+            atual = dict(r)
+            atual["itens"] = [dict(i) for i in conn.execute(
+                "SELECT * FROM itens_pedido WHERE pedido_id = ?", (id_,))]
+
+    if atual:
+        if dados_.get("versao") and dados_["versao"] != atual["atualizado_em"]:
+            raise ErroDeCampo(
+                "versao", "Este pedido foi alterado por outra pessoa enquanto você"
+                " editava. Recarregue a página para ver a versão atual.")
+        if atual["historico"] and not pode_alterar_status:
+            raise ErroDeCampo(
+                "versao", "Pedido histórico: somente um administrador pode corrigir.")
+        if atual["status_comercial"] in FORA_DA_OPERACAO and not pode_alterar_status:
+            raise ErroDeCampo(
+                "versao", f"Pedido {atual['status_comercial']} não pode ser editado.")
+        if not pode_alterar_status:
+            dados_["status_comercial"] = atual["status_comercial"]
+            dados_["status_operacional"] = atual["status_operacional"]
+
+    sc = dados_.get("status_comercial") or (atual or {}).get("status_comercial") or "confirmado"
+    so = dados_.get("status_operacional") or (atual or {}).get("status_operacional") or "preparacao"
+    if not pode_alterar_status and not atual:
+        sc, so = "confirmado", "preparacao"
     if sc not in STATUS_PEDIDO_COMERCIAL:
         raise ErroDeCampo("status_comercial", "Status comercial inválido.")
-
-    so = dados_.get("status_operacional", "preparacao")
     if so not in STATUS_PEDIDO_OPERACIONAL:
         raise ErroDeCampo("status_operacional", "Status operacional inválido.")
 
-    agora_ = formato.agora()
     data_ret = dados_.get("data_retirada")
     data_dev = dados_.get("data_devolucao")
-    if data_ret and data_dev and data_ret > data_dev:
-        raise ErroDeCampo("data_devolucao",
-                          "Data de devolução deve ser posterior à retirada.")
+    agora_ = formato.agora()
+    extras = [dados_.get(c, "") for c in CAMPOS_TEXTO_PEDIDO]
 
     with conectar() as conn:
-        if data_ret and data_dev and sc != "cancelado":
-            _verificar_disponibilidade_itens(
-                conn, itens, data_ret, data_dev, id_)
+        if data_ret and data_dev and sc not in FORA_DA_OPERACAO:
+            _verificar_disponibilidade_itens(conn, itens, data_ret, data_dev, id_)
 
-        if id_:
+        if atual:
             conn.execute(
                 "UPDATE pedidos SET cliente_id=?, data_evento=?,"
                 " data_retirada=?, data_devolucao=?,"
-                " status_comercial=?, status_operacional=?,"
-                " observacoes=?, atualizado_em=? WHERE id=?",
-                (dados_["cliente_id"], dados_.get("data_evento"),
-                 data_ret, data_dev, sc, so,
-                 dados_.get("observacoes", ""), agora_, id_))
+                " status_comercial=?, status_operacional=?, observacoes=?,"
+                + "".join(f" {c}=?," for c in CAMPOS_TEXTO_PEDIDO) +
+                " atualizado_em=? WHERE id=?",
+                (dados_["cliente_id"], dados_.get("data_evento"), data_ret,
+                 data_dev, sc, so, dados_.get("observacoes", ""),
+                 *extras, agora_, id_))
             conn.execute("DELETE FROM itens_pedido WHERE pedido_id=?", (id_,))
             novo_id = id_
         else:
             r = conn.execute(
-                "INSERT INTO pedidos (cliente_id, data_evento,"
-                " data_retirada, data_devolucao,"
-                " status_comercial, status_operacional,"
-                " observacoes, criado_em, atualizado_em)"
-                " VALUES (?,?,?,?,?,?,?,?,?)",
-                (dados_["cliente_id"], dados_.get("data_evento"),
-                 data_ret, data_dev, sc, so,
-                 dados_.get("observacoes", ""), agora_, agora_))
+                "INSERT INTO pedidos (cliente_id, data_evento, data_retirada,"
+                " data_devolucao, status_comercial, status_operacional,"
+                " observacoes, "
+                + "".join(f"{c}, " for c in CAMPOS_TEXTO_PEDIDO) +
+                "criado_em, atualizado_em) VALUES ("
+                + ",".join("?" * (9 + len(CAMPOS_TEXTO_PEDIDO))) + ")",
+                (dados_["cliente_id"], dados_.get("data_evento"), data_ret,
+                 data_dev, sc, so, dados_.get("observacoes", ""),
+                 *extras, agora_, agora_))
             novo_id = r.lastrowid
 
         for item in itens:
-            if not item.get("descricao", "").strip():
-                continue
             conn.execute(
                 "INSERT INTO itens_pedido (pedido_id, tipo, item_id,"
-                " descricao, quantidade, preco_unitario)"
-                " VALUES (?,?,?,?,?,?)",
-                (novo_id, item.get("tipo", "produto"),
-                 item.get("item_id"), item["descricao"].strip(),
-                 int(item.get("quantidade") or 1),
-                 float(item.get("preco_unitario") or 0)))
+                " descricao, quantidade, preco_unitario) VALUES (?,?,?,?,?,?)",
+                (novo_id, item["tipo"], item.get("item_id"), item["descricao"],
+                 item["quantidade"], item["preco_unitario"]))
 
-    if sc in ("entregue", "devolvido", "cancelado"):
-        atualizar_classificacao_cliente(int(dados_["cliente_id"]))
+        if atual:
+            novos = dict(dados_, status_comercial=sc, status_operacional=so,
+                         data_retirada=data_ret, data_devolucao=data_dev)
+            mudancas = {}
+            for campo in ("cliente_id", "data_evento", "data_retirada",
+                          "data_devolucao", "status_comercial",
+                          "status_operacional", "observacoes", *CAMPOS_TEXTO_PEDIDO):
+                antes, depois = atual.get(campo) or "", novos.get(campo) or ""
+                if str(antes) != str(depois):
+                    mudancas[campo] = [antes, depois]
+            if _assinatura_itens(atual["itens"]) != _assinatura_itens(itens):
+                mudancas["itens"] = [_assinatura_itens(atual["itens"]),
+                                     _assinatura_itens(itens)]
+            if mudancas:
+                status = {k for k in mudancas if k.startswith("status_")}
+                registrar_evento_pedido(
+                    conn, novo_id,
+                    "Status corrigido pelo administrador" if status else "Pedido editado",
+                    "Comercial", usuario_id,
+                    detalhe=", ".join(sorted(ROTULOS_CAMPO_PEDIDO.get(k, k)
+                                             for k in mudancas)),
+                    mudancas=mudancas)
+        else:
+            registrar_evento_pedido(conn, novo_id, "Pedido criado", "Comercial",
+                                    usuario_id)
+
+    atualizar_classificacao_cliente(int(dados_["cliente_id"]))
+    if atual and atual["cliente_id"] != dados_["cliente_id"]:
+        atualizar_classificacao_cliente(atual["cliente_id"])
     return novo_id
+
+
+ROTULOS_CAMPO_PEDIDO = {
+    "cliente_id": "cliente", "data_evento": "data do evento",
+    "data_retirada": "retirada", "data_devolucao": "devolução",
+    "status_comercial": "status comercial",
+    "status_operacional": "status operacional", "observacoes": "observações",
+    "itens": "itens e valores", "local_evento": "local",
+    "hora_retirada": "horário da retirada", "hora_devolucao": "horário da devolução",
+    "responsavel": "responsável", "forma_pagamento": "forma de pagamento",
+    "condicao_pagamento": "condição de pagamento",
+}
 
 
 FLUXO_OPERACIONAL = {
@@ -2173,47 +2329,56 @@ def listar_pedidos_operacional(status_operacional: str | None = None,
         return peds
 
 
-def avancar_status_operacional(pedido_id: int, observacao: str = "") -> str:
-    agora_ = formato.agora()
+def avancar_status_operacional(pedido_id: int, observacao: str = "",
+                               usuario_id=None) -> str:
     with conectar() as conn:
         ped = conn.execute(
-            "SELECT status_comercial, status_operacional FROM pedidos WHERE id=?",
-            (pedido_id,)).fetchone()
+            "SELECT status_comercial, status_operacional, historico FROM pedidos"
+            " WHERE id=?", (pedido_id,)).fetchone()
         if not ped:
             raise ValueError("Pedido não encontrado.")
+        if ped["historico"]:
+            raise ValueError("Pedido histórico não gera operação.")
         if ped["status_comercial"] == "cancelado":
             raise ValueError("Pedido cancelado não pode avançar.")
+        if ped["status_comercial"] == "finalizado":
+            raise ValueError("Pedido finalizado não pode avançar.")
         atual = ped["status_operacional"]
         if atual not in FLUXO_OPERACIONAL:
             raise ValueError(f"Status '{atual}' não pode avançar.")
         proximo = FLUXO_OPERACIONAL[atual]
         conn.execute(
             "UPDATE pedidos SET status_operacional=?, atualizado_em=? WHERE id=?",
-            (proximo, agora_, pedido_id))
-        if observacao:
-            conn.execute(
-                "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
-                " VALUES (NULL, 'operacao', ?, ?, ?)",
-                (f"Pedido #{pedido_id}: {atual} -> {proximo}",
-                 json.dumps({"observacao": observacao}), agora_))
+            (proximo, formato.agora(), pedido_id))
+        registrar_evento_pedido(
+            conn, pedido_id, TITULO_AVANCO.get(proximo, f"Avançou para {proximo}"),
+            "Operação", usuario_id, detalhe=observacao.strip(),
+            mudancas={"status_operacional": [atual, proximo]})
         return proximo
 
 
-def cancelar_pedido(id_: int, motivo: str = ""):
-    agora_ = formato.agora()
+def cancelar_pedido(id_: int, motivo: str = "", usuario_id=None):
     with conectar() as conn:
-        ped = conn.execute("SELECT status_comercial FROM pedidos WHERE id=?",
-                           (id_,)).fetchone()
+        ped = conn.execute(
+            "SELECT status_comercial, status_operacional, historico, cliente_id"
+            " FROM pedidos WHERE id=?", (id_,)).fetchone()
         if not ped:
-            raise ValueError("Pedido nao encontrado.")
+            raise ValueError("Pedido não encontrado.")
         if ped["status_comercial"] == "cancelado":
-            raise ValueError("Pedido ja esta cancelado.")
+            raise ValueError("Pedido já está cancelado.")
+        if ped["status_comercial"] == "finalizado" or ped["historico"]:
+            raise ValueError("Pedido finalizado não pode ser cancelado.")
         conn.execute(
             "UPDATE pedidos SET status_comercial='cancelado',"
             " status_operacional='cancelado',"
             " motivo_cancelamento=?, atualizado_em=? WHERE id=?",
-            (motivo, agora_, id_))
-
+            (motivo, formato.agora(), id_))
+        registrar_evento_pedido(
+            conn, id_, "Pedido cancelado", "Comercial", usuario_id,
+            detalhe=motivo.strip(),
+            mudancas={"status_comercial": [ped["status_comercial"], "cancelado"],
+                      "status_operacional": [ped["status_operacional"], "cancelado"]})
+    atualizar_classificacao_cliente(ped["cliente_id"])
 
 def eventos_agenda(data_inicio: str, data_fim: str,
                     tipo: str | None = None,
@@ -2805,3 +2970,329 @@ def verificar_operacao_sem_historicos(conn) -> dict:
             " AND p.status_operacional NOT IN"
             " ('recolhido','conferido','finalizado','cancelado')").fetchone()[0],
     }
+
+
+# ---------------------------------------------------------------------------
+# Módulo Pedidos (Sprint 2): lista, detalhe, transições e linha do tempo
+# ---------------------------------------------------------------------------
+
+ROTULOS_COMERCIAL = {
+    "confirmado": "Confirmado", "entregue": "Entregue", "devolvido": "Devolvido",
+    "finalizado": "Finalizado", "cancelado": "Cancelado", "pendente": "Pendente",
+}
+ROTULOS_OPERACIONAL = {
+    "preparacao": "Em preparação", "separado": "Separado", "montado": "Montado",
+    "entregue": "Entregue/Retirado", "recolhido": "Recolhido/Devolvido",
+    "conferido": "Conferido", "finalizado": "Finalizado", "cancelado": "Cancelado",
+}
+# status operacional atual -> (ação principal, explicação do momento)
+PROXIMA_ACAO = {
+    "preparacao": ("Marcar como separado", "O pedido está em preparação."),
+    "separado": ("Marcar como montado", "Os itens já foram separados."),
+    "montado": ("Registrar retirada/entrega", "O pedido está pronto para sair."),
+    "entregue": ("Registrar devolução", "O pedido está com o cliente."),
+    "recolhido": ("Conferir", "Os itens voltaram e aguardam conferência."),
+    "conferido": ("Finalizar", "Pedido conferido. Pode ser finalizado."),
+}
+TITULO_AVANCO = {
+    "separado": "Itens separados", "montado": "Pedido montado",
+    "entregue": "Retirada / entrega registrada",
+    "recolhido": "Devolução registrada", "conferido": "Itens conferidos",
+}
+TIPOS_ITEM = ("produto", "kit", "servico")
+
+ABAS_PEDIDOS = (
+    ("todos", "Todos"), ("andamento", "Em andamento"),
+    ("finalizados", "Finalizados"), ("cancelados", "Cancelados"),
+    ("historico", "Histórico"),
+)
+_CONDICAO_ABA = {
+    "todos": "1 = 1",
+    "andamento": ("tipo = 'pedido' AND historico = 0"
+                  " AND status_comercial NOT IN ('cancelado', 'finalizado')"),
+    "finalizados": "status_comercial = 'finalizado'",
+    "cancelados": "status_comercial = 'cancelado'",
+    "historico": "historico = 1",
+}
+PERIODOS_PEDIDOS = (
+    ("hoje", "Hoje"), ("semana", "Esta semana"), ("este_mes", "Este mês"),
+    ("mes_anterior", "Mês anterior"), ("este_ano", "Este ano"),
+    ("personalizado", "Período personalizado"),
+)
+_ORDEM_PEDIDOS = {
+    "evento": "COALESCE(data_evento, '')",
+    "numero": "numero",
+    "cliente": "normalizar(cliente_nome)",
+    "total": "COALESCE(total, 0)",
+}
+POR_PAGINA_PEDIDOS = (10, 20, 50)
+
+
+def _sql_base_pedidos() -> str:
+    """Pedidos do sistema + importados visíveis, com a mesma forma de linha."""
+    sit = "situacao_historico(h.origem, h.status_origem, h.data_evento)"
+    return (
+        "SELECT 'pedido' AS tipo, p.id AS id, p.id AS numero, p.cliente_id,"
+        " c.nome AS cliente_nome, c.whatsapp AS cliente_whatsapp,"
+        " c.telefone AS cliente_telefone,"
+        " p.data_evento, p.data_retirada, p.data_devolucao,"
+        " p.status_comercial, p.status_operacional, p.historico,"
+        " 'Morumbi Festas' AS origem,"
+        " (SELECT SUM(i.quantidade * i.preco_unitario) FROM itens_pedido i"
+        "  WHERE i.pedido_id = p.id) AS total,"
+        " (SELECT SUM(i.quantidade) FROM itens_pedido i"
+        "  WHERE i.pedido_id = p.id AND i.tipo != 'servico') AS itens,"
+        " (SELECT GROUP_CONCAT(i.descricao, '|') FROM itens_pedido i"
+        "  WHERE i.pedido_id = p.id AND i.tipo = 'servico') AS servicos,"
+        " (SELECT GROUP_CONCAT(i.descricao, ' ') FROM itens_pedido i"
+        "  WHERE i.pedido_id = p.id) AS texto_itens,"
+        " COALESCE(p.observacoes, '') AS observacoes, p.criado_em"
+        " FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id"
+        " UNION ALL"
+        " SELECT 'historico', h.id, COALESCE(h.origem_id, h.id), h.cliente_id,"
+        " c.nome, c.whatsapp, c.telefone,"
+        " h.data_evento, NULL, NULL,"
+        f" {sit},"
+        f" CASE {sit} WHEN 'finalizado' THEN 'finalizado'"
+        "  WHEN 'cancelado' THEN 'cancelado' END,"
+        " 1, COALESCE(h.origem, 'Histórico importado'),"
+        " NULLIF(h.valor, 0), NULL, NULL, h.descricao,"
+        " COALESCE(h.observacoes, ''), h.criado_em"
+        " FROM eventos_historico h LEFT JOIN clientes c ON c.id = h.cliente_id"
+        f" WHERE {_origem_visivel()}")
+
+
+def consultar_pedidos(q: str = "", status_comercial: str = "",
+                      status_operacional: str = "", inicio: str | None = None,
+                      fim: str | None = None, origem: str = "",
+                      aba: str = "todos", pagina: int = 1,
+                      por_pagina: int = 10, ordem: str = "evento",
+                      direcao: str = "desc") -> dict:
+    """Lista paginada no banco; contagens por aba respeitam os filtros."""
+    conds: list[str] = []
+    params: list = []
+    termo = (q or "").strip()
+    if termo:
+        partes = ["normalizar(cliente_nome) LIKE ?",
+                  "normalizar(texto_itens) LIKE ?",
+                  "normalizar(observacoes) LIKE ?"]
+        like = f"%{normalizar_texto(termo)}%"
+        params += [like, like, like]
+        numero = termo.lstrip("#")
+        if numero.isdigit():
+            partes.append("numero = ?")
+            params.append(int(numero))
+        if len(somente_digitos(termo)) >= 4:
+            partes.append("digitos(COALESCE(cliente_whatsapp, '') || ' '"
+                          " || COALESCE(cliente_telefone, '')) LIKE ?")
+            params.append(f"%{somente_digitos(termo)}%")
+        conds.append("(" + " OR ".join(partes) + ")")
+    if status_comercial in set(STATUS_PEDIDO_COMERCIAL) | {"pendente"}:
+        conds.append("status_comercial = ?")
+        params.append(status_comercial)
+    if status_operacional in STATUS_PEDIDO_OPERACIONAL:
+        conds.append("status_operacional = ?")
+        params.append(status_operacional)
+    if inicio and fim:
+        conds.append("data_evento BETWEEN ? AND ?")
+        params += [inicio, fim]
+    if origem:
+        conds.append("origem = ?")
+        params.append(origem)
+    onde = " AND ".join(conds) or "1 = 1"
+    aba = aba if aba in _CONDICAO_ABA else "todos"
+    por_pagina = por_pagina if por_pagina in POR_PAGINA_PEDIDOS else 10
+    expr = _ORDEM_PEDIDOS.get(ordem, _ORDEM_PEDIDOS["evento"])
+    sentido = "ASC" if direcao == "asc" else "DESC"
+
+    base = f"SELECT * FROM ({_sql_base_pedidos()}) WHERE {onde}"
+    somas = ", ".join(f"SUM(CASE WHEN {c} THEN 1 ELSE 0 END)"
+                      for c in _CONDICAO_ABA.values())
+    with conectar() as conn:
+        linha = conn.execute(f"SELECT {somas} FROM ({base})", params).fetchone()
+        contagens = {chave: (linha[i] or 0)
+                     for i, chave in enumerate(_CONDICAO_ABA)}
+        total = contagens[aba]
+        paginas = max(1, -(-total // por_pagina))
+        pagina = min(max(1, pagina), paginas)
+        rows = conn.execute(
+            f"{base} AND {_CONDICAO_ABA[aba]}"
+            f" ORDER BY {expr} {sentido}, numero DESC LIMIT ? OFFSET ?",
+            params + [por_pagina, (pagina - 1) * por_pagina]).fetchall()
+
+    registros = []
+    for r in rows:
+        d = dict(r)
+        d["servicos"] = [s for s in (d["servicos"] or "").split("|") if s]
+        d["acoes"] = acoes_permitidas(d)
+        registros.append(d)
+    return {"registros": registros, "contagens": contagens, "total": total,
+            "pagina": pagina, "paginas": paginas, "por_pagina": por_pagina,
+            "aba": aba, "inicio_item": (pagina - 1) * por_pagina + 1 if total else 0,
+            "fim_item": min(pagina * por_pagina, total)}
+
+
+def acoes_permitidas(p: dict) -> set:
+    """Ações de negócio válidas para o estado do pedido (perfil à parte)."""
+    if p.get("tipo") == "historico":
+        return set()
+    acoes = {"ver"}
+    if p.get("historico"):
+        return acoes | {"corrigir"}
+    sc, so = p.get("status_comercial"), p.get("status_operacional")
+    if sc in FORA_DA_OPERACAO:
+        return acoes
+    acoes |= {"editar", "cancelar", "ocorrencia"}
+    if so in FLUXO_OPERACIONAL:
+        acoes.add("avancar")
+    if so == "conferido":
+        acoes.add("finalizar")
+    return acoes
+
+
+def buscar_pedido_detalhe(id_: int) -> dict | None:
+    ped = buscar_pedido_festas(id_)
+    if not ped:
+        return None
+    with conectar() as conn:
+        c = conn.execute(
+            "SELECT id, nome, whatsapp, telefone, total_festas, classificacao"
+            " FROM clientes WHERE id = ?", (ped["cliente_id"],)).fetchone()
+    ped["cliente"] = dict(c) if c else None
+    ped["origem"] = "Morumbi Festas"
+    ped["tipo"] = "pedido"
+    ped["produtos"] = [i for i in ped["itens"] if i["tipo"] != "servico"]
+    ped["servicos"] = [i["descricao"] for i in ped["itens"] if i["tipo"] == "servico"]
+    ped["qtd_itens"] = sum(i["quantidade"] for i in ped["produtos"])
+    ped["acoes"] = acoes_permitidas(ped)
+    ped["proxima_acao"] = (PROXIMA_ACAO.get(ped["status_operacional"])
+                           if "avancar" in ped["acoes"] or "finalizar" in ped["acoes"]
+                           else None)
+    ped["linha_do_tempo"] = linha_do_tempo_pedido(ped)
+    return ped
+
+
+def buscar_historico_detalhe(id_: int) -> dict | None:
+    """Registro importado em modo consulta (sem itens nem ações operacionais)."""
+    with conectar() as conn:
+        h = conn.execute(
+            "SELECT h.*, situacao_historico(h.origem, h.status_origem, h.data_evento)"
+            " AS situacao FROM eventos_historico h"
+            f" WHERE h.id = ? AND {_origem_visivel()}", (id_,)).fetchone()
+        if not h:
+            return None
+        h = dict(h)
+        c = conn.execute(
+            "SELECT id, nome, whatsapp, telefone, total_festas, classificacao"
+            " FROM clientes WHERE id = ?", (h["cliente_id"],)).fetchone()
+    h["cliente"] = dict(c) if c else None
+    h["tipo"] = "historico"
+    h["historico"] = 1
+    h["numero"] = h["origem_id"] or h["id"]
+    h["status_comercial"] = h["situacao"]
+    h["status_operacional"] = "finalizado" if h["situacao"] == "finalizado" else None
+    h["valor"] = h["valor"] or None
+    h["acoes"] = set()
+    h["linha_do_tempo"] = [{
+        "quando": h["criado_em"], "titulo": "Registro importado",
+        "categoria": "Comercial",
+        "detalhe": f"Origem: {h['origem']} #{h['origem_id']}"
+                   f" · status na origem: {h['status_origem'] or '—'}"}]
+    if h["data_evento"]:
+        h["linha_do_tempo"].append({
+            "quando": h["data_evento"], "titulo": "Festa", "categoria": "Agenda",
+            "detalhe": h["descricao"] or ""})
+    h["linha_do_tempo"].sort(key=lambda e: e["quando"] or "")
+    return h
+
+
+def registrar_evento_pedido(conn, pedido_id: int, titulo: str, categoria: str,
+                            usuario_id=None, detalhe: str = "",
+                            mudancas: dict | None = None):
+    conn.execute(
+        "INSERT INTO audit_log (usuario_id, tipo, descricao, dados, criado_em)"
+        " VALUES (?, 'pedido_evento', ?, ?, ?)",
+        (usuario_id, f"Pedido #{pedido_id}: {titulo}",
+         json.dumps({"pedido_id": pedido_id, "titulo": titulo,
+                     "categoria": categoria, "detalhe": detalhe,
+                     "mudancas": mudancas or {}}, ensure_ascii=False),
+         formato.agora()))
+
+
+_RE_PEDIDO_LEGADO = re.compile(r"[Pp]edido #(\d+)\b")
+
+
+def linha_do_tempo_pedido(ped: dict) -> list:
+    """Somente fatos registrados: auditoria do pedido e datas da própria agenda."""
+    pid = ped["id"]
+    eventos = []
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT a.criado_em, a.tipo, a.descricao, a.dados, u.nome AS usuario"
+            " FROM audit_log a LEFT JOIN usuarios u ON u.id = a.usuario_id"
+            " WHERE (a.tipo = 'pedido_evento' AND a.descricao LIKE ?)"
+            "    OR (a.tipo IN ('pedido', 'operacao') AND a.descricao LIKE ?)"
+            " ORDER BY a.criado_em, a.id",
+            (f"Pedido #{pid}: %", f"%edido #{pid}%")).fetchall()
+    for r in rows:
+        if r["tipo"] == "pedido_evento":
+            d = json.loads(r["dados"])
+            if d.get("pedido_id") != pid:
+                continue
+            eventos.append({"quando": r["criado_em"], "titulo": d["titulo"],
+                            "categoria": d["categoria"], "detalhe": d.get("detalhe", ""),
+                            "usuario": r["usuario"]})
+            continue
+        m = _RE_PEDIDO_LEGADO.search(r["descricao"] or "")
+        if not m or int(m.group(1)) != pid:
+            continue
+        eventos.append({"quando": r["criado_em"], "titulo": r["descricao"],
+                        "categoria": "Operação" if r["tipo"] == "operacao" else "Comercial",
+                        "detalhe": "", "usuario": r["usuario"]})
+    if not any(e["titulo"].startswith("Pedido criado") for e in eventos):
+        eventos.insert(0, {"quando": ped["criado_em"], "titulo": "Pedido criado",
+                           "categoria": "Comercial", "detalhe": "", "usuario": None})
+    hoje = _hoje_iso()
+    for campo, hora, titulo in (("data_retirada", "hora_retirada", "Retirada / entrega"),
+                                ("data_evento", None, "Festa"),
+                                ("data_devolucao", "hora_devolucao", "Devolução")):
+        data = ped.get(campo)
+        if not data:
+            continue
+        quando = f"{data}T{ped.get(hora) or '00:00'}:00" if hora else f"{data}T00:00:00"
+        eventos.append({"quando": quando, "titulo": titulo, "categoria": "Agenda",
+                        "detalhe": "Previsto." if data >= hoje else "Data agendada.",
+                        "usuario": None, "sem_hora": not (hora and ped.get(hora))})
+    eventos.sort(key=lambda e: e["quando"] or "")
+    return eventos
+
+
+def finalizar_pedido(id_: int, usuario_id=None):
+    with conectar() as conn:
+        p = conn.execute("SELECT * FROM pedidos WHERE id = ?", (id_,)).fetchone()
+        if not p:
+            raise ValueError("Pedido não encontrado.")
+        if "finalizar" not in acoes_permitidas(dict(p, tipo="pedido")):
+            raise ValueError("Só é possível finalizar um pedido conferido.")
+        conn.execute(
+            "UPDATE pedidos SET status_comercial = 'finalizado',"
+            " status_operacional = 'finalizado', atualizado_em = ? WHERE id = ?",
+            (formato.agora(), id_))
+        registrar_evento_pedido(
+            conn, id_, "Pedido finalizado", "Comercial", usuario_id,
+            mudancas={"status_comercial": [p["status_comercial"], "finalizado"],
+                      "status_operacional": [p["status_operacional"], "finalizado"]})
+    atualizar_classificacao_cliente(p["cliente_id"])
+
+
+def registrar_ocorrencia(id_: int, texto: str, usuario_id=None):
+    texto = (texto or "").strip()
+    if not texto:
+        raise ValueError("Descreva a ocorrência.")
+    if len(texto) > 1000:
+        raise ValueError("A ocorrência deve ter no máximo 1000 caracteres.")
+    with conectar() as conn:
+        if not conn.execute("SELECT 1 FROM pedidos WHERE id = ?", (id_,)).fetchone():
+            raise ValueError("Pedido não encontrado.")
+        registrar_evento_pedido(conn, id_, "Ocorrência registrada", "Ocorrência",
+                                usuario_id, detalhe=texto)

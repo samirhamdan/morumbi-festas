@@ -2,6 +2,7 @@
 
 import io
 import os
+import re
 
 from flask import (Flask, Response, abort, flash, redirect, render_template,
                    request, session, url_for)
@@ -1014,7 +1015,8 @@ def criar_app() -> Flask:
     @auth.exige_perfil("admin", "comercial")
     def converter_orcamento(id_):
         try:
-            pedido_id = dados.converter_orcamento_em_pedido(id_)
+            pedido_id = dados.converter_orcamento_em_pedido(
+                id_, session.get("usuario_id"))
             dados.registrar_acao(
                 session.get("usuario_id"), "pedido",
                 f"Converteu orçamento #{id_} em pedido #{pedido_id}")
@@ -1031,66 +1033,79 @@ def criar_app() -> Flask:
     @app.route("/pedidos")
     @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
     def lista_pedidos():
-        busca = request.args.get("q", "")
-        st_com = request.args.get("status_comercial", "")
-        st_op = request.args.get("status_operacional", "")
-        origem = request.args.get("origem", "")
-        dt_ini = request.args.get("data_inicio", "")
-        dt_fim = request.args.get("data_fim", "")
+        from datetime import date
+        hoje = date.fromisoformat(formato.agora()[:10])
+        a = request.args
+        filtros = {
+            "q": a.get("q", "").strip(),
+            "status_comercial": a.get("status_comercial", ""),
+            "status_operacional": a.get("status_operacional", ""),
+            "origem": a.get("origem", ""),
+            "periodo": a.get("periodo", ""),
+            "inicio": a.get("inicio", ""),
+            "fim": a.get("fim", ""),
+        }
+        erro_periodo = None
+        inicio = fim = None
+        if filtros["periodo"] in dict(dados.PERIODOS_PEDIDOS):
+            try:
+                inicio, fim = dados.intervalo_periodo(
+                    filtros["periodo"], hoje, filtros["inicio"], filtros["fim"])
+            except ValueError as e:
+                erro_periodo = str(e)
+        else:
+            filtros["periodo"] = ""
+        res = dados.consultar_pedidos(
+            q=filtros["q"], status_comercial=filtros["status_comercial"],
+            status_operacional=filtros["status_operacional"],
+            inicio=inicio, fim=fim, origem=filtros["origem"],
+            aba=a.get("aba", "todos"), pagina=a.get("pagina", 1, type=int),
+            por_pagina=a.get("por_pagina", 10, type=int),
+            ordem=a.get("ordem", "evento"), direcao=a.get("dir", "desc"))
+        def url_lista(**mudancas):
+            args = {k: v for k, v in a.items() if k != "parcial"}
+            args.update(mudancas)
+            return url_for("lista_pedidos",
+                           **{k: v for k, v in args.items() if v not in (None, "")})
 
-        registros = dados.listar_pedidos_unificados()
-
-        if st_com:
-            registros = [r for r in registros if r["status_comercial"] == st_com]
-        if st_op:
-            registros = [r for r in registros if r["status_operacional"] == st_op]
-        if origem:
-            registros = [r for r in registros if r["origem"] == origem]
-        if dt_ini:
-            registros = [r for r in registros if (r.get("data_evento") or "") >= dt_ini]
-        if dt_fim:
-            registros = [r for r in registros if (r.get("data_evento") or "") <= dt_fim]
-        if busca:
-            registros = listas.filtrar(registros, busca, listas.BUSCA_UNIFICADOS)
-
-        ordem = request.args.get("ordem", "")
-        invertido = request.args.get("dir") == "desc"
-        registros = listas.ordenar(registros, ordem, listas.ORDENS_PEDIDOS, invertido)
-
-        por_pagina = int(request.args.get("por_pagina", "25"))
-        pagina = max(1, int(request.args.get("pagina", "1")))
-        total = len(registros)
-        total_paginas = max(1, (total + por_pagina - 1) // por_pagina)
-        pagina = min(pagina, total_paginas)
-        fatia = registros[(pagina - 1) * por_pagina : pagina * por_pagina]
-
-        indicadores = dados.indicadores_pedidos()
-        origens = dados.origens_pedidos_unificados()
-        st_com_opcoes = list(dados.STATUS_PEDIDO_COMERCIAL)
-        st_op_opcoes = list(dados.STATUS_PEDIDO_OPERACIONAL)
-
-        return render_template("pedidos.html",
-                               registros=fatia, busca=busca,
-                               status_comercial=st_com,
-                               status_operacional=st_op,
-                               origem_filtro=origem,
-                               data_inicio=dt_ini, data_fim=dt_fim,
-                               ordem=ordem, invertido=invertido,
-                               indicadores=indicadores,
-                               origens=origens,
-                               STATUS_COMERCIAL=st_com_opcoes,
-                               STATUS_OPERACIONAL=st_op_opcoes,
-                               pagina=pagina, por_pagina=por_pagina,
-                               total=total, total_paginas=total_paginas,
-                               DATA_CORTE=dados.DATA_CORTE_FINALIZADOS)
+        contexto = dict(
+            res=res, filtros=filtros, erro_periodo=erro_periodo, url_lista=url_lista,
+            ordem=a.get("ordem", "evento"), direcao=a.get("dir", "desc"),
+            abas=dados.ABAS_PEDIDOS, periodos=dados.PERIODOS_PEDIDOS,
+            origens=dados.origens_pedidos_unificados(),
+            status_comercial_opcoes=dados.STATUS_PEDIDO_COMERCIAL,
+            status_operacional_opcoes=dados.STATUS_PEDIDO_OPERACIONAL,
+            rot_com=dados.ROTULOS_COMERCIAL, rot_op=dados.ROTULOS_OPERACIONAL,
+            por_pagina_opcoes=dados.POR_PAGINA_PEDIDOS)
+        if a.get("parcial") == "1":
+            return render_template("_pedidos_resultado.html", **contexto)
+        return render_template("pedidos.html", **contexto)
 
     @app.route("/pedido/<int:id_>")
     @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
     def ver_pedido(id_):
-        ped = dados.buscar_pedido_festas(id_)
+        ped = dados.buscar_pedido_detalhe(id_)
         if not ped:
             abort(404)
-        return render_template("pedido_festas.html", pedido=ped)
+        return render_template("pedido_festas.html", pedido=ped,
+                               rot_com=dados.ROTULOS_COMERCIAL,
+                               rot_op=dados.ROTULOS_OPERACIONAL)
+
+    @app.route("/pedido/historico/<int:id_>")
+    @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
+    def ver_pedido_historico(id_):
+        ped = dados.buscar_historico_detalhe(id_)
+        if not ped:
+            abort(404)
+        return render_template("pedido_festas.html", pedido=ped,
+                               rot_com=dados.ROTULOS_COMERCIAL,
+                               rot_op=dados.ROTULOS_OPERACIONAL)
+
+    def _voltar_pedido(id_):
+        voltar = request.form.get("voltar") or ""
+        if voltar.startswith("/pedido") and not voltar.startswith("//"):
+            return redirect(voltar)
+        return redirect(url_for("ver_pedido", id_=id_))
 
     @app.route("/pedido/novo", methods=["GET", "POST"])
     @app.route("/pedido/<int:id_>/editar", methods=["GET", "POST"])
@@ -1099,28 +1114,25 @@ def criar_app() -> Flask:
         atual = dados.buscar_pedido_festas(id_) if id_ else {}
         if id_ and not atual:
             abort(404)
+        pode_alterar_status = session.get("perfil") == "admin"
 
         if request.method == "POST":
             try:
                 d = dados.campos_pedido_festas(request.form)
+                indices = sorted(int(k.rsplit("_", 1)[1]) for k in request.form
+                                 if re.fullmatch(r"item_descricao_\d+", k))
                 itens = []
-                i = 0
-                while True:
-                    desc = request.form.get(f"item_descricao_{i}")
-                    if desc is None:
-                        break
+                for i in indices:
                     itens.append({
                         "tipo": request.form.get(f"item_tipo_{i}", "produto"),
                         "item_id": int(request.form.get(f"item_item_id_{i}") or 0) or None,
-                        "descricao": desc,
+                        "descricao": request.form.get(f"item_descricao_{i}"),
                         "quantidade": request.form.get(f"item_quantidade_{i}", "1"),
                         "preco_unitario": request.form.get(f"item_preco_{i}", "0"),
                     })
-                    i += 1
-                novo_id = dados.salvar_pedido_festas(d, itens, id_)
-                dados.registrar_acao(
-                    session.get("usuario_id"), "pedido",
-                    f"{'Editou' if id_ else 'Criou'} pedido #{novo_id}")
+                novo_id = dados.salvar_pedido_festas(
+                    d, itens, id_, usuario_id=session.get("usuario_id"),
+                    pode_alterar_status=pode_alterar_status)
                 flash("Pedido salvo.", "ok")
                 return redirect(url_for("ver_pedido", id_=novo_id))
             except (dados.ErroDeCampo, ValueError) as e:
@@ -1130,22 +1142,43 @@ def criar_app() -> Flask:
 
         return render_template("pedido.html", atual=atual,
                                clientes=dados.listar_clientes(),
+                               pode_alterar_status=pode_alterar_status,
                                status_comercial=dados.STATUS_PEDIDO_COMERCIAL,
-                               status_operacional=dados.STATUS_PEDIDO_OPERACIONAL)
+                               status_operacional=dados.STATUS_PEDIDO_OPERACIONAL,
+                               rot_com=dados.ROTULOS_COMERCIAL,
+                               rot_op=dados.ROTULOS_OPERACIONAL)
 
     @app.route("/pedido/<int:id_>/cancelar", methods=["POST"])
     @auth.exige_perfil("admin", "comercial")
     def cancelar_pedido_rota(id_):
         motivo = (request.form.get("motivo") or "").strip()
         try:
-            dados.cancelar_pedido(id_, motivo)
-            dados.registrar_acao(
-                session.get("usuario_id"), "pedido",
-                f"Cancelou pedido #{id_}")
+            dados.cancelar_pedido(id_, motivo, session.get("usuario_id"))
             flash("Pedido cancelado.", "ok")
         except ValueError as e:
             flash(str(e), "erro")
-        return redirect(url_for("ver_pedido", id_=id_))
+        return _voltar_pedido(id_)
+
+    @app.route("/pedido/<int:id_>/finalizar", methods=["POST"])
+    @auth.exige_perfil("admin", "operacional", "gestor")
+    def finalizar_pedido_rota(id_):
+        try:
+            dados.finalizar_pedido(id_, session.get("usuario_id"))
+            flash("Pedido finalizado.", "ok")
+        except ValueError as e:
+            flash(str(e), "erro")
+        return _voltar_pedido(id_)
+
+    @app.route("/pedido/<int:id_>/ocorrencia", methods=["POST"])
+    @auth.exige_perfil("admin", "comercial", "operacional", "gestor")
+    def ocorrencia_pedido(id_):
+        try:
+            dados.registrar_ocorrencia(id_, request.form.get("texto"),
+                                       session.get("usuario_id"))
+            flash("Ocorrência registrada.", "ok")
+        except ValueError as e:
+            flash(str(e), "erro")
+        return _voltar_pedido(id_)
 
     @app.route("/faturamento")
     @auth.exige_perfil("admin", "comercial", "gestor")
@@ -1242,13 +1275,13 @@ def criar_app() -> Flask:
     def avancar_pedido(id_):
         obs = (request.form.get("observacao") or "").strip()
         try:
-            novo = dados.avancar_status_operacional(id_, obs)
-            dados.registrar_acao(
-                session.get("usuario_id"), "operacao",
-                f"Pedido #{id_} avançou para {novo}")
-            flash(f"Pedido avançou para {novo}.", "ok")
+            novo = dados.avancar_status_operacional(id_, obs, session.get("usuario_id"))
+            flash(f"Pedido avançou para {dados.ROTULOS_OPERACIONAL.get(novo, novo).lower()}.", "ok")
         except ValueError as e:
             flash(str(e), "erro")
+        voltar = request.form.get("voltar") or ""
+        if voltar.startswith("/pedido") and not voltar.startswith("//"):
+            return redirect(voltar)
         return redirect(url_for("ver_pedido_operacional", id_=id_))
 
     # ------------------------------------------------------------------

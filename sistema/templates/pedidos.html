@@ -5,209 +5,174 @@
 
 {% include "_topo.html" %}
 
-<main id="conteudo" class="pagina">
-  <div class="cabecalho-lista">
-    <h2 class="secao">Pedidos</h2>
-    <p class="secao-sub">Pedidos atuais e histórico em uma única fila</p>
-    <a class="botao primario" href="{{ url_for('editar_pedido') }}">+ Novo pedido</a>
-  </div>
-
+<main id="conteudo" class="pagina ped">
   {% include "_erro.html" %}
 
-  {# === INDICADORES === #}
-  <div class="ped-cards">
-    <a href="{{ url_for('lista_pedidos', status_comercial='confirmado') }}" class="ped-card ped-card--roxo">
-      <span class="ped-card-icone">📋</span>
-      <div class="ped-card-info">
-        <span class="ped-card-valor">{{ indicadores.abertos }}</span>
-        <span class="ped-card-rotulo">Abertos</span>
-        <span class="ped-card-sub">Orçamentos e pedidos em andamento</span>
-      </div>
-      <span class="ped-card-seta">›</span>
-    </a>
-    <a href="{{ url_for('agenda') }}" class="ped-card ped-card--ciano">
-      <span class="ped-card-icone">📅</span>
-      <div class="ped-card-info">
-        <span class="ped-card-valor">{{ indicadores.proximos }}</span>
-        <span class="ped-card-rotulo">Próximos eventos</span>
-        <span class="ped-card-sub">Nos próximos 30 dias</span>
-      </div>
-      <span class="ped-card-seta">›</span>
-    </a>
-    <a href="{{ url_for('faturamento') }}" class="ped-card ped-card--dourado">
-      <span class="ped-card-icone">💰</span>
-      <div class="ped-card-info">
-        <span class="ped-card-valor">{{ indicadores.faturamento_total|dinheiro }}</span>
-        <span class="ped-card-rotulo">Finalizados no mês</span>
-        <span class="ped-card-sub">{{ indicadores.faturamento_qtd }} pedidos concluídos</span>
-      </div>
-      <span class="ped-card-seta">›</span>
-    </a>
-    <div class="ped-card ped-card--cinza">
-      <span class="ped-card-icone">📚</span>
-      <div class="ped-card-info">
-        <span class="ped-card-valor">{{ indicadores.historico }}</span>
-        <span class="ped-card-rotulo">Histórico</span>
-        <span class="ped-card-sub">Eventos passados (consulta)</span>
-      </div>
-      <span class="ped-card-seta">›</span>
+  <div class="ped-cab">
+    <div>
+      <h1 class="ped-titulo">Pedidos</h1>
+      <p class="ped-sub">Gerencie todos os pedidos da Morumbi Festas.</p>
     </div>
-  </div>
-
-  {# === FILTROS HORIZONTAIS === #}
-  <form class="ped-filtros cartao" method="get">
-    <div class="ped-filtros-linha">
-      <label class="ped-filtros-busca">
-        <span class="sr">Buscar</span>
-        <input type="search" name="q" value="{{ busca }}" placeholder="🔍 Buscar cliente, pedido ou item..."
-               autocomplete="off" enterkeyhint="search">
-      </label>
-      <div class="ped-filtros-selects">
-        <label class="ped-filtro-grupo">
-          <span class="ped-filtro-label">Status comercial</span>
-          <select name="status_comercial" onchange="this.form.submit()">
-            <option value="">Todos</option>
-            {% for s in STATUS_COMERCIAL %}
-            <option value="{{ s }}" {{ 'selected' if status_comercial == s }}>{{ s|capitalize }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="ped-filtro-grupo">
-          <span class="ped-filtro-label">Status operacional</span>
-          <select name="status_operacional" onchange="this.form.submit()">
-            <option value="">Todos</option>
-            {% for s in STATUS_OPERACIONAL %}
-            <option value="{{ s }}" {{ 'selected' if status_operacional == s }}>{{ s|capitalize }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="ped-filtro-grupo">
-          <span class="ped-filtro-label">Período</span>
-          <span class="ped-filtro-datas">
-            <input type="date" name="data_inicio" value="{{ data_inicio }}" onchange="this.form.submit()" title="Data início">
-            <input type="date" name="data_fim" value="{{ data_fim }}" onchange="this.form.submit()" title="Data fim">
-          </span>
-        </label>
-        <label class="ped-filtro-grupo">
-          <span class="ped-filtro-label">Origem</span>
-          <select name="origem" onchange="this.form.submit()">
-            <option value="">Todas</option>
-            {% for o in origens %}
-            <option value="{{ o }}" {{ 'selected' if origem_filtro == o }}>{{ o }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
-      {% if busca or status_comercial or status_operacional or origem_filtro or data_inicio or data_fim %}
-      <a href="{{ url_for('lista_pedidos') }}" class="botao mini vazado">↻ Limpar filtros</a>
-      {% endif %}
-    </div>
-  </form>
-
-  {# === TITULO DA TABELA === #}
-  <div class="ped-tabela-cab">
-    <h3 class="ped-tabela-titulo">Todos os pedidos ({{ total }})</h3>
-    {% if registros %}
-    <button class="botao mini vazado" type="button" onclick="window.print()">📥 Exportar</button>
+    {% if pode('editar_pedido') %}
+    <a class="ped-botao" href="{{ url_for('editar_pedido') }}">+&nbsp;&nbsp;Novo pedido</a>
     {% endif %}
   </div>
 
-  {# === BANNER INFORMATIVO === #}
-  <div class="ped-info-banner">
-    ℹ Registros anteriores a {{ DATA_CORTE }} são exibidos como histórico finalizado; não geram tarefas nem bloqueiam estoque.
-  </div>
-
-  {# === TABELA UNIFICADA === #}
-  {% if registros %}
-  <div class="cartao cartao-tabela"><div class="rolagem">
-    <table class="tabela">
-      <thead><tr>
-        <th>Pedido</th>
-        <th>Cliente</th>
-        <th>Evento</th>
-        <th>Itens</th>
-        <th class="num">Total</th>
-        <th>Origem</th>
-        <th>Comercial</th>
-        <th>Operacional</th>
-        <th>Retirada / Devolução</th>
-        <th></th>
-      </tr></thead>
-      <tbody>
-        {% for r in registros %}
-        <tr class="{{ 'tr-cancelado' if r.status_comercial == 'cancelado' }} {{ 'tr-finalizado' if r.status_comercial == 'finalizado' }}">
-          <td data-rotulo="Pedido">
-            {% if r.tipo == 'pedido' %}
-            <a href="{{ url_for('ver_pedido', id_=r.id) }}" class="link-pedido">#{{ r.numero }}</a>
-            {% else %}
-            <span class="link-pedido num-hist">#{{ r.numero }}</span>
-            {% endif %}
-          </td>
-          <td data-rotulo="Cliente" class="chave">
-            {% if r.cliente_id %}
-            <a href="{{ url_for('editar_cliente', id_=r.cliente_id) }}">{{ r.cliente_nome or '—' }}</a>
-            {% else %}{{ r.cliente_nome or '—' }}{% endif %}
-          </td>
-          <td data-rotulo="Evento">{{ r.data_evento|data if r.data_evento else '—' }}</td>
-          <td data-rotulo="Itens">{{ r.itens_count }} {{ 'item' if r.itens_count == 1 else 'itens' }}</td>
-          <td data-rotulo="Total" class="decide num">{{ r.total|dinheiro if r.total else '—' }}</td>
-          <td data-rotulo="Origem">
-            <span class="etiqueta {{ 'roxo' if r.origem == 'Morumbi Festas' else 'cinza' }}">{{ r.origem }}</span>
-          </td>
-          <td data-rotulo="Comercial" class="estado">
-            <span class="etiqueta {{ 'verde' if r.status_comercial == 'confirmado' else 'azul' if r.status_comercial == 'entregue' else 'roxo' if r.status_comercial == 'devolvido' else 'vermelho' if r.status_comercial == 'cancelado' else 'cinza' if r.status_comercial == 'finalizado' else '' }}">{{ r.status_comercial }}</span>
-          </td>
-          <td data-rotulo="Operacional">
-            <span class="etiqueta cinza">{{ r.status_operacional }}</span>
-          </td>
-          <td data-rotulo="Retirada / devolução">
-            {% if r.data_retirada or r.data_devolucao %}
-            {{ r.data_retirada|data if r.data_retirada else '—' }} &ndash; {{ r.data_devolucao|data if r.data_devolucao else '—' }}
-            {% else %}&mdash;{% endif %}
-          </td>
-          <td class="acao">
-            {% if r.tipo == 'pedido' %}
-            <a href="{{ url_for('ver_pedido', id_=r.id) }}" class="botao mini vazado" title="Ver pedido">⋯</a>
-            {% endif %}
-          </td>
-        </tr>
+  <form class="ped-filtragem" id="ped-filtragem" method="get" action="{{ url_for('lista_pedidos') }}" role="search" aria-label="Filtrar pedidos">
+    <label class="ped-filtro ped-filtro--busca">
+      <span>Busca</span>
+      <input type="search" name="q" value="{{ filtros.q }}" placeholder="Buscar cliente, pedido ou item..." autocomplete="off">
+    </label>
+    <label class="ped-filtro ped-filtro--comercial">
+      <span>Status comercial</span>
+      <select name="status_comercial">
+        <option value="">Todos</option>
+        {% for s in status_comercial_opcoes %}
+        <option value="{{ s }}" {{ 'selected' if filtros.status_comercial == s }}>{{ rot_com.get(s, s) }}</option>
         {% endfor %}
-      </tbody>
-    </table>
-  </div></div>
-
-  {# === PAGINACAO === #}
-  <div class="ped-paginacao">
-    <span class="ped-pag-info">Exibir
-      <select class="ped-pag-por" onchange="location.href='{{ url_for('lista_pedidos', q=busca, status_comercial=status_comercial, status_operacional=status_operacional, origem=origem_filtro, data_inicio=data_inicio, data_fim=data_fim) }}&por_pagina=' + this.value">
-        {% for n in [10, 25, 50, 100] %}
-        <option value="{{ n }}" {{ 'selected' if por_pagina == n }}>{{ n }}</option>
+        <option value="pendente" {{ 'selected' if filtros.status_comercial == 'pendente' }}>Pendente (importado)</option>
+      </select>
+    </label>
+    <label class="ped-filtro ped-filtro--operacional">
+      <span>Status operacional</span>
+      <select name="status_operacional">
+        <option value="">Todos</option>
+        {% for s in status_operacional_opcoes %}
+        <option value="{{ s }}" {{ 'selected' if filtros.status_operacional == s }}>{{ rot_op.get(s, s) }}</option>
         {% endfor %}
       </select>
-      de {{ total }} resultados
-    </span>
-    <div class="ped-pag-controles">
-      {% if pagina > 1 %}
-      <a href="{{ url_for('lista_pedidos', q=busca, status_comercial=status_comercial, status_operacional=status_operacional, origem=origem_filtro, data_inicio=data_inicio, data_fim=data_fim, pagina=pagina-1, por_pagina=por_pagina) }}" class="botao mini vazado">&lsaquo;</a>
-      {% endif %}
-      <span class="ped-pag-num">{{ pagina }}</span>
-      {% if pagina < total_paginas %}
-      <a href="{{ url_for('lista_pedidos', q=busca, status_comercial=status_comercial, status_operacional=status_operacional, origem=origem_filtro, data_inicio=data_inicio, data_fim=data_fim, pagina=pagina+1, por_pagina=por_pagina) }}" class="botao mini vazado">&rsaquo;</a>
-      {% endif %}
+    </label>
+    <div class="ped-filtro ped-filtro--periodo">
+      <label for="ped-periodo">Período</label>
+      <select name="periodo" id="ped-periodo">
+        <option value="">Todos</option>
+        {% for chave, rotulo in periodos %}
+        <option value="{{ chave }}" {{ 'selected' if filtros.periodo == chave }}>{{ rotulo }}</option>
+        {% endfor %}
+      </select>
+      <div class="ped-datas" id="ped-datas" {{ 'hidden' if filtros.periodo != 'personalizado' }}>
+        <input type="date" name="inicio" value="{{ filtros.inicio }}" aria-label="Data inicial do evento">
+        <input type="date" name="fim" value="{{ filtros.fim }}" aria-label="Data final do evento">
+      </div>
     </div>
-  </div>
+    <label class="ped-filtro ped-filtro--origem">
+      <span>Origem</span>
+      <select name="origem">
+        <option value="">Todas</option>
+        {% for o in origens %}
+        <option value="{{ o }}" {{ 'selected' if filtros.origem == o }}>{{ o }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <input type="hidden" name="aba" value="{{ res.aba if res.aba != 'todos' }}">
+    <input type="hidden" name="ordem" value="{{ ordem if ordem != 'evento' }}">
+    <input type="hidden" name="dir" value="{{ direcao if direcao != 'desc' }}">
+    <input type="hidden" name="por_pagina" value="{{ res.por_pagina if res.por_pagina != 10 }}">
+    <a class="ped-limpar" id="ped-limpar" href="{{ url_for('lista_pedidos') }}">Limpar filtros</a>
+    <button type="submit" class="sr">Filtrar</button>
+  </form>
 
-  {% else %}
-  <div class="cartao cartao-vazio">
-    {% if busca or status_comercial or status_operacional or origem_filtro or data_inicio %}
-    <b>Nenhum registro encontrado com os filtros selecionados.</b>
-    <a href="{{ url_for('lista_pedidos') }}" class="botao vazado" style="margin-top:8px">Limpar filtros</a>
-    {% else %}
-    <b>Nenhum pedido registrado.</b>
-    <span>Crie um pedido diretamente ou a partir de um orçamento.</span>
-    <a href="{{ url_for('editar_pedido') }}" class="botao primario" style="margin-top:8px">Novo pedido</a>
-    {% endif %}
-  </div>
+  {% if erro_periodo %}
+  <p class="ped-erro-filtro" role="alert">{{ erro_periodo }}</p>
   {% endif %}
+
+  <div id="ped-resultado" aria-live="polite">
+    {% include "_pedidos_resultado.html" %}
+  </div>
 </main>
+
+<script>
+(function(){
+  var form = document.getElementById('ped-filtragem');
+  var alvo = document.getElementById('ped-resultado');
+  var datas = document.getElementById('ped-datas');
+  if (!form || !alvo || !window.fetch || !window.URLSearchParams) return;
+  var ultimo = 0, espera;
+
+  function urlDoFormulario() {
+    var p = new URLSearchParams();
+    new FormData(form).forEach(function(v, k) { if (v) p.set(k, v); });
+    if (p.get('periodo') !== 'personalizado') { p.delete('inicio'); p.delete('fim'); }
+    return form.action + (p.toString() ? '?' + p.toString() : '');
+  }
+
+  function sincronizar() {
+    var r = alvo.querySelector('[data-estado]');
+    if (!r) return;
+    ['aba', 'ordem', 'dir', 'por_pagina'].forEach(function(k) {
+      form.elements[k].value = r.getAttribute('data-' + k.replace('_', '-')) || '';
+    });
+  }
+
+  function carregar(href, empurrar) {
+    var u = new URL(href, location.href);
+    var p = new URLSearchParams(u.search);
+    p.set('parcial', '1');
+    var id = ++ultimo;
+    alvo.setAttribute('aria-busy', 'true');
+    alvo.classList.add('ped-carregando');
+    fetch(u.pathname + '?' + p.toString(), { credentials: 'same-origin' })
+      .then(function(r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function(html) {
+        if (id !== ultimo) return;
+        alvo.innerHTML = html;
+        sincronizar();
+        p.delete('parcial');
+        if (empurrar) history.pushState(null, '', u.pathname + (p.toString() ? '?' + p.toString() : ''));
+      })
+      .catch(function() {
+        if (id !== ultimo) return;
+        alvo.innerHTML = '<div class="ped-estado ped-estado--erro" role="alert">'
+          + '<p>Não foi possível carregar os pedidos.</p>'
+          + '<button type="button" class="ped-botao-sec" data-tentar></button></div>';
+        var b = alvo.querySelector('[data-tentar]');
+        b.textContent = 'Tentar novamente';
+        b.addEventListener('click', function() { carregar(href, empurrar); });
+      })
+      .then(function() {
+        if (id !== ultimo) return;
+        alvo.removeAttribute('aria-busy');
+        alvo.classList.remove('ped-carregando');
+      });
+  }
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    carregar(urlDoFormulario(), true);
+  });
+  form.addEventListener('change', function(e) {
+    if (e.target.name === 'periodo') {
+      datas.hidden = e.target.value !== 'personalizado';
+      if (!datas.hidden) { form.elements.inicio.focus(); return; }
+    }
+    if ((e.target.name === 'inicio' || e.target.name === 'fim')
+        && !(form.elements.inicio.value && form.elements.fim.value)) return;
+    if (e.target.name !== 'q') carregar(urlDoFormulario(), true);
+  });
+  form.elements.q.addEventListener('input', function() {
+    clearTimeout(espera);
+    espera = setTimeout(function() { carregar(urlDoFormulario(), true); }, 350);
+  });
+  document.getElementById('ped-limpar').addEventListener('click', function(e) {
+    e.preventDefault();
+    Array.prototype.forEach.call(form.elements, function(el) {
+      if (el.name && el.type !== 'submit') el.value = '';
+    });
+    datas.hidden = true;
+    carregar(form.action, true);
+  });
+  alvo.addEventListener('click', function(e) {
+    var a = e.target.closest('a[data-parcial]');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    carregar(a.href, true);
+  });
+  alvo.addEventListener('change', function(e) {
+    if (e.target.name !== 'por_pagina') return;
+    form.elements.por_pagina.value = e.target.value;
+    carregar(urlDoFormulario(), true);
+  });
+  window.addEventListener('popstate', function() { location.reload(); });
+})();
+</script>
 {% endblock %}

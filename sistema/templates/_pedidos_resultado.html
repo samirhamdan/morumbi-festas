@@ -1,0 +1,132 @@
+{% macro link_pedido(r) -%}
+{{ url_for('ver_pedido', id_=r.id) if r.tipo == 'pedido' else url_for('ver_pedido_historico', id_=r.id) }}
+{%- endmacro %}
+{% macro cab_ordem(chave, rotulo) -%}
+{% set ativo = ordem == chave %}
+{% set prox = 'asc' if ativo and direcao == 'desc' else 'desc' %}
+<a data-parcial href="{{ url_lista(ordem=chave, dir=prox, pagina=None, parcial=None) }}"
+   class="ped-ordem{{ ' ativo' if ativo }}"
+   aria-label="Ordenar por {{ rotulo|lower }}{{ ' (crescente)' if prox == 'asc' else ' (decrescente)' }}">{{ rotulo }}{% if ativo %}<span aria-hidden="true">{{ ' ↑' if direcao == 'asc' else ' ↓' }}</span>{% endif %}</a>
+{%- endmacro %}
+
+<div data-estado data-aba="{{ res.aba if res.aba != 'todos' }}" data-ordem="{{ ordem if ordem != 'evento' }}"
+     data-dir="{{ direcao if direcao != 'desc' }}" data-por-pagina="{{ res.por_pagina if res.por_pagina != 10 }}">
+
+<nav class="ped-abas" aria-label="Situação dos pedidos">
+  {% for chave, rotulo in abas %}
+  <a data-parcial href="{{ url_lista(aba=chave if chave != 'todos' else None, pagina=None) }}"
+     class="ped-aba{{ ' ativa' if res.aba == chave }}" {{ 'aria-current=page' if res.aba == chave }}>{{ rotulo }} ({{ res.contagens[chave] }})</a>
+  {% endfor %}
+</nav>
+
+<div class="ped-tabela-card">
+  {% if res.registros %}
+  <table class="ped-tabela">
+    <colgroup>
+      <col class="c-num"><col class="c-cliente"><col class="c-evento"><col class="c-itens"><col class="c-total">
+      <col class="c-servicos"><col class="c-origem"><col class="c-comercial"><col class="c-operacional"><col class="c-acoes">
+    </colgroup>
+    <thead>
+      <tr>
+        <th scope="col">{{ cab_ordem('numero', 'Pedido') }}</th>
+        <th scope="col">{{ cab_ordem('cliente', 'Cliente') }}</th>
+        <th scope="col">{{ cab_ordem('evento', 'Evento') }}</th>
+        <th scope="col">Itens</th>
+        <th scope="col">{{ cab_ordem('total', 'Total') }}</th>
+        <th scope="col">Serviços</th>
+        <th scope="col">Origem</th>
+        <th scope="col">Comercial</th>
+        <th scope="col">Operacional</th>
+        <th scope="col">Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in res.registros %}
+      <tr class="{{ 'ped-linha--historico' if r.historico }}">
+        <td data-rotulo="Pedido" class="ped-col-num"><a href="{{ link_pedido(r) }}">#{{ r.numero }}</a></td>
+        <td data-rotulo="Cliente" class="ped-col-cliente">
+          {% if r.cliente_id and pode('editar_cliente') %}
+          <a href="{{ url_for('editar_cliente', id_=r.cliente_id) }}">{{ r.cliente_nome or '—' }}</a>
+          {% else %}{{ r.cliente_nome or '—' }}{% endif %}
+        </td>
+        <td data-rotulo="Evento">{{ r.data_evento|data }}</td>
+        <td data-rotulo="Itens">{% if r.itens %}{{ r.itens }} {{ 'item' if r.itens == 1 else 'itens' }}{% else %}—{% endif %}</td>
+        <td data-rotulo="Total">{{ r.total|dinheiro if r.total else '—' }}</td>
+        <td data-rotulo="Serviços" class="ped-col-servicos">
+          <div class="ped-chips">
+            {% for s in r.servicos %}<span class="ped-chip">{{ s }}</span>{% else %}<span class="ped-nada">—</span>{% endfor %}
+          </div>
+        </td>
+        <td data-rotulo="Origem" class="ped-col-origem">{{ r.origem }}</td>
+        <td data-rotulo="Comercial"><span class="ped-badge ped-c-{{ r.status_comercial }}">{{ rot_com.get(r.status_comercial, r.status_comercial) }}</span></td>
+        <td data-rotulo="Operacional"><span class="ped-badge ped-badge--largo ped-o-{{ r.status_operacional or 'nenhum' }}">{{ rot_op.get(r.status_operacional, '—') }}</span></td>
+        <td class="ped-col-acoes">
+          <details class="ped-menu">
+            <summary aria-label="Ações do pedido #{{ r.numero }}">•••</summary>
+            <div class="ped-menu-lista">
+              <a href="{{ link_pedido(r) }}">Ver pedido</a>
+              {% if 'editar' in r.acoes and pode('editar_pedido') %}
+              <a href="{{ url_for('editar_pedido', id_=r.id) }}">Editar</a>
+              {% elif 'corrigir' in r.acoes and perfil == 'admin' %}
+              <a href="{{ url_for('editar_pedido', id_=r.id) }}">Correção administrativa</a>
+              {% endif %}
+              {% if r.cliente_id and pode('editar_cliente') %}
+              <a href="{{ url_for('editar_cliente', id_=r.cliente_id) }}">Ver cliente</a>
+              {% endif %}
+              {% if r.tipo == 'pedido' and r.data_evento and pode('agenda') %}
+              <a href="{{ url_for('agenda', visao='diaria', ano=r.data_evento[:4]|int, mes=r.data_evento[5:7]|int, dia=r.data_evento[8:10]|int, destaque=r.id) }}#pedido-{{ r.id }}">Ver na agenda</a>
+              {% endif %}
+              {% if 'finalizar' in r.acoes and pode('finalizar_pedido_rota') %}
+              <form method="post" action="{{ url_for('finalizar_pedido_rota', id_=r.id) }}">
+                <input type="hidden" name="voltar" value="{{ url_for('ver_pedido', id_=r.id) }}">
+                <button type="submit">Finalizar</button>
+              </form>
+              {% endif %}
+              {% if 'cancelar' in r.acoes and pode('cancelar_pedido_rota') %}
+              <a class="ped-menu-perigo" href="{{ url_for('ver_pedido', id_=r.id) }}#cancelar">Cancelar pedido</a>
+              {% endif %}
+            </div>
+          </details>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="ped-rodape-lista">
+    <div class="ped-contagem">
+      <span>Mostrando {{ res.inicio_item }} a {{ res.fim_item }} de {{ res.total }} pedido{{ 's' if res.total != 1 }}</span>
+      <label class="ped-por-pagina">
+        <select name="por_pagina" aria-label="Pedidos por página">
+          {% for n in por_pagina_opcoes %}
+          <option value="{{ n }}" {{ 'selected' if res.por_pagina == n }}>{{ n }} por página</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    {% if res.paginas > 1 %}
+    <nav class="ped-paginas" aria-label="Páginas">
+      {% set p = res.pagina %}
+      {% if p > 1 %}<a data-parcial class="ped-seta" href="{{ url_lista(pagina=p - 1) }}" aria-label="Página anterior">‹</a>
+      {% else %}<span class="ped-seta desativada" aria-hidden="true">‹</span>{% endif %}
+      {% set paginas = [1] + (range([2, p - 2]|max, [res.paginas, p + 3]|min))|list + [res.paginas] %}
+      {% set anterior = namespace(n=0) %}
+      {% for n in paginas|unique %}
+        {% if n - anterior.n > 1 %}<span class="ped-pagina ped-reticencias" aria-hidden="true">…</span>{% endif %}
+        {% if n == p %}<span class="ped-pagina atual" aria-current="page">{{ n }}</span>
+        {% else %}<a data-parcial class="ped-pagina" href="{{ url_lista(pagina=n) }}" aria-label="Página {{ n }}">{{ n }}</a>{% endif %}
+        {% set anterior.n = n %}
+      {% endfor %}
+      {% if p < res.paginas %}<a data-parcial class="ped-seta" href="{{ url_lista(pagina=p + 1) }}" aria-label="Próxima página">›</a>
+      {% else %}<span class="ped-seta desativada" aria-hidden="true">›</span>{% endif %}
+    </nav>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="ped-estado">
+    <p class="ped-estado-titulo">Nenhum pedido encontrado.</p>
+    <p>Tente alterar os filtros ou crie um novo pedido.</p>
+  </div>
+  {% endif %}
+</div>
+</div>
