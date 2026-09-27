@@ -23,7 +23,12 @@ def _kit(admin, nome="Kit Festa", preco="200.00",
         "status": status,
         "publicado": "1" if publicado else "",
     }, follow_redirects=True)
-    return [k for k in dados.listar_kits() if k["nome"] == nome][0]
+    kit = [k for k in dados.listar_kits() if k["nome"] == nome][0]
+    # Sprint 7: kit sem peças não aparece na vitrine; uma peça de preço zero
+    # (não publicada) não mexe nos preços nem nas somas conferidas nos testes.
+    peca = _produto(admin, f"Peca interna {nome}", preco="0", qtd="10")
+    dados.adicionar_item_kit(kit["id"], peca["id"], 1)
+    return kit
 
 
 # ---- Catalogo publico: acesso sem login ----
@@ -39,12 +44,12 @@ class TesteCatalogoPublicoAcesso:
 
     def test_catalogo_produto_nao_publicado_404(self, app, admin, client):
         p = _produto(admin, publicado=False)
-        r = client.get(f"/catalogo/produto/{p['id']}")
+        r = client.get(f"/catalogo/produto/{p['id']}", follow_redirects=True)
         assert r.status_code == 404
 
     def test_catalogo_kit_nao_publicado_404(self, app, admin, client):
         k = _kit(admin, publicado=False)
-        r = client.get(f"/catalogo/kit/{k['id']}")
+        r = client.get(f"/catalogo/kit/{k['id']}", follow_redirects=True)
         assert r.status_code == 404
 
 
@@ -88,25 +93,25 @@ class TesteFiltroPublicado:
 class TesteDetalheProduto:
     def test_detalhe_carrega(self, app, admin, client):
         p = _produto(admin, "Toalha bordada", publicado=True)
-        r = client.get(f"/catalogo/produto/{p['id']}")
+        r = client.get(f"/catalogo/produto/{p['id']}", follow_redirects=True)
         assert r.status_code == 200
         assert "Toalha bordada" in r.text
 
     def test_detalhe_tem_preco(self, app, admin, client):
         p = _produto(admin, "Toalha com preco", preco="75.00",
                      publicado=True)
-        r = client.get(f"/catalogo/produto/{p['id']}")
+        r = client.get(f"/catalogo/produto/{p['id']}", follow_redirects=True)
         assert "75" in r.text
 
     def test_detalhe_tem_meta_og(self, app, admin, client):
         p = _produto(admin, "Toalha OG", publicado=True)
-        r = client.get(f"/catalogo/produto/{p['id']}")
+        r = client.get(f"/catalogo/produto/{p['id']}", follow_redirects=True)
         assert 'og:title' in r.text
         assert 'og:type' in r.text
 
     def test_detalhe_tem_link_voltar(self, app, admin, client):
         p = _produto(admin, "Toalha voltar", publicado=True)
-        r = client.get(f"/catalogo/produto/{p['id']}")
+        r = client.get(f"/catalogo/produto/{p['id']}", follow_redirects=True)
         assert "catálogo" in r.text.lower()
 
     def test_produto_inexistente_404(self, app, client):
@@ -117,7 +122,7 @@ class TesteDetalheProduto:
 class TesteDetalheKit:
     def test_detalhe_kit_carrega(self, app, admin, client):
         k = _kit(admin, "Kit Completo", publicado=True)
-        r = client.get(f"/catalogo/kit/{k['id']}")
+        r = client.get(f"/catalogo/kit/{k['id']}", follow_redirects=True)
         assert r.status_code == 200
         assert "Kit Completo" in r.text
 
@@ -125,7 +130,7 @@ class TesteDetalheKit:
         p = _produto(admin, "Cadeira kit", publicado=True)
         k = _kit(admin, "Kit com item", publicado=True)
         dados.adicionar_item_kit(k["id"], p["id"], 5)
-        r = client.get(f"/catalogo/kit/{k['id']}")
+        r = client.get(f"/catalogo/kit/{k['id']}", follow_redirects=True)
         assert "Cadeira kit" in r.text
         assert "5" in r.text
 
@@ -133,12 +138,12 @@ class TesteDetalheKit:
         p = _produto(admin, "Cadeira eco", preco="100.00", publicado=True)
         k = _kit(admin, "Kit Economico", preco="80.00", publicado=True)
         dados.adicionar_item_kit(k["id"], p["id"], 1)
-        r = client.get(f"/catalogo/kit/{k['id']}")
+        r = client.get(f"/catalogo/kit/{k['id']}", follow_redirects=True)
         assert "economia" in r.text.lower()
 
     def test_detalhe_kit_meta_og(self, app, admin, client):
         k = _kit(admin, "Kit OG", publicado=True)
-        r = client.get(f"/catalogo/kit/{k['id']}")
+        r = client.get(f"/catalogo/kit/{k['id']}", follow_redirects=True)
         assert 'og:title' in r.text
 
     def test_kit_inexistente_404(self, app, client):
@@ -183,14 +188,14 @@ class TesteWhatsApp:
     def test_produto_tem_link_whatsapp(self, app, admin, client):
         dados.salvar_organizacao({"whatsapp": "5567999999999"})
         p = _produto(admin, "Cadeira WA", publicado=True)
-        r = client.get(f"/catalogo/produto/{p['id']}")
+        r = client.get(f"/catalogo/produto/{p['id']}", follow_redirects=True)
         assert "wa.me" in r.text
         assert "Cadeira WA" in r.text
 
     def test_kit_tem_link_whatsapp(self, app, admin, client):
         dados.salvar_organizacao({"whatsapp": "5567999999999"})
         k = _kit(admin, "Kit WA", publicado=True)
-        r = client.get(f"/catalogo/kit/{k['id']}")
+        r = client.get(f"/catalogo/kit/{k['id']}", follow_redirects=True)
         assert "wa.me" in r.text
         assert "Kit WA" in r.text
 

@@ -130,3 +130,35 @@ def limpar_svg(conteudo: bytes) -> bytes:
     ET.register_namespace("", _SVG_NS)
     ET.register_namespace("xlink", _XLINK)
     return ET.tostring(raiz, encoding="utf-8", xml_declaration=True)
+
+
+FOTO_MAX_BYTES = 10 * 1024 * 1024
+FOTO_MAX_PX = 1600
+MINIATURA_PX = 480
+
+
+def preparar_foto(conteudo: bytes) -> tuple:
+    """Foto de produto/kit/categoria: (grande, miniatura) em WebP.
+
+    A grande (até 1600 px) aparece no detalhe; a miniatura (até 480 px) nos
+    cartões e listas — a vitrine nunca baixa a foto original.
+    """
+    if not conteudo:
+        raise ImagemInvalida("Arquivo vazio.")
+    if len(conteudo) > FOTO_MAX_BYTES:
+        raise ImagemInvalida("A foto deve ter no máximo 10 MB.")
+    img = _abrir(conteudo, ("PNG", "JPEG", "WEBP"))
+    if img.mode in ("RGBA", "LA", "P"):
+        fundo = Image.new("RGB", img.size, (255, 255, 255))
+        rgba = img.convert("RGBA")
+        fundo.paste(rgba, mask=rgba.split()[-1])
+        img = fundo
+    else:
+        img = img.convert("RGB")
+    saidas = []
+    for limite, qualidade in ((FOTO_MAX_PX, 82), (MINIATURA_PX, 78)):
+        copia = _reduzir(img, limite)
+        b = io.BytesIO()
+        copia.save(b, "WEBP", quality=qualidade, method=4)
+        saidas.append(b.getvalue())
+    return tuple(saidas)

@@ -1,0 +1,138 @@
+{% extends "catalogo_base.html" %}
+{% block titulo %}Meu orçamento — {{ empresa.nome_exibicao }}{% endblock %}
+{% block meta %}<meta name="robots" content="noindex">{% endblock %}
+{% block conteudo %}
+<nav class="vt-trilha" aria-label="Caminho"><a href="{{ url_for('catalogo') }}">Catálogo</a> <span aria-hidden="true">›</span> <span aria-current="page">Meu orçamento</span></nav>
+<h1 class="vt-h1">Meu orçamento</h1>
+<p class="vt-sub">Monte a lista, confira a data e envie. Isso não reserva os itens: a reserva é confirmada pela nossa equipe.</p>
+
+<div class="vt-orc" id="vt-orc" data-hoje="{{ hoje }}">
+  <section class="vt-orc-lista" aria-labelledby="vt-orc-itens">
+    <div class="vt-orc-data">
+      <label for="vt-orc-data"><b>Data da festa</b></label>
+      <input type="date" id="vt-orc-data" min="{{ hoje }}" required>
+    </div>
+    <h2 class="sr" id="vt-orc-itens">Itens</h2>
+    <ul class="vt-orc-itens" id="vt-orc-itens-lista" aria-live="polite"><li class="vt-orc-vazio">Carregando…</li></ul>
+    <p class="vt-orc-alerta" id="vt-orc-alerta" role="alert" hidden></p>
+    <p class="vt-orc-total"><span>Total estimado</span> <b id="vt-orc-total">R$ 0,00</b></p>
+    <p class="vt-nota">Valores de locação por festa. Frete, montagem e condições são combinados no atendimento.</p>
+  </section>
+
+  <section class="vt-orc-form" aria-labelledby="vt-orc-contato">
+    <h2 id="vt-orc-contato">Seus dados</h2>
+    <form id="vt-orc-form" novalidate>
+      <label class="vt-campo">Nome<input type="text" name="nome" autocomplete="name" required maxlength="120"></label>
+      <label class="vt-campo">WhatsApp com DDD<input type="tel" name="whatsapp" autocomplete="tel" inputmode="tel" required maxlength="20" placeholder="(67) 99999-9999"></label>
+      <label class="vt-campo">E-mail <small>(opcional)</small><input type="email" name="email" autocomplete="email" maxlength="160"></label>
+      <label class="vt-campo">Observações <small>(opcional)</small><textarea name="observacoes" rows="3" maxlength="1000" placeholder="Local da festa, horário, dúvidas…"></textarea></label>
+      <label class="vt-armadilha" aria-hidden="true">Site<input type="text" name="site" tabindex="-1" autocomplete="off"></label>
+      <p class="vt-orc-erro" id="vt-orc-erro" role="alert" hidden></p>
+      <button type="submit" class="vt-botao vt-botao--grande" id="vt-orc-enviar">Solicitar orçamento</button>
+    </form>
+  </section>
+
+  <section class="vt-orc-ok" id="vt-orc-ok" hidden tabindex="-1">
+    <span class="vt-orc-ok-ic" aria-hidden="true">✓</span>
+    <h2>Pedido recebido!</h2>
+    <p id="vt-orc-ok-texto">Nossa equipe vai responder pelo WhatsApp.</p>
+    <a class="vt-botao vt-botao--grande vt-botao--wpp" id="vt-orc-wpp" href="#" target="_blank" rel="noopener" hidden>Avisar pelo WhatsApp</a>
+    <a class="vt-link" href="{{ url_for('catalogo') }}">Voltar ao catálogo</a>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  var raiz = document.getElementById('vt-orc'), hoje = raiz.dataset.hoje;
+  var lista = document.getElementById('vt-orc-itens-lista'), totalEl = document.getElementById('vt-orc-total');
+  var alerta = document.getElementById('vt-orc-alerta'), campoData = document.getElementById('vt-orc-data');
+  var form = document.getElementById('vt-orc-form'), erro = document.getElementById('vt-orc-erro'), enviar = document.getElementById('vt-orc-enviar');
+  var RESUMO = {{ url_for('catalogo_api_resumo')|tojson }}, ENVIO = {{ url_for('catalogo_orcamento')|tojson }};
+  var dinheiro = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+  var ultimo = null;
+  function itensEnvio() { return Orcamento.ler().itens.map(function(i) { return { tipo: i.tipo, id: i.id, quantidade: i.quantidade }; }); }
+  function el(tag, cls, texto) { var e = document.createElement(tag); if (cls) e.className = cls; if (texto !== undefined) e.textContent = texto; return e; }
+  function desenhar(r) {
+    ultimo = r; lista.innerHTML = '';
+    if (!r.itens.length) {
+      var v = el('li', 'vt-orc-vazio'); v.innerHTML = 'Sua lista está vazia. <a href="{{ url_for('catalogo') }}">Ver o catálogo</a>';
+      lista.appendChild(v); enviar.disabled = true;
+    } else enviar.disabled = false;
+    r.itens.forEach(function(i) {
+      var li = el('li', 'vt-orc-item');
+      var img = el('span', 'vt-orc-img');
+      if (i.capa) { var im = document.createElement('img'); im.src = i.capa; im.alt = ''; im.width = 72; im.height = 72; im.loading = 'lazy'; img.appendChild(im); }
+      li.appendChild(img);
+      var info = el('div', 'vt-orc-info'), a = el('a', '', i.nome); a.href = i.url; info.appendChild(a);
+      info.appendChild(el('small', '', dinheiro.format(i.preco) + ' cada · ' + (i.tipo === 'kit' ? 'Kit' : 'Peça avulsa')));
+      if (i.situacao) { var s = el('span', 'vt-badge vt-s-' + i.situacao, i.rotulo); if (i.motivo) s.title = i.motivo; info.appendChild(s); }
+      li.appendChild(info);
+      var q = el('div', 'vt-qtd');
+      [['−', -1], ['', 0], ['+', 1]].forEach(function(p) {
+        if (!p[1]) { var inp = document.createElement('input'); inp.type = 'number'; inp.min = 0; inp.max = 99; inp.value = i.quantidade; inp.setAttribute('aria-label', 'Quantidade de ' + i.nome);
+          inp.addEventListener('change', function() { mudar(i, parseInt(inp.value, 10) || 0); }); q.appendChild(inp); return; }
+        var b = el('button', '', p[0]); b.type = 'button'; b.setAttribute('aria-label', (p[1] > 0 ? 'Mais ' : 'Menos ') + i.nome);
+        b.addEventListener('click', function() { mudar(i, Math.min(i.quantidade + p[1], 99)); }); q.appendChild(b);
+      });
+      li.appendChild(q);
+      li.appendChild(el('b', 'vt-orc-sub', dinheiro.format(i.subtotal)));
+      var rm = el('button', 'vt-orc-remover', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Remover ' + i.nome);
+      rm.addEventListener('click', function() { mudar(i, 0); }); li.appendChild(rm);
+      lista.appendChild(li);
+    });
+    totalEl.textContent = dinheiro.format(r.total);
+    var msgs = r.faltas && r.faltas.length ? ['Não há peças suficientes para tudo junto nesta data.'].concat(r.faltas) : [];
+    if (r.itens.some(function(i) { return i.situacao === 'indisponivel'; })) msgs.unshift('Há itens indisponíveis na data escolhida. Remova-os ou escolha outra data.');
+    alerta.hidden = !msgs.length; alerta.textContent = msgs.join(' ');
+    // o que saiu da vitrine some da lista guardada
+    var validos = r.itens.map(function(i) { return i.tipo + ':' + i.id; });
+    var guardado = Orcamento.ler().itens.filter(function(i) { return validos.indexOf(i.tipo + ':' + i.id) >= 0; });
+    if (guardado.length !== Orcamento.ler().itens.length) { var v2 = Orcamento.ler(); v2.itens = guardado; try { localStorage.setItem('mf_orcamento_' + document.body.dataset.empresa, JSON.stringify(v2)); } catch (e) {} }
+  }
+  function mudar(i, q) { Orcamento.definir(i.tipo, i.id, q); carregar(); }
+  var seq = 0;
+  function carregar() {
+    var meu = ++seq;
+    fetch(RESUMO, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                    body: JSON.stringify({ itens: itensEnvio(), data: campoData.value }) })
+      .then(function(r) { return r.json(); })
+      .then(function(r) { if (meu === seq && r.itens) desenhar(r); })
+      .catch(function() { if (meu === seq) { lista.innerHTML = ''; lista.appendChild(el('li', 'vt-orc-vazio', 'Não foi possível carregar agora. Tente de novo.')); } });
+  }
+  var salva = Orcamento.data(); if (salva && salva >= hoje) campoData.value = salva;
+  campoData.addEventListener('change', function() { if (campoData.value && campoData.value < hoje) campoData.value = ''; Orcamento.data(campoData.value); carregar(); });
+  carregar();
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault(); erro.hidden = true;
+    form.querySelectorAll('[aria-invalid]').forEach(function(c) { c.removeAttribute('aria-invalid'); });
+    var f = new FormData(form), contato = { nome: f.get('nome'), whatsapp: f.get('whatsapp'), email: f.get('email'), observacoes: f.get('observacoes') };
+    function falhar(msg, campo) {
+      erro.textContent = msg; erro.hidden = false;
+      var c = campo === 'data_evento' ? campoData : form.elements[campo];
+      if (c && c.focus) { c.setAttribute('aria-invalid', 'true'); c.focus(); }
+    }
+    if (!campoData.value) return falhar('Escolha a data da festa.', 'data_evento');
+    if (!String(contato.nome || '').trim()) return falhar('Informe seu nome.', 'nome');
+    if (String(contato.whatsapp || '').replace(/\D/g, '').length < 10) return falhar('Informe um WhatsApp com DDD.', 'whatsapp');
+    enviar.disabled = true; enviar.textContent = 'Enviando…';
+    fetch(ENVIO, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                   body: JSON.stringify({ contato: contato, itens: itensEnvio(), data: campoData.value, site: f.get('site') }) })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        enviar.disabled = false; enviar.textContent = 'Solicitar orçamento';
+        if (!r.ok) { if (r.campo === 'itens') carregar(); return falhar(r.mensagem || 'Não foi possível enviar.', r.campo); }
+        Orcamento.limpar();
+        document.querySelector('.vt-orc-lista').hidden = true; document.querySelector('.vt-orc-form').hidden = true;
+        var ok = document.getElementById('vt-orc-ok'); ok.hidden = false;
+        document.getElementById('vt-orc-ok-texto').textContent = (r.numero ? 'Pedido nº ' + r.numero + '. ' : '') + r.mensagem;
+        if (r.whatsapp) { var w = document.getElementById('vt-orc-wpp'); w.href = r.whatsapp; w.hidden = false; }
+        ok.focus();
+      })
+      .catch(function() { enviar.disabled = false; enviar.textContent = 'Solicitar orçamento'; falhar('Sem conexão. Tente de novo.'); });
+  });
+})();
+</script>
+{% endblock %}

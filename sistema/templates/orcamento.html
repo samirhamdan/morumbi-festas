@@ -52,6 +52,12 @@
           </select>
         </label>
 
+        <label class="campo" id="campo-data_evento">
+          <span>Data da festa</span>
+          <input type="date" name="data_evento" value="{{ atual.get('data_evento') or '' }}">
+          {% if atual.get('origem') == 'catalogo' %}<small class="campo-ajuda">Pedido de orçamento feito pelo catálogo público.</small>{% endif %}
+        </label>
+
         <label class="campo" id="campo-observacoes">
           <span>Observações</span>
           <textarea name="observacoes" rows="3">{{ atual.get('observacoes', '') }}</textarea>

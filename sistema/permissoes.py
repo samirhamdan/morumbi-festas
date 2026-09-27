@@ -32,6 +32,7 @@ PERMISSOES = (
     ("operation.edit", "Operação", "Avançar etapas operacionais"),
     ("catalog.view", "Catálogo", "Ver produtos, kits e categorias"),
     ("catalog.edit", "Catálogo", "Cadastrar produtos, kits e categorias"),
+    ("catalog.status", "Catálogo", "Ativar e inativar produtos e kits"),
     ("inventory.view", "Estoque", "Ver disponibilidade de estoque"),
     ("inventory.edit", "Estoque", "Ajustar quantidades de estoque"),
     ("reports.view", "Relatórios", "Ver faturamento e relatórios"),
@@ -45,7 +46,8 @@ TODAS = frozenset(p[0] for p in PERMISSOES)
 
 _BASE = {"dashboard.view", "catalog.view", "agenda.view", "inventory.view"}
 
-# Acesso padrão de cada perfil. Os quatro perfis existentes mantêm exatamente
+# Acesso padrão de cada perfil. Sprint 7: Comercial passou a cadastrar produtos
+# (catalog.edit); fora isso, os quatro perfis existentes mantêm exatamente
 # o acesso que já tinham; Financeiro e Visualização são novos.
 PERFIL_PERMISSOES = {
     "admin": TODAS,
@@ -53,6 +55,7 @@ PERFIL_PERMISSOES = {
         "orders.view", "orders.finish", "orders.note",
         "operation.view", "operation.edit", "reports.view", "finance.edit"}),
     "comercial": frozenset(_BASE | {
+        "catalog.edit",  # Sprint 7: cadastra produtos; estoque e ativação ficam com o admin
         "customers.view", "customers.create", "customers.edit", "customers.export",
         "leads.view", "leads.edit", "quotes.view", "quotes.edit",
         "orders.view", "orders.create", "orders.edit", "orders.cancel",

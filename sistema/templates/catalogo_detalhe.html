@@ -1,0 +1,254 @@
+{% extends "catalogo_base.html" %}
+{% set eh_kit = tipo == 'kit' %}
+{% set preco = item.preco if eh_kit else item.preco_locacao %}
+{% set fotos = item.fotos or [] %}
+{% set capa = fotos[0] if fotos else None %}
+{% set resumo = (item.seo_descricao or (item.descricao or '')[:160]) %}
+{% block titulo %}{{ item.seo_titulo or item.nome }} — {{ empresa.nome_exibicao }}{% endblock %}
+{% block meta %}
+<meta name="description" content="{{ resumo or ('Locação de ' ~ item.nome) }}">
+<link rel="canonical" href="{{ url_for('catalogo_item', slug=item.slug, _external=True) }}">
+<meta property="og:title" content="{{ item.seo_titulo or item.nome }} — {{ empresa.nome_exibicao }}">
+<meta property="og:description" content="{{ resumo or ('Kit de locação para eventos' if eh_kit else 'Locação de decoração para eventos') }}">
+<meta property="og:type" content="product">
+<meta property="og:url" content="{{ url_for('catalogo_item', slug=item.slug, _external=True) }}">
+{% if capa %}<meta property="og:image" content="{{ url_for('static', filename=capa.arquivo, _external=True) }}">{% endif %}
+<script type="application/ld+json">{{ {
+  "@context": "https://schema.org", "@type": "Product", "name": item.nome,
+  "description": resumo or item.nome,
+  "image": [url_for('static', filename=capa.arquivo, _external=True)] if capa else [],
+  "offers": {"@type": "Offer", "priceCurrency": "BRL", "price": "%.2f"|format(preco or 0),
+             "url": url_for('catalogo_item', slug=item.slug, _external=True)}
+}|tojson }}</script>
+{% endblock %}
+{% block conteudo %}
+<nav class="vt-trilha" aria-label="Caminho">
+  <a href="{{ url_for('catalogo') }}">Catálogo</a> <span aria-hidden="true">›</span>
+  <a href="{{ url_for('catalogo_kits' if eh_kit else 'catalogo_pecas') }}">{{ 'Kits' if eh_kit else 'Peças avulsas' }}</a> <span aria-hidden="true">›</span>
+  <span aria-current="page">{{ item.nome }}</span>
+</nav>
+
+<article class="vt-produto" id="vt-produto" data-tipo="{{ tipo }}" data-id="{{ item.id }}" data-nome="{{ item.nome }}" data-hoje="{{ hoje }}">
+  <header class="vt-produto-cab">
+    <h1 class="vt-h1">{{ item.nome }}</h1>
+    {% if item.selo %}<span class="vt-selo vt-selo--solto">{{ item.selo }}</span>{% endif %}
+    {% if resumo %}<p class="vt-sub">{{ resumo }}</p>{% endif %}
+  </header>
+
+  <div class="vt-produto-grade">
+    <div class="vt-galeria">
+      <div class="vt-galeria-principal">
+        {% if capa %}<img id="vt-foto" src="{{ url_for('static', filename=capa.arquivo) }}" alt="{{ item.nome }}" width="1000" height="860" fetchpriority="high">
+        {% else %}<span class="vt-card-sem vt-tom-0">{{ item.nome }}</span>{% endif %}
+      </div>
+      {% if fotos|length > 1 %}
+      <ul class="vt-miniaturas" aria-label="Fotos">
+        {% for f in fotos %}
+        <li><button type="button" class="{{ 'ativo' if loop.first }}" data-foto="{{ url_for('static', filename=f.arquivo) }}" aria-label="Ver foto {{ loop.index }}" {% if loop.first %}aria-current="true"{% endif %}>
+          <img src="{{ url_for('static', filename=f.miniatura or f.arquivo) }}" alt="" loading="lazy" width="100" height="70"></button></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+
+    <div class="vt-compra">
+      <p class="vt-preco">{{ preco|dinheiro }} <small>por festa</small></p>
+      {% if eh_kit and item.soma_produtos and preco and item.soma_produtos > preco %}
+      <p class="vt-economia">{{ ((item.soma_produtos - preco) / item.soma_produtos * 100)|round|int }}% de economia em relação às peças avulsas ({{ item.soma_produtos|dinheiro }})</p>
+      {% endif %}
+      <ul class="vt-caracteristicas">
+        {% if eh_kit %}<li>Kit completo com {{ item.itens|length }} tipo{{ 's' if item.itens|length != 1 }} de peça</li>{% endif %}
+        <li>{% if (item.dias_uso or 2) <= 1 %}Retirada e devolução no dia da festa{% else %}Retirada na véspera, devolução {{ 'no dia da festa' if item.dias_uso == 2 else 'em até ' ~ (item.dias_uso - 1) ~ ' dias após' }}{% endif %}</li>
+        {% if item.dias_antecedencia %}<li>Reserve com {{ item.dias_antecedencia }} dia{{ 's' if item.dias_antecedencia != 1 }} de antecedência</li>{% endif %}
+        {% if item.categoria_nome %}<li>Tema: {{ item.categoria_nome }}</li>{% endif %}
+      </ul>
+
+      <div class="vt-data">
+        <label for="vt-data" class="vt-data-titulo">Selecione a data da sua festa</label>
+        <div class="vt-data-linha">
+          <input type="date" id="vt-data" min="{{ hoje }}" value="{{ data_escolhida if data_escolhida >= hoje else '' }}">
+          <label class="vt-qtd"><span class="sr">Quantidade</span>
+            <button type="button" data-qtd="-1" aria-label="Diminuir">−</button>
+            <input type="number" id="vt-qtd" value="1" min="1" max="99" inputmode="numeric" aria-label="Quantidade">
+            <button type="button" data-qtd="1" aria-label="Aumentar">+</button>
+          </label>
+        </div>
+        <div class="vt-situacao" id="vt-situacao" data-situacao="" aria-live="polite">
+          <span class="vt-situacao-ic" aria-hidden="true"></span>
+          <span><b id="vt-situacao-titulo">Escolha uma data para ver a disponibilidade</b>
+          <small id="vt-situacao-sub">A consulta é na hora e não reserva nada.</small></span>
+        </div>
+        <button type="button" class="vt-link" id="vt-abrir-datas">Ver outras datas</button>
+      </div>
+
+      <button type="button" class="vt-botao vt-botao--grande" id="vt-adicionar">
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Adicionar ao orçamento</button>
+      <div class="vt-acoes-sec">
+        <button type="button" class="vt-link" id="vt-compartilhar">↗ Compartilhar</button>
+        {% if org and org.get('whatsapp') %}
+        <a class="vt-link" href="{{ org.whatsapp|whatsapp_link }}?text={{ ('Olá! Gostaria de saber sobre ' ~ ('o kit' if eh_kit else 'o item') ~ ': ' ~ item.nome ~ ' — ' ~ url_for('catalogo_item', slug=item.slug, _external=True))|urlencode }}" target="_blank" rel="noopener">Tirar dúvida no WhatsApp</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <section class="vt-abas" aria-label="Detalhes">
+    <div class="vt-abas-lista" role="tablist">
+      <button type="button" role="tab" aria-selected="true" aria-controls="vt-aba-desc" id="vt-tab-desc">Descrição</button>
+      {% if eh_kit %}<button type="button" role="tab" aria-selected="false" aria-controls="vt-aba-itens" id="vt-tab-itens" tabindex="-1">Itens do kit</button>{% endif %}
+      <button type="button" role="tab" aria-selected="false" aria-controls="vt-aba-info" id="vt-tab-info" tabindex="-1">Informações</button>
+    </div>
+    <div class="vt-aba" role="tabpanel" id="vt-aba-desc" aria-labelledby="vt-tab-desc">
+      {% if item.descricao %}<p class="vt-texto">{{ item.descricao }}</p>{% else %}<p class="vt-texto">Fale com a gente para saber mais sobre {{ item.nome }}.</p>{% endif %}
+      {% if item.tags %}<p class="vt-tags">{% for t in item.tags %}<span>{{ t }}</span>{% endfor %}</p>{% endif %}
+    </div>
+    {% if eh_kit %}
+    <div class="vt-aba" role="tabpanel" id="vt-aba-itens" aria-labelledby="vt-tab-itens" hidden>
+      <h2 class="sr">O que inclui</h2>
+      <ul class="vt-inclui">{% for c in item.itens %}<li><b>{{ c.quantidade }}x</b> {{ c.produto_nome }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    <div class="vt-aba" role="tabpanel" id="vt-aba-info" aria-labelledby="vt-tab-info" hidden>
+      <dl class="vt-info">
+        <dt>Tipo</dt><dd>{{ 'Kit completo' if eh_kit else 'Peça avulsa' }}</dd>
+        {% if item.categoria_nome %}<dt>Tema</dt><dd>{{ item.categoria_nome }}</dd>{% endif %}
+        <dt>Período de uso</dt><dd>{{ item.dias_uso or 2 }} dia{{ 's' if (item.dias_uso or 2) != 1 }}</dd>
+        <dt>Reserva</dt><dd>Confirmada pela nossa equipe após o orçamento.</dd>
+      </dl>
+    </div>
+  </section>
+</article>
+
+{% if relacionados %}
+<section class="vt-secao" aria-labelledby="vt-rel-titulo">
+  <div class="vt-secao-cab"><h2 id="vt-rel-titulo">Combina com</h2></div>
+  <div class="vt-grade">{% for i in relacionados %}{% include "_vitrine_card.html" %}{% endfor %}</div>
+</section>
+{% endif %}
+<p class="vt-voltar"><a href="{{ url_for('catalogo') }}">← Voltar ao catálogo</a></p>
+
+<dialog class="vt-gaveta" id="vt-gaveta" aria-labelledby="vt-gaveta-titulo">
+  <div class="vt-gaveta-cab">
+    <h2 id="vt-gaveta-titulo">Verificar disponibilidade</h2>
+    <button type="button" class="vt-fechar" data-fechar aria-label="Fechar">×</button>
+  </div>
+  <div class="vt-gaveta-item">
+    <span class="vt-gaveta-img">{% if capa %}<img src="{{ url_for('static', filename=capa.miniatura or capa.arquivo) }}" alt="" width="120" height="90">{% else %}<span class="vt-card-sem vt-tom-0">{{ item.nome[:12] }}</span>{% endif %}</span>
+    <div><b>{{ item.nome }}</b><small id="vt-gaveta-data">Escolha uma data</small></div>
+  </div>
+  <div class="vt-gaveta-nav">
+    <button type="button" class="vt-botao vt-botao--claro" data-semana="-1" aria-label="Semana anterior">‹</button>
+    <input type="date" id="vt-gaveta-input" min="{{ hoje }}" aria-label="Data da festa">
+    <button type="button" class="vt-botao vt-botao--claro" data-semana="1" aria-label="Semana seguinte">›</button>
+  </div>
+  <ul class="vt-dias" id="vt-dias" aria-live="polite"></ul>
+  <ul class="vt-legenda"><li class="vt-s-disponivel">Disponível</li><li class="vt-s-ultimas">Últimas unidades</li><li class="vt-s-indisponivel">Indisponível</li></ul>
+  <button type="button" class="vt-botao vt-botao--grande" id="vt-gaveta-ok" disabled>Selecionar esta data</button>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  var box = document.getElementById('vt-produto'), tipo = box.dataset.tipo, id = +box.dataset.id, hoje = box.dataset.hoje;
+  var API = {{ url_for('catalogo_api_disponibilidade')|tojson }};
+  var campoData = document.getElementById('vt-data'), campoQtd = document.getElementById('vt-qtd');
+  var sit = document.getElementById('vt-situacao'), titulo = document.getElementById('vt-situacao-titulo'), sub = document.getElementById('vt-situacao-sub');
+  var botao = document.getElementById('vt-adicionar');
+  var TEXTO = { disponivel: ['Disponível para esta data', 'Garanta pedindo seu orçamento.'],
+                ultimas: ['Últimas unidades nesta data', 'Peça seu orçamento logo.'],
+                indisponivel: ['Indisponível nesta data', 'Veja outras datas próximas.'] };
+  function fmt(d) { var p = d.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+  function somar(d, n) { var x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); }
+  function qtd() { var n = parseInt(campoQtd.value, 10); return isNaN(n) ? 1 : Math.min(Math.max(n, 1), 99); }
+  function consultar(inicio, fim) {
+    return fetch(API + '?tipo=' + tipo + '&id=' + id + '&inicio=' + inicio + '&fim=' + fim + '&qtd=' + qtd(), { credentials: 'same-origin' })
+      .then(function(r) { if (!r.ok) throw r; return r.json(); }).then(function(j) { return j.dias || []; });
+  }
+  var pedido = 0;
+  function atualizar() {
+    var d = campoData.value, meu = ++pedido;
+    if (!d) { sit.dataset.situacao = ''; titulo.textContent = 'Escolha uma data para ver a disponibilidade'; sub.textContent = 'A consulta é na hora e não reserva nada.'; botao.disabled = false; return; }
+    if (d < hoje) { campoData.value = ''; return atualizar(); }
+    Orcamento.data(d);
+    sit.dataset.situacao = 'carregando'; titulo.textContent = 'Consultando…'; sub.textContent = fmt(d);
+    consultar(d, d).then(function(dias) {
+      if (meu !== pedido) return;
+      var x = dias[0] || { situacao: 'indisponivel', motivo: '' };
+      sit.dataset.situacao = x.situacao; titulo.textContent = TEXTO[x.situacao][0];
+      sub.textContent = x.motivo || TEXTO[x.situacao][1];
+      botao.disabled = x.situacao === 'indisponivel';
+    }).catch(function() { if (meu !== pedido) return; sit.dataset.situacao = ''; titulo.textContent = 'Não foi possível consultar agora'; sub.textContent = 'Tente de novo em instantes.'; botao.disabled = false; });
+  }
+  if (!campoData.value && Orcamento.data() >= hoje) campoData.value = Orcamento.data();
+  campoData.addEventListener('change', atualizar);
+  document.querySelectorAll('[data-qtd]').forEach(function(b) { b.addEventListener('click', function() { campoQtd.value = Math.min(Math.max(qtd() + (+b.dataset.qtd), 1), 99); atualizar(); }); });
+  campoQtd.addEventListener('change', function() { campoQtd.value = qtd(); atualizar(); });
+  atualizar();
+
+  botao.addEventListener('click', function() {
+    Orcamento.adicionar({ tipo: tipo, id: id, nome: box.dataset.nome }, qtd());
+    Orcamento.avisar(box.dataset.nome + ' foi para a sua lista de orçamento.');
+  });
+
+  document.querySelectorAll('.vt-miniaturas button').forEach(function(b) {
+    b.addEventListener('click', function() {
+      document.getElementById('vt-foto').src = b.dataset.foto;
+      document.querySelectorAll('.vt-miniaturas button').forEach(function(o) { o.classList.toggle('ativo', o === b); o.removeAttribute('aria-current'); });
+      b.setAttribute('aria-current', 'true');
+    });
+  });
+  var abas = document.querySelectorAll('.vt-abas [role=tab]');
+  abas.forEach(function(t, n) {
+    t.addEventListener('click', function() {
+      abas.forEach(function(o) { var s = o === t; o.setAttribute('aria-selected', s); o.tabIndex = s ? 0 : -1; document.getElementById(o.getAttribute('aria-controls')).hidden = !s; });
+    });
+    t.addEventListener('keydown', function(e) { var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0; if (d) { var o = abas[(n + d + abas.length) % abas.length]; o.focus(); o.click(); } });
+  });
+  document.getElementById('vt-compartilhar').addEventListener('click', function() {
+    var dados = { title: document.title, url: location.href.split('?')[0] };
+    if (navigator.share) navigator.share(dados).catch(function() {});
+    else if (navigator.clipboard) navigator.clipboard.writeText(dados.url).then(function() { Orcamento.avisar('Link copiado.'); });
+  });
+
+  // gaveta de disponibilidade: 7 dias em volta da data escolhida
+  var gaveta = document.getElementById('vt-gaveta'), lista = document.getElementById('vt-dias'), ok = document.getElementById('vt-gaveta-ok');
+  var gInput = document.getElementById('vt-gaveta-input'), escolhida = '';
+  function mostrarSemana(centro) {
+    var inicio = somar(centro, -2); if (inicio < hoje) inicio = hoje;
+    var fim = somar(inicio, 6);
+    gInput.value = centro;
+    lista.innerHTML = '<li class="vt-dias-carregando">Consultando…</li>';
+    consultar(inicio, fim).then(function(dias) {
+      lista.innerHTML = '';
+      dias.forEach(function(d) {
+        var li = document.createElement('li'), b = document.createElement('button');
+        b.type = 'button'; b.className = 'vt-dia vt-s-' + d.situacao; b.dataset.data = d.data;
+        b.disabled = d.situacao === 'indisponivel';
+        b.setAttribute('aria-pressed', d.data === escolhida ? 'true' : 'false');
+        var sem = new Date(d.data + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short' });
+        b.innerHTML = '<span><b></b> <small></small></span><span class="vt-dia-sit"></span>';
+        b.querySelector('b').textContent = fmt(d.data).slice(0, 5); b.querySelector('small').textContent = sem;
+        b.querySelector('.vt-dia-sit').textContent = d.rotulo;
+        if (d.motivo) b.title = d.motivo;
+        b.addEventListener('click', function() { escolhida = d.data; lista.querySelectorAll('.vt-dia').forEach(function(o) { o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); }); ok.disabled = false; document.getElementById('vt-gaveta-data').textContent = fmt(d.data); });
+        li.appendChild(b); lista.appendChild(li);
+      });
+    }).catch(function() { lista.innerHTML = '<li class="vt-dias-carregando">Não foi possível consultar agora.</li>'; });
+  }
+  document.getElementById('vt-abrir-datas').addEventListener('click', function() {
+    escolhida = campoData.value; ok.disabled = !escolhida;
+    document.getElementById('vt-gaveta-data').textContent = escolhida ? fmt(escolhida) : 'Escolha uma data';
+    mostrarSemana(escolhida || somar(hoje, 7));
+    if (gaveta.showModal) gaveta.showModal(); else gaveta.setAttribute('open', '');
+  });
+  gInput.addEventListener('change', function() { if (gInput.value >= hoje) mostrarSemana(gInput.value); });
+  document.querySelectorAll('[data-semana]').forEach(function(b) { b.addEventListener('click', function() { var c = somar(gInput.value || hoje, 7 * b.dataset.semana); mostrarSemana(c < hoje ? hoje : c); }); });
+  function fechar() { if (gaveta.close) gaveta.close(); else gaveta.removeAttribute('open'); }
+  gaveta.querySelector('[data-fechar]').addEventListener('click', fechar);
+  gaveta.addEventListener('click', function(e) { if (e.target === gaveta) fechar(); });
+  ok.addEventListener('click', function() { if (!escolhida) return; campoData.value = escolhida; fechar(); atualizar(); });
+})();
+</script>
+{% endblock %}

@@ -1,88 +1,127 @@
 {% extends "catalogo_base.html" %}
-{% block titulo %}Catálogo — {{ empresa.nome_exibicao }}{% endblock %}
+{% set nome_empresa = empresa.nome_exibicao %}
+{% block titulo %}{% if eh_inicio %}Decoração para festas — {{ nome_empresa }}{% else %}{{ titulo }} — {{ nome_empresa }}{% endif %}{% endblock %}
 {% block meta %}
-<meta property="og:title" content="Catálogo — {{ empresa.nome_exibicao }}">
-<meta property="og:description" content="Locação de decoração para eventos em Campo Grande/MS">
+{% set desc = meta_descricao or 'Kits completos, peças decorativas e temas para a sua festa. Veja a disponibilidade na data e peça seu orçamento.' %}
+<meta name="description" content="{{ desc[:160] }}">
+<link rel="canonical" href="{{ request.base_url }}{% if pag.pagina > 1 %}?pagina={{ pag.pagina }}{% endif %}">
+{% if busca %}<meta name="robots" content="noindex, follow">{% endif %}
+<meta property="og:title" content="{{ titulo if not eh_inicio else 'Catálogo' }} — {{ nome_empresa }}">
+<meta property="og:description" content="{{ desc[:160] }}">
 <meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.base_url }}">
 {% endblock %}
 {% block conteudo %}
+{% set rota = request.endpoint %}
+{% set url_busca = url_for(rota, slug=categoria.slug) if categoria else url_for(rota if rota in ('catalogo_kits', 'catalogo_pecas') else 'catalogo') %}
 
-<div class="cat-busca-topo">
-  <form class="cat-busca" method="get">
-    <input type="search" name="q" value="{{ busca }}" placeholder="Buscar produto ou kit..."
-           autocomplete="off" enterkeyhint="search">
-    <button type="submit" class="botao">Buscar</button>
+{% if eh_inicio %}
+<section class="vt-hero">
+  <div class="vt-hero-texto">
+    <h1>Decorações incríveis para momentos inesquecíveis</h1>
+    <p>Kits completos, peças decorativas e temas que transformam a sua festa.</p>
+    <form class="vt-busca" method="get" action="{{ url_for('catalogo') }}" role="search">
+      <label class="sr" for="vt-q">Buscar temas, kits ou produtos</label>
+      <input id="vt-q" type="search" name="q" placeholder="Buscar temas, kits ou produtos…" autocomplete="off" enterkeyhint="search" maxlength="80">
+      <button type="submit" aria-label="Buscar"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
+    </form>
+  </div>
+  {% set vitrine_capa = (destaques + pag.itens)|selectattr('capa')|first %}
+  <div class="vt-hero-visual" aria-hidden="true">
+    {% if vitrine_capa %}<img src="{{ url_for('static', filename=vitrine_capa.capa) }}" alt="" width="480" height="360" fetchpriority="high">
+    {% else %}<span>{{ (categorias|map(attribute='nome')|list)[:3]|join(' • ') or 'Festas temáticas' }}</span>{% endif %}
+  </div>
+</section>
+
+<ul class="vt-vantagens">
+  <li><span class="vt-ic" aria-hidden="true">✿</span><b>Diversos temas</b><small>para todas as idades</small></li>
+  <li><span class="vt-ic" aria-hidden="true">▣</span><b>Kits completos</b><small>e prontos para usar</small></li>
+  <li><span class="vt-ic" aria-hidden="true">↗</span><b>Entrega e retirada</b><small>com agendamento</small></li>
+  <li><span class="vt-ic" aria-hidden="true">♡</span><b>Atendimento</b><small>personalizado</small></li>
+</ul>
+{% else %}
+<nav class="vt-trilha" aria-label="Caminho">
+  <a href="{{ url_for('catalogo') }}">Início</a> <span aria-hidden="true">›</span>
+  {% if categoria and categoria.pai_id %}<span>Temas</span> <span aria-hidden="true">›</span>{% endif %}
+  <span aria-current="page">{{ titulo }}</span>
+</nav>
+<div class="vt-lista-cab">
+  <div>
+    <h1 class="vt-h1">{{ titulo }}</h1>
+    {% if categoria and categoria.descricao %}<p class="vt-sub">{{ categoria.descricao }}</p>{% endif %}
+    <p class="vt-sub">{{ pag.total }} ite{{ 'ns' if pag.total != 1 else 'm' }}</p>
+  </div>
+  <form class="vt-busca vt-busca--compacta" method="get" action="{{ url_busca }}" role="search">
+    <label class="sr" for="vt-q">Buscar</label>
+    <input id="vt-q" type="search" name="q" value="{{ busca }}" placeholder="Buscar{{ ' em ' ~ titulo if categoria or pagina_tipo else '' }}…" autocomplete="off" enterkeyhint="search" maxlength="80">
+    {% if cat_filtro and not categoria %}<input type="hidden" name="categoria" value="{{ cat_filtro }}">{% endif %}
+    <button type="submit" aria-label="Buscar"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
   </form>
-
-  {% if categorias %}
-  <div class="cat-filtros">
-    <a href="{{ url_for('catalogo') }}" class="cat-filtro {{ 'ativo' if not cat_filtro }}">Todos</a>
-    {% for c in categorias %}
-    <a href="{{ url_for('catalogo', categoria=c.id) }}" class="cat-filtro {{ 'ativo' if cat_filtro == c.id|string }}">{{ c.nome }}</a>
-    {% endfor %}
-  </div>
-  {% endif %}
 </div>
+{% endif %}
 
-{% if kits %}
-<section class="cat-secao">
-  <h2 class="cat-secao-titulo">Kits</h2>
-  <div class="cat-grade">
-    {% for k in kits %}
-    <a href="{{ url_for('catalogo_kit', id_=k.id) }}" class="cat-card">
-      {% if k.foto_capa %}
-      <img src="{{ url_for('static', filename=k.foto_capa.arquivo) }}" alt="{{ k.nome }}" class="cat-card-foto">
-      {% else %}
-      <div class="cat-card-sem-foto">Sem foto</div>
-      {% endif %}
-      <div class="cat-card-info">
-        <h3 class="cat-card-nome">{{ k.nome }}</h3>
-        <p class="cat-card-preco">{{ k.preco|dinheiro }}</p>
-        {% if k.soma_produtos > k.preco and k.preco > 0 %}
-        <span class="cat-card-economia">{{ ((k.soma_produtos - k.preco) / k.soma_produtos * 100)|round|int }}% de economia</span>
-        {% endif %}
-        <span class="cat-card-tipo">Kit com {{ k.itens|length }} ite{{ 'ns' if k.itens|length != 1 else 'm' }}</span>
-      </div>
-    </a>
+{% if categorias and (eh_inicio or not categoria) %}
+<section class="vt-secao" id="temas" aria-labelledby="vt-temas-titulo">
+  <div class="vt-secao-cab"><h2 id="vt-temas-titulo">Categorias</h2></div>
+  <ul class="vt-cats">
+    {% for c in categorias %}
+    <li><a href="{{ url_for('catalogo_item', slug=c.slug) }}" class="vt-cat">
+      <span class="vt-cat-img vt-tom-{{ loop.index0 % 6 }}">{% if c.imagem %}<img src="{{ url_for('static', filename=c.imagem) }}" alt="" loading="lazy" width="380" height="220">{% else %}<span>{{ c.nome }}</span>{% endif %}</span>
+      <b>{{ c.nome }}</b><small>Ver temas</small>
+    </a></li>
     {% endfor %}
-  </div>
+  </ul>
 </section>
 {% endif %}
 
-{% if produtos %}
-<section class="cat-secao">
-  <h2 class="cat-secao-titulo">Produtos</h2>
-  <div class="cat-grade">
-    {% for p in produtos %}
-    <a href="{{ url_for('catalogo_produto', id_=p.id) }}" class="cat-card">
-      {% if p.foto_capa %}
-      <img src="{{ url_for('static', filename=p.foto_capa.arquivo) }}" alt="{{ p.nome }}" class="cat-card-foto">
-      {% else %}
-      <div class="cat-card-sem-foto">Sem foto</div>
-      {% endif %}
-      <div class="cat-card-info">
-        <h3 class="cat-card-nome">{{ p.nome }}</h3>
-        <p class="cat-card-preco">{{ p.preco_locacao|dinheiro }}</p>
-        {% if p.get('categoria_nome') %}
-        <span class="cat-card-tipo">{{ p.categoria_nome }}</span>
-        {% endif %}
-      </div>
-    </a>
-    {% endfor %}
-  </div>
+{% if destaques %}
+<section class="vt-secao" aria-labelledby="vt-dest-titulo">
+  <div class="vt-secao-cab"><h2 id="vt-dest-titulo">Destaques</h2></div>
+  <div class="vt-grade">{% for i in destaques %}{% include "_vitrine_card.html" %}{% endfor %}</div>
 </section>
 {% endif %}
 
-{% if not produtos and not kits %}
-<div class="cat-vazio">
+{% if pag.itens %}
+<section class="vt-secao" aria-labelledby="vt-todos-titulo">
+  {% if eh_inicio %}
+  <div class="vt-secao-cab"><h2 id="vt-todos-titulo">Todo o catálogo</h2>
+    <span class="vt-atalhos"><a href="{{ url_for('catalogo_kits') }}">Kits</a> · <a href="{{ url_for('catalogo_pecas') }}">Peças avulsas</a></span></div>
+  {% else %}<h2 class="sr" id="vt-todos-titulo">Itens</h2>{% endif %}
+  <div class="vt-grade">{% for i in pag.itens %}{% include "_vitrine_card.html" %}{% endfor %}</div>
+  {% if pag.paginas > 1 %}
+  <nav class="vt-paginas" aria-label="Páginas">
+    {% for n in range(1, pag.paginas + 1) %}
+    {% set args = dict(request.args) %}{% set _ = args.update({'pagina': n}) %}
+    {% if n == pag.pagina %}<span aria-current="page">{{ n }}</span>
+    {% else %}<a href="{{ url_for(rota, **dict(args, slug=categoria.slug) if categoria else args) }}">{{ n }}</a>{% endif %}
+    {% endfor %}
+  </nav>
+  {% endif %}
+</section>
+{% else %}
+<div class="vt-vazio">
   {% if busca %}
-  <h3>Nenhum resultado para "{{ busca }}"</h3>
-  <p>Tente buscar por outro termo.</p>
+  <h2>Nenhum resultado para "{{ busca }}"</h2>
+  <p>Tente outro termo ou veja <a href="{{ url_for('catalogo') }}">todo o catálogo</a>.</p>
+  {% elif not eh_inicio %}
+  <h2>Nenhum item aqui ainda</h2>
+  <p>Veja <a href="{{ url_for('catalogo') }}">todo o catálogo</a>.</p>
   {% else %}
-  <h3>Catálogo em breve</h3>
+  <h2>Catálogo em breve</h2>
   <p>Estamos preparando nossos produtos para você.</p>
   {% endif %}
 </div>
 {% endif %}
 
+{% if eh_inicio %}
+<section class="vt-secao vt-como" id="como-funciona" aria-labelledby="vt-como-titulo">
+  <div class="vt-secao-cab"><h2 id="vt-como-titulo">Como funciona</h2></div>
+  <ol class="vt-passos">
+    <li><b>Escolha</b><span>Navegue pelos temas, kits e peças avulsas.</span></li>
+    <li><b>Confira a data</b><span>Veja na hora se está disponível para o dia da sua festa.</span></li>
+    <li><b>Peça o orçamento</b><span>Monte sua lista e envie. Respondemos pelo WhatsApp.</span></li>
+  </ol>
+  <p class="vt-nota">Montar a lista não reserva os itens. A reserva é confirmada pela nossa equipe.</p>
+</section>
+{% endif %}
 {% endblock %}

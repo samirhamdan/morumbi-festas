@@ -65,7 +65,8 @@ def _semear(marca: str) -> dict:
                                 (kit,)).fetchone()[0]
     return {"cliente": cli, "categoria": cat, "produto": prod, "kit": kit,
             "origem": origem, "lead": lead, "orcamento": orc, "pedido": ped,
-            "finalizado": fin, "historico": hist, "foto": foto, "item_kit": item_kit}
+            "finalizado": fin, "historico": hist, "foto": foto, "item_kit": item_kit,
+            "slug": dados.buscar_produto(prod)["slug"]}
 
 
 @pytest.fixture()
@@ -99,7 +100,7 @@ _ID_DA_ROTA = {
     "ver_pedido_operacional": "pedido", "editar_orcamento": "orcamento",
     "ver_pedido": "pedido", "editar_pedido": "pedido",
     "ver_pedido_historico": "historico", "editar_produto": "produto",
-    "editar_usuario": "usuario",
+    "editar_usuario": "usuario", "catalogo_item": "slug",
 }
 _MARCAS = ("Alfa", "Beta")
 

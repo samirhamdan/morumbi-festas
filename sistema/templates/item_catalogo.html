@@ -1,0 +1,417 @@
+{% extends "base.html" %}
+{% set eh_kit = tipo == 'kit' %}
+{% set nome_tipo = 'kit' if eh_kit else 'produto' %}
+{% set rota_editar = 'editar_kit' if eh_kit else 'editar_produto' %}
+{% set rota_lista = 'lista_kits' if eh_kit else 'lista_produtos' %}
+{% block titulo %}{{ atual.get('nome') or ('Novo ' ~ nome_tipo) }} — {{ empresa.nome_exibicao }}{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+{% set abas_item = [('info', 'Informações')] + ([('componentes', 'Componentes')] if eh_kit else []) + [('imagens', 'Imagens'), ('disponibilidade', 'Disponibilidade'), ('seo', 'SEO')] %}
+{% set aba_ativa = aba if aba in abas_item|map('first')|list else 'info' %}
+{% set aba_ativa = 'info' if campo_erro and campo_erro not in ('slug', 'seo_titulo', 'seo_descricao', 'dias_uso', 'dias_antecedencia') else ('seo' if campo_erro in ('slug', 'seo_titulo', 'seo_descricao') else ('disponibilidade' if campo_erro in ('dias_uso', 'dias_antecedencia') else aba_ativa)) %}
+{% macro recado(campo) %}{% if campo_erro == campo %}<b class="recado-campo">{{ erro }}</b>{% endif %}{% endmacro %}
+
+<main id="conteudo" class="pagina ca ca-item">
+  <nav class="ca-trilha" aria-label="Caminho">
+    <a href="{{ url_for(rota_lista) }}">{{ 'Kits' if eh_kit else 'Produtos' }}</a> ›
+    <span>{{ atual.get('nome') if atual.get('id') else ('Novo ' ~ nome_tipo) }}</span>
+  </nav>
+  <div class="ca-cab">
+    <div class="ca-cab-textos">
+      <h1 class="ca-titulo">{{ ('Editar ' ~ nome_tipo) if atual.get('id') else ('Novo ' ~ nome_tipo) }}</h1>
+      {% if atual.get('id') %}
+      <p class="ca-sub">
+        {% if atual.get('codigo_sku') %}<span class="mono">{{ atual.codigo_sku }}</span> · {% endif %}
+        {% if atual.get('status') in ('disponivel', 'ativo') %}<span class="ca-status ca-status--ativo">Ativo</span>
+        {% elif atual.get('status') == 'manutencao' %}<span class="ca-status ca-status--manutencao">Manutenção</span>
+        {% else %}<span class="ca-status ca-status--inativo">Inativo</span>{% endif %}
+        {% if atual.get('publicado') %} · publicado na vitrine{% endif %}
+        {% if eh_kit and disponibilidade is not none %} · {% if disponibilidade > 0 %}<span class="etiqueta verde">{{ disponibilidade }} disponível(is) hoje</span>{% else %}<span class="etiqueta cinza">indisponível</span>{% endif %}{% endif %}
+      </p>
+      {% endif %}
+    </div>
+    <div class="ca-cab-acoes">
+      {% if atual.get('id') and atual.get('publicado') and atual.get('status') in ('disponivel', 'ativo') and atual.get('slug') %}
+      <a class="ca-botao" href="{{ url_for('catalogo_item', slug=atual.slug) }}" target="_blank" rel="noopener">Ver na vitrine ↗</a>
+      {% endif %}
+      {% if atual.get('id') %}
+      <form method="post" action="{{ url_for('duplicar_item', tipo=tipo, id_=atual.id) }}"><button type="submit" class="ca-botao">Duplicar</button></form>
+      {% endif %}
+    </div>
+  </div>
+
+  {% include "_erro.html" %}
+
+  <nav class="ca-abas ca-abas--item" role="tablist" aria-label="Seções">
+    {% for chave, rotulo in abas_item %}
+    {% set sem_id = chave in ('componentes', 'imagens') and not atual.get('id') %}
+    <a href="?aba={{ chave }}" role="tab" id="aba-{{ chave }}" aria-controls="painel-{{ chave }}"
+       aria-selected="{{ 'true' if aba_ativa == chave else 'false' }}" class="ca-aba{{ ' ativo' if aba_ativa == chave }}{{ ' ca-aba--off' if sem_id }}" data-aba="{{ chave }}">{{ rotulo }}{% if chave == 'componentes' and atual.get('itens') %} <span>({{ atual.itens|length }})</span>{% elif chave == 'imagens' and atual.get('fotos') %} <span>({{ atual.fotos|length }})</span>{% endif %}</a>
+    {% endfor %}
+  </nav>
+
+  {# Um só formulário para os dados; os campos das abas apontam para ele com form="ca-form". #}
+  <form method="post" id="ca-form" class="formulario" data-avisar action="{{ url_for(rota_editar, id_=atual.get('id')) }}">
+    <input type="hidden" name="aba_atual" value="{{ aba_ativa }}" id="ca-aba-atual">
+  </form>
+
+  {# ---------------- Informações ---------------- #}
+  <section class="ca-painel" id="painel-info" role="tabpanel" aria-labelledby="aba-info" {{ 'hidden' if aba_ativa != 'info' }}>
+    <div class="ca-colunas">
+      <div class="cartao ca-cartao">
+        <h2 class="ca-subtitulo">Dados do {{ nome_tipo }}</h2>
+        <label class="campo" id="campo-nome">
+          <span class="campo-rotulo">Nome do {{ nome_tipo }}</span>
+          <input form="ca-form" type="text" name="nome" value="{{ atual.get('nome', '') }}" required maxlength="120" {{ 'autofocus' if not atual.get('id') }}>
+          {{ recado('nome') }}
+        </label>
+        <div class="campo-duplo">
+          <label class="campo" id="campo-categoria_id">
+            <span class="campo-rotulo">Categoria</span>
+            <select form="ca-form" name="categoria_id">
+              <option value="">— Sem categoria —</option>
+              {% for c in categorias %}
+              <option value="{{ c.id }}" {{ 'selected' if atual.get('categoria_id')|string == c.id|string }}>{{ '— ' if c.pai_id }}{{ c.nome }}</option>
+              {% endfor %}
+            </select>
+            {{ recado('categoria_id') }}
+          </label>
+          <label class="campo" id="campo-selo">
+            <span class="campo-rotulo">Selo na vitrine</span>
+            <select form="ca-form" name="selo">
+              {% for s in selos %}<option value="{{ s }}" {{ 'selected' if (atual.get('selo') or '') == s }}>{{ s or '— Nenhum —' }}</option>{% endfor %}
+            </select>
+            {{ recado('selo') }}
+          </label>
+        </div>
+        <label class="campo" id="campo-descricao">
+          <span class="campo-rotulo">Descrição</span>
+          <textarea form="ca-form" name="descricao" rows="4" maxlength="4000">{{ atual.get('descricao', '') or '' }}</textarea>
+          {{ recado('descricao') }}
+        </label>
+        <label class="campo" id="campo-tags">
+          <span class="campo-rotulo">Tags / temas (separadas por vírgula)</span>
+          <input form="ca-form" type="text" name="tags" maxlength="400"
+                 value="{{ atual.get('tags')|join(', ') if atual.get('tags') is iterable and atual.get('tags') is not string else (atual.get('tags') or '') }}"
+                 placeholder="safari, infantil, menino">
+        </label>
+        {% if not eh_kit %}
+        <div class="campo-duplo">
+          <label class="campo" id="campo-localizacao">
+            <span class="campo-rotulo">Localização física</span>
+            <input form="ca-form" type="text" name="localizacao" value="{{ atual.get('localizacao', '') or '' }}" placeholder="Estante A3, prateleira 2" maxlength="120">
+          </label>
+          <label class="campo" id="campo-observacoes">
+            <span class="campo-rotulo">Observações internas</span>
+            <input form="ca-form" type="text" name="observacoes" value="{{ atual.get('observacoes', '') or '' }}" maxlength="400">
+          </label>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="ca-lateral">
+        <div class="cartao ca-cartao">
+          <h2 class="ca-subtitulo">Preço{{ ' e estoque' if not eh_kit }}</h2>
+          {% if eh_kit %}
+          <label class="campo" id="campo-preco">
+            <span class="campo-rotulo">Preço do kit (R$)</span>
+            <input form="ca-form" type="number" name="preco" step="0.01" min="0" inputmode="decimal"
+                   value="{{ atual.get('preco', 0) if atual.get('preco') is string else '%.2f'|format(atual.get('preco', 0) or 0) }}">
+            {{ recado('preco') }}
+          </label>
+          {% if atual.get('soma_produtos') and atual.get('preco') is number and atual.soma_produtos > atual.preco %}
+          <p class="ca-economia-texto">Economia de {{ (atual.soma_produtos - atual.preco)|dinheiro }}
+            ({{ ((atual.soma_produtos - atual.preco) / atual.soma_produtos * 100)|round|int }}% em relação à soma das peças: {{ atual.soma_produtos|dinheiro }})</p>
+          {% endif %}
+          {% else %}
+          <label class="campo" id="campo-preco_locacao">
+            <span class="campo-rotulo">Preço de locação (R$)</span>
+            <input form="ca-form" type="number" name="preco_locacao" step="0.01" min="0" inputmode="decimal"
+                   value="{{ atual.get('preco_locacao', 0) if atual.get('preco_locacao') is string else '%.2f'|format(atual.get('preco_locacao', 0) or 0) }}">
+            {{ recado('preco_locacao') }}
+          </label>
+          <label class="campo" id="campo-valor_referencia">
+            <span class="campo-rotulo">Valor de reposição (R$)</span>
+            <input form="ca-form" type="number" name="valor_referencia" step="0.01" min="0" inputmode="decimal"
+                   value="{{ atual.get('valor_referencia', 0) if atual.get('valor_referencia') is string else '%.2f'|format(atual.get('valor_referencia', 0) or 0) }}">
+            {{ recado('valor_referencia') }}
+          </label>
+          <label class="campo" id="campo-quantidade_total">
+            <span class="campo-rotulo">Estoque físico (unidades)</span>
+            <input form="ca-form" type="number" name="quantidade_total" step="1" min="0" inputmode="numeric"
+                   value="{{ atual.get('quantidade_total', 1 if pode_estoque else 0) }}" {{ 'disabled' if not pode_estoque }}>
+            {% if not pode_estoque %}<small class="ca-dica">Só o administrador altera o estoque.</small>{% endif %}
+            {{ recado('quantidade_total') }}
+          </label>
+          {% endif %}
+        </div>
+
+        <div class="cartao ca-cartao">
+          <h2 class="ca-subtitulo">Publicação</h2>
+          <label class="campo" id="campo-status">
+            <span class="campo-rotulo">Status</span>
+            <select form="ca-form" name="status" {{ 'disabled' if not pode_status }}>
+              {% for s in status_opcoes %}
+              <option value="{{ s }}" {{ 'selected' if atual.get('status', 'inativo' if not pode_status else status_opcoes[0]) == s }}>{{ {'disponivel': 'Ativo', 'ativo': 'Ativo', 'manutencao': 'Manutenção', 'inativo': 'Inativo'}[s] }}</option>
+              {% endfor %}
+            </select>
+            {% if not pode_status %}<small class="ca-dica">{{ 'Novos itens começam inativos; ' if not atual.get('id') }}o administrador ativa.</small>{% endif %}
+            {{ recado('status') }}
+          </label>
+          <label class="ca-marca" id="campo-publicado">
+            <input form="ca-form" type="checkbox" name="publicado" value="1" {{ 'checked' if atual.get('publicado') }}>
+            <span>Publicar na vitrine</span>
+          </label>
+          <label class="ca-marca" id="campo-destaque">
+            <input form="ca-form" type="checkbox" name="destaque" value="1" {{ 'checked' if atual.get('destaque') }}>
+            <span>Mostrar em “Destaques”</span>
+          </label>
+          {% if eh_kit and atual.get('id') and not atual.get('itens') %}
+          <p class="ca-dica ca-dica--alerta">Um kit sem componentes não aparece na vitrine e não pode ser ativado.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ---------------- Componentes (kit) ---------------- #}
+  {% if eh_kit %}
+  <section class="ca-painel" id="painel-componentes" role="tabpanel" aria-labelledby="aba-componentes" {{ 'hidden' if aba_ativa != 'componentes' }}>
+    {% if not atual.get('id') %}
+    <div class="cartao cartao-vazio"><b>Salve o kit primeiro.</b><span>Depois disso você adiciona as peças que o compõem.</span></div>
+    {% else %}
+    <div class="cartao ca-cartao">
+      <h2 class="ca-subtitulo">Peças do kit</h2>
+      <p class="ca-dica">O kit não tem estoque próprio: a disponibilidade vem da peça mais escassa.</p>
+      {% if atual.get('itens') %}
+      <div class="rolagem">
+      <table class="tabela ca-tabela ca-tabela--simples">
+        <thead><tr><th>Produto</th><th>SKU</th><th>Qtd no kit</th><th>Estoque</th><th>Preço unit.</th><th>Subtotal</th><th></th></tr></thead>
+        <tbody>
+          {% for item in atual.itens %}
+          <tr>
+            <td data-rotulo="Produto" class="chave">{{ item.produto_nome }}{% if item.produto_status != 'disponivel' %} <span class="ca-status ca-status--{{ 'manutencao' if item.produto_status == 'manutencao' else 'inativo' }}">{{ 'Manutenção' if item.produto_status == 'manutencao' else 'Inativo' }}</span>{% endif %}</td>
+            <td data-rotulo="SKU" class="mono">{{ item.codigo_sku }}</td>
+            <td data-rotulo="Qtd no kit" class="num">{{ item.quantidade }}</td>
+            <td data-rotulo="Estoque" class="num">{{ item.quantidade_total }}</td>
+            <td data-rotulo="Preço unit." class="num">{{ item.preco_locacao|dinheiro }}</td>
+            <td data-rotulo="Subtotal" class="num">{{ (item.preco_locacao * item.quantidade)|dinheiro }}</td>
+            <td class="num acao">
+              <form method="post" action="{{ url_for('remover_item_kit', id_=atual.id, item_id=item.id) }}">
+                <button type="submit" class="ca-botao ca-botao--mini ca-botao--perigo">remover</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot><tr><td colspan="5" class="num"><b>Soma das peças</b></td><td class="num"><b>{{ atual.soma_produtos|dinheiro }}</b></td><td></td></tr></tfoot>
+      </table>
+      </div>
+      {% else %}
+      <p class="ca-dica">Nenhum produto adicionado ao kit.</p>
+      {% endif %}
+      <form method="post" action="{{ url_for('adicionar_item_kit', id_=atual.id) }}" class="ca-linha-form">
+        <label class="campo"><span class="campo-rotulo">Produto</span>
+          <select name="produto_id" required>
+            <option value="">— Selecione —</option>
+            {% for p in produtos %}<option value="{{ p.id }}">{{ p.nome }} ({{ p.codigo_sku }}){{ ' — inativo' if p.status != 'disponivel' }}</option>{% endfor %}
+          </select></label>
+        <label class="campo ca-campo-qtd"><span class="campo-rotulo">Quantidade</span>
+          <input type="number" name="quantidade" value="1" min="1" max="999" step="1" inputmode="numeric"></label>
+        <button type="submit" class="ca-botao ca-botao--primario">Adicionar</button>
+      </form>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {# ---------------- Imagens ---------------- #}
+  <section class="ca-painel" id="painel-imagens" role="tabpanel" aria-labelledby="aba-imagens" {{ 'hidden' if aba_ativa != 'imagens' }}>
+    {% if not atual.get('id') %}
+    <div class="cartao cartao-vazio"><b>Salve o {{ nome_tipo }} primeiro.</b><span>Depois disso você envia as fotos.</span></div>
+    {% else %}
+    <div class="cartao ca-cartao">
+      <h2 class="ca-subtitulo">Galeria</h2>
+      <p class="ca-dica">A primeira foto é a capa na vitrine. JPG, PNG ou WebP até 10 MB; as fotos são otimizadas automaticamente.</p>
+      {% if atual.get('fotos') %}
+      <ul class="ca-galeria">
+        {% for foto in atual.fotos %}
+        <li class="ca-foto{{ ' ca-foto--capa' if foto.principal }}">
+          <img src="{{ url_for('static', filename=foto.miniatura or foto.arquivo) }}" alt="Foto {{ loop.index }} de {{ atual.nome }}" loading="lazy" width="160" height="160">
+          {% if foto.principal %}<span class="ca-foto-capa">Capa</span>{% endif %}
+          <div class="foto-acoes">
+            {% if not foto.principal %}
+            <form method="post" action="{{ url_for('definir_capa_kit' if eh_kit else 'definir_capa', id_=atual.id, foto_id=foto.id) }}"><button type="submit" class="ca-botao ca-botao--mini">Capa</button></form>
+            {% endif %}
+            {% if not loop.first %}
+            <form method="post" action="{{ url_for('mover_foto', tipo=tipo, id_=atual.id, foto_id=foto.id) }}"><input type="hidden" name="direcao" value="antes"><button type="submit" class="ca-botao ca-botao--mini" aria-label="Mover para antes">←</button></form>
+            {% endif %}
+            {% if not loop.last %}
+            <form method="post" action="{{ url_for('mover_foto', tipo=tipo, id_=atual.id, foto_id=foto.id) }}"><input type="hidden" name="direcao" value="depois"><button type="submit" class="ca-botao ca-botao--mini" aria-label="Mover para depois">→</button></form>
+            {% endif %}
+            <form method="post" action="{{ url_for('excluir_foto_kit' if eh_kit else 'excluir_foto', id_=atual.id, foto_id=foto.id) }}" data-confirmar="Remover esta foto?"><button type="submit" class="ca-botao ca-botao--mini ca-botao--perigo">Remover</button></form>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="ca-dica">Nenhuma foto adicionada.</p>
+      {% endif %}
+      <form method="post" action="{{ url_for('upload_foto_kit' if eh_kit else 'upload_foto', id_=atual.id) }}" enctype="multipart/form-data" class="ca-envio">
+        <label class="ca-soltar">
+          <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple required>
+          <span><b>Escolher fotos</b> ou arraste aqui</span>
+        </label>
+        <label class="ca-marca"><input type="checkbox" name="principal" value="1"> <span>Usar a primeira como capa</span></label>
+        <button type="submit" class="ca-botao ca-botao--primario">Enviar fotos</button>
+      </form>
+    </div>
+    {% endif %}
+  </section>
+
+  {# ---------------- Disponibilidade ---------------- #}
+  <section class="ca-painel" id="painel-disponibilidade" role="tabpanel" aria-labelledby="aba-disponibilidade" {{ 'hidden' if aba_ativa != 'disponibilidade' }}>
+    <div class="ca-colunas">
+      <div class="cartao ca-cartao">
+        <h2 class="ca-subtitulo">Regras de uso</h2>
+        <label class="campo" id="campo-dias_uso">
+          <span class="campo-rotulo">Dias ocupados por festa</span>
+          <input form="ca-form" type="number" name="dias_uso" min="1" max="30" step="1" inputmode="numeric" value="{{ atual.get('dias_uso', 2) }}" {{ 'disabled' if not pode_estoque }}>
+          <small class="ca-dica">Com 2 dias, a peça sai na véspera e volta no dia da festa.</small>
+          {{ recado('dias_uso') }}
+        </label>
+        <label class="campo" id="campo-dias_antecedencia">
+          <span class="campo-rotulo">Antecedência mínima (dias)</span>
+          <input form="ca-form" type="number" name="dias_antecedencia" min="0" max="365" step="1" inputmode="numeric" value="{{ atual.get('dias_antecedencia', 0) }}" {{ 'disabled' if not pode_estoque }}>
+          {{ recado('dias_antecedencia') }}
+        </label>
+        {% if not eh_kit %}
+        <label class="ca-marca" id="campo-reuso_mesmo_dia">
+          <input form="ca-form" type="checkbox" name="reuso_mesmo_dia" value="1" {{ 'checked' if atual.get('reuso_mesmo_dia') }} {{ 'disabled' if not pode_estoque }}>
+          <span>Pode voltar e sair no mesmo dia</span>
+        </label>
+        {% endif %}
+        {% if not pode_estoque %}<p class="ca-dica">Só o administrador altera estoque e regras.</p>{% endif %}
+        <p class="ca-dica">Adicionar ao orçamento não reserva nada. Só pedidos confirmados e em andamento ocupam o estoque; festas antigas (histórico) não contam.</p>
+      </div>
+
+      <div class="cartao ca-cartao">
+        {% if calendario %}
+        <div class="ca-cal-cab">
+          <a class="ca-botao ca-botao--mini" href="?aba=disponibilidade&mes={{ calendario.anterior }}" aria-label="Mês anterior">‹</a>
+          <h2 class="ca-subtitulo">{{ calendario.titulo[:1]|upper }}{{ calendario.titulo[1:] }}</h2>
+          <a class="ca-botao ca-botao--mini" href="?aba=disponibilidade&mes={{ calendario.seguinte }}" aria-label="Mês seguinte">›</a>
+        </div>
+        <table class="ca-cal" aria-label="Disponibilidade por data de festa">
+          <thead><tr>{% for d in ('D', 'S', 'T', 'Q', 'Q', 'S', 'S') %}<th scope="col">{{ d }}</th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for semana in calendario.semanas %}
+            <tr>
+              {% for dia in semana %}
+              {% if dia %}
+              <td class="ca-dia ca-dia--{{ dia.situacao }}{{ ' ca-dia--hoje' if dia.data == calendario.hoje }}" title="{{ dia.data|data }}: {{ dia.rotulo }}{% if dia.capacidade %} ({{ dia.livres }} de {{ dia.capacidade }} livres){% endif %}{% if dia.motivo %} — {{ dia.motivo }}{% endif %}">
+                <span class="ca-dia-num">{{ dia.data[8:]|int }}</span>
+                {% if dia.capacidade %}<small>{{ dia.livres }}</small>{% endif %}
+              </td>
+              {% else %}<td></td>{% endif %}
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <ul class="ca-legenda">
+          <li><i class="ca-dia--disponivel"></i> Disponível</li>
+          <li><i class="ca-dia--ultimas"></i> Últimas unidades</li>
+          <li><i class="ca-dia--indisponivel"></i> Indisponível</li>
+        </ul>
+        <p class="ca-dica">O número em cada dia é quantos {{ 'kits' if eh_kit else 'itens' }} ainda cabem numa festa nessa data.</p>
+        {% else %}
+        <div class="cartao-vazio"><b>Salve o {{ nome_tipo }} primeiro.</b><span>O calendário aparece depois do cadastro.</span></div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if pedidos_mes is not none %}
+    <div class="cartao ca-cartao">
+      <h2 class="ca-subtitulo">Pedidos que ocupam {{ 'as peças' if eh_kit else 'o item' }} neste mês</h2>
+      {% if pedidos_mes %}
+      <div class="rolagem">
+      <table class="tabela ca-tabela ca-tabela--simples">
+        <thead><tr><th>Pedido</th><th>Cliente</th><th>Retirada</th><th>Festa</th><th>Devolução</th><th>Unidades</th><th>Situação</th></tr></thead>
+        <tbody>
+          {% for p in pedidos_mes %}
+          <tr>
+            <td data-rotulo="Pedido"><a href="{{ url_for('ver_pedido', id_=p.id) if pode('ver_pedido') else '#' }}">#{{ p.id }}</a></td>
+            <td data-rotulo="Cliente">{{ p.cliente_nome or '—' }}</td>
+            <td data-rotulo="Retirada">{{ p.data_retirada|data if p.data_retirada else '—' }}</td>
+            <td data-rotulo="Festa">{{ p.data_evento|data if p.data_evento else '—' }}</td>
+            <td data-rotulo="Devolução">{{ p.data_devolucao|data if p.data_devolucao else '—' }}</td>
+            <td data-rotulo="Unidades" class="num">{{ p.unidades }}</td>
+            <td data-rotulo="Situação">{{ p.rotulo_status }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <p class="ca-dica">Nenhum pedido em andamento ocupa {{ 'as peças deste kit' if eh_kit else 'este item' }} neste mês.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+
+  {# ---------------- SEO ---------------- #}
+  <section class="ca-painel" id="painel-seo" role="tabpanel" aria-labelledby="aba-seo" {{ 'hidden' if aba_ativa != 'seo' }}>
+    <div class="cartao ca-cartao">
+      <h2 class="ca-subtitulo">Como aparece no Google</h2>
+      <label class="campo" id="campo-slug">
+        <span class="campo-rotulo">Endereço na vitrine</span>
+        <span class="ca-prefixo"><span>/catalogo/</span><input form="ca-form" type="text" name="slug" value="{{ atual.get('slug', '') or '' }}" maxlength="80" pattern="[a-z0-9\-]*" placeholder="gerado a partir do nome"></span>
+        <small class="ca-dica">Só letras minúsculas, números e hífen. Em branco, é gerado a partir do nome.</small>
+        {{ recado('slug') }}
+      </label>
+      <label class="campo" id="campo-seo_titulo">
+        <span class="campo-rotulo">Título (até 70 caracteres)</span>
+        <input form="ca-form" type="text" name="seo_titulo" value="{{ atual.get('seo_titulo', '') or '' }}" maxlength="70" placeholder="{{ atual.get('nome', '') }}">
+        {{ recado('seo_titulo') }}
+      </label>
+      <label class="campo" id="campo-seo_descricao">
+        <span class="campo-rotulo">Descrição (até 160 caracteres)</span>
+        <textarea form="ca-form" name="seo_descricao" rows="3" maxlength="160" placeholder="Resumo que aparece nos resultados de busca">{{ atual.get('seo_descricao', '') or '' }}</textarea>
+        {{ recado('seo_descricao') }}
+      </label>
+      <div class="ca-previa-google" aria-label="Prévia do resultado de busca">
+        <small>{{ request.host }}/catalogo/{{ atual.get('slug') or '…' }}</small>
+        <b>{{ atual.get('seo_titulo') or atual.get('nome') or 'Título do item' }}</b>
+        <span>{{ atual.get('seo_descricao') or (atual.get('descricao') or '')[:160] or 'Descrição do item.' }}</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="barra-acoes ca-barra-salvar">
+    <button type="submit" form="ca-form" class="botao primario">Salvar</button>
+    <a href="{{ url_for(rota_lista) }}" class="botao vazado">{{ 'Voltar' if atual.get('id') else 'Cancelar' }}</a>
+  </div>
+</main>
+
+<script>
+(function(){
+  var abas = document.querySelectorAll('.ca-abas--item .ca-aba'), campo = document.getElementById('ca-aba-atual');
+  abas.forEach(function(a) {
+    a.addEventListener('click', function(e) {
+      e.preventDefault();
+      var alvo = a.dataset.aba;
+      abas.forEach(function(b) { var sim = b === a; b.classList.toggle('ativo', sim); b.setAttribute('aria-selected', sim ? 'true' : 'false'); });
+      document.querySelectorAll('.ca-painel').forEach(function(p) { p.hidden = p.id !== 'painel-' + alvo; });
+      campo.value = alvo;
+      var u = new URL(location.href); u.searchParams.set('aba', alvo); history.replaceState(null, '', u);
+    });
+  });
+  document.querySelectorAll('form[data-confirmar]').forEach(function(f) {
+    f.addEventListener('submit', function(e) { if (!confirm(f.dataset.confirmar)) e.preventDefault(); });
+  });
+})();
+</script>
+{% endblock %}

@@ -5,87 +5,93 @@
 
 {% include "_topo.html" %}
 
-<main id="conteudo" class="pagina">
-  <div class="cabecalho-lista">
-    <h2 class="secao">Categorias</h2>
+<main id="conteudo" class="pagina ca">
+  <div class="ca-cab">
+    <div class="ca-cab-textos">
+      <nav class="ca-trilha" aria-label="Caminho"><span>Catálogo</span> › <span>Categorias</span></nav>
+      <h1 class="ca-titulo">Categorias</h1>
+      <p class="ca-sub">Organize os temas da vitrine. Imagem e nome aparecem para o cliente.</p>
+    </div>
   </div>
 
   {% include "_erro.html" %}
 
+  {% macro formulario(c=None) %}
+  <form method="post" action="{{ url_for('salvar_categoria') }}" class="ca-cat-form">
+    {% if c %}<input type="hidden" name="id" value="{{ c.id }}">{% endif %}
+    <label class="ca-campo"><span>Nome</span>
+      <input type="text" name="nome" required maxlength="80" value="{{ c.nome if c else '' }}" placeholder="Ex.: Infantil, Chá de Bebê"></label>
+    <label class="ca-campo"><span>Categoria principal</span>
+      <select name="pai_id">
+        <option value="">— Nenhuma —</option>
+        {% for p in categorias if not p.pai_id and (not c or p.id != c.id) %}
+        <option value="{{ p.id }}" {{ 'selected' if c and c.pai_id == p.id }}>{{ p.nome }}</option>
+        {% endfor %}
+      </select></label>
+    <label class="ca-campo ca-campo--largo"><span>Descrição (opcional)</span>
+      <input type="text" name="descricao" maxlength="300" value="{{ c.descricao if c else '' }}" placeholder="Ex.: Temas para festas de aniversário infantil"></label>
+    <label class="ca-campo"><span>Endereço na vitrine</span>
+      <span class="ca-prefixo"><small>/catalogo/</small><input type="text" name="slug" maxlength="80" value="{{ c.slug if c else '' }}" placeholder="gerado pelo nome" pattern="[a-z0-9]+(-[a-z0-9]+)*"></span></label>
+    <label class="ca-check"><input type="checkbox" name="visivel" value="1" {{ 'checked' if not c or c.visivel }}> Mostrar na vitrine</label>
+    <input type="hidden" name="visivel" value="0" disabled>
+    <button type="submit" class="ca-botao ca-botao--primario">{{ 'Salvar' if c else 'Criar categoria' }}</button>
+  </form>
+  {% endmacro %}
+
   {% if tem('catalog.edit') %}
-  <div class="cartao" style="padding:20px;margin-bottom:20px">
-    <h3 class="form-secao" style="border-top:none;margin-top:0;padding-top:0">Nova categoria</h3>
-    <form method="post" action="{{ url_for('salvar_categoria') }}" class="formulario">
-      <div class="campo-duplo">
-        <label class="campo" id="campo-nome" style="margin-bottom:0">
-          <span class="campo-rotulo">Nome</span>
-          <input type="text" name="nome" required placeholder="Ex: Infantil, Mesas, Estruturas">
-        </label>
-        <label class="campo" style="margin-bottom:0">
-          <span class="campo-rotulo">Categoria pai (opcional)</span>
-          <select name="pai_id">
-            <option value="">— Nenhuma (raiz) —</option>
-            {% for c in categorias %}
-              {% if not c.pai_id %}
-              <option value="{{ c.id }}">{{ c.nome }}</option>
-              {% endif %}
-            {% endfor %}
-          </select>
-        </label>
-      </div>
-      <button type="submit" class="botao primario" style="margin-top:12px">Criar</button>
-    </form>
-  </div>
+  <details class="ca-bloco ca-nova" {{ 'open' if not arvore }}>
+    <summary class="ca-bloco-titulo">+ Nova categoria</summary>
+    {{ formulario() }}
+  </details>
   {% endif %}
 
   {% if arvore %}
-  <div class="cartao cartao-tabela"><div class="rolagem">
-    <table class="tabela">
-      <thead><tr>
-        <th>Categoria</th>
-        <th>Subcategorias</th>
-        {% if tem('catalog.edit') %}<th></th>{% endif %}
-      </tr></thead>
-      <tbody>
-        {% for cat in arvore %}
-        <tr>
-          <td data-rotulo="Categoria" class="chave"><b>{{ cat.nome }}</b></td>
-          <td data-rotulo="Subcategorias">
-            {% for f in cat.filhos %}<span class="etiqueta roxo">{{ f.nome }}</span> {% endfor %}
-            {% if not cat.filhos %}—{% endif %}
-          </td>
-          {% if tem('catalog.edit') %}
-          <td class="num acao">
-            <form method="post" action="{{ url_for('excluir_categoria', id_=cat.id) }}" style="display:inline">
-              <button type="submit" class="botao vazado" style="font-size:12px;padding:4px 10px;min-height:auto;color:var(--vermelho)">excluir</button>
+  <ul class="ca-cats">
+    {% for grupo in arvore %}
+    {% for cat in [grupo] + grupo.filhos %}
+    <li class="ca-cat{{ ' ca-cat--filha' if cat.pai_id }}{{ ' ca-cat--oculta' if not cat.visivel }}">
+      <span class="ca-cat-img">{% if cat.imagem %}<img src="{{ url_for('static', filename=cat.imagem) }}" alt="" loading="lazy">{% else %}<span aria-hidden="true">{{ cat.nome[:1] }}</span>{% endif %}</span>
+      <div class="ca-cat-info">
+        <b class="ca-cat-nome">{% if cat.pai_id %}<span class="ca-cat-seta" aria-hidden="true">↳</span> {% endif %}{{ cat.nome }}</b>
+        <small>{% set n = contagem.get(cat.id, 0) %}{{ n }} {{ 'itens ativos' if n != 1 else 'item ativo' }} · /catalogo/{{ cat.slug }}{% if not cat.visivel %} · <span class="ca-selo ca-selo--cinza">oculta na vitrine</span>{% endif %}</small>
+        {% if cat.descricao %}<small class="ca-cat-desc">{{ cat.descricao }}</small>{% endif %}
+      </div>
+      {% if tem('catalog.edit') %}
+      <details class="ca-cat-editar">
+        <summary class="ca-botao">Editar</summary>
+        <div class="ca-cat-painel">
+          {{ formulario(cat) }}
+          <form method="post" action="{{ url_for('imagem_categoria', id_=cat.id) }}" enctype="multipart/form-data" class="ca-cat-imagem">
+            <label class="ca-campo"><span>Imagem da categoria (JPG, PNG ou WebP)</span><input type="file" name="imagem" accept="image/jpeg,image/png,image/webp" required></label>
+            <button type="submit" class="ca-botao">Enviar imagem</button>
+          </form>
+          <div class="ca-cat-rodape">
+            {% if cat.imagem %}<form method="post" action="{{ url_for('imagem_categoria', id_=cat.id) }}"><input type="hidden" name="remover" value="1"><button type="submit" class="ca-botao ca-botao--texto">Remover imagem</button></form>{% endif %}
+            <form method="post" action="{{ url_for('excluir_categoria', id_=cat.id) }}" onsubmit="return confirm('Excluir a categoria {{ cat.nome }}? Só é possível se nenhum produto ou kit a usa.')">
+              <button type="submit" class="ca-botao ca-botao--perigo">excluir</button>
             </form>
-          </td>
-          {% endif %}
-        </tr>
-        {% for f in cat.filhos %}
-        <tr>
-          <td data-rotulo="Categoria" style="padding-left:36px">{{ f.nome }}</td>
-          <td data-rotulo="Subcategorias">—</td>
-          {% if tem('catalog.edit') %}
-          <td class="num acao">
-            <form method="post" action="{{ url_for('excluir_categoria', id_=f.id) }}" style="display:inline">
-              <button type="submit" class="botao vazado" style="font-size:12px;padding:4px 10px;min-height:auto;color:var(--vermelho)">excluir</button>
-            </form>
-          </td>
-          {% endif %}
-        </tr>
-        {% endfor %}
-        {% endfor %}
-      </tbody>
-    </table>
-  </div></div>
+          </div>
+        </div>
+      </details>
+      {% endif %}
+    </li>
+    {% endfor %}
+    {% endfor %}
+  </ul>
   {% else %}
   <div class="cartao cartao-vazio">
     <b>Nenhuma categoria cadastrada.</b>
-    {% if tem('catalog.edit') %}
-    <span>Use o formulário acima para criar a primeira.</span>
-    {% endif %}
+    {% if tem('catalog.edit') %}<span>Crie a primeira categoria acima.</span>{% endif %}
   </div>
   {% endif %}
 </main>
+<script>
+// checkbox desmarcado envia "0" (o campo oculto só vale quando o checkbox está desmarcado)
+document.querySelectorAll('.ca-cat-form').forEach(function(f) {
+  f.addEventListener('submit', function() {
+    var c = f.querySelector('input[type=checkbox][name=visivel]');
+    f.querySelector('input[type=hidden][name=visivel]').disabled = c.checked;
+  });
+});
+</script>
 {% endblock %}

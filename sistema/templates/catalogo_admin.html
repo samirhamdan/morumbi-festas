@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% set titulo_pagina = 'Kits' if tipo_pagina == 'kit' else 'Produtos' %}
+{% block titulo %}{{ titulo_pagina }} — {{ empresa.nome_exibicao }}{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+
+{% include "_topo.html" %}
+{% set rota_lista = 'lista_kits' if tipo_pagina == 'kit' else 'lista_produtos' %}
+{% macro url_lista(aba) -%}
+{%- set base = {'aba': aba, 'q': filtros.busca, 'categoria': filtros.categoria_id,
+                'tipo': filtros.tipo if not tipo_pagina else None, 'status': filtros.status,
+                'preco_min': filtros.preco_min, 'preco_max': filtros.preco_max,
+                'estoque': filtros.estoque, 'tag': filtros.tag} -%}
+{{ url_for(rota_lista, **dict(base|dictsort|selectattr('1')|list)) }}
+{%- endmacro %}
+
+<main id="conteudo" class="pagina ca">
+  <div class="ca-cab">
+    <div class="ca-cab-textos">
+      <nav class="ca-trilha" aria-label="Caminho"><span>Catálogo</span> › <span>{{ titulo_pagina }}</span></nav>
+      <h1 class="ca-titulo">{{ titulo_pagina }}</h1>
+      <p class="ca-sub">Gerencie seus produtos e kits do catálogo.</p>
+    </div>
+    {% if tem('catalog.edit') %}
+    <div class="ca-cab-acoes">
+      {% if tipo_pagina != 'kit' %}<a class="ca-botao ca-botao--primario" href="{{ url_for('editar_produto') }}">+ Novo produto</a>{% endif %}
+      <a class="ca-botao {{ 'ca-botao--primario' if tipo_pagina == 'kit' }}" href="{{ url_for('editar_kit') }}">+ Novo kit</a>
+    </div>
+    {% endif %}
+  </div>
+
+  {% include "_erro.html" %}
+
+  <form class="ca-barra" method="get" role="search" aria-label="Buscar no catálogo" id="ca-barra">
+    <input type="hidden" name="aba" value="{{ filtros.aba }}">
+    <label class="ca-busca">
+      <span aria-hidden="true">⌕</span><span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ filtros.busca }}" placeholder="Buscar por nome, SKU, tag ou descrição…" autocomplete="off" enterkeyhint="search">
+    </label>
+    <button type="button" class="ca-botao ca-botao-filtros" aria-expanded="{{ 'true' if filtros_ativos else 'false' }}" aria-controls="ca-filtros" id="ca-abrir-filtros">
+      <span aria-hidden="true">⚲</span> Filtros{% if filtros_ativos %} <b class="ca-contador">{{ filtros_ativos }}</b>{% endif %}
+    </button>
+    <button type="submit" class="ca-botao">Buscar</button>
+
+    <div class="ca-filtros" id="ca-filtros" {{ 'hidden' if not filtros_ativos }}>
+      <div class="ca-filtros-cab"><b>Filtros</b><button type="button" class="ca-fechar" id="ca-fechar-filtros" aria-label="Fechar filtros">×</button></div>
+      <label class="ca-campo"><span>Categoria</span>
+        <select name="categoria"><option value="">Todas</option>
+          {% for c in categorias %}<option value="{{ c.id }}" {{ 'selected' if filtros.categoria_id == c.id }}>{{ '— ' if c.pai_id }}{{ c.nome }}</option>{% endfor %}
+        </select></label>
+      {% if not tipo_pagina %}
+      <label class="ca-campo"><span>Tipo</span>
+        <select name="tipo"><option value="">Todos</option>
+          <option value="kit" {{ 'selected' if filtros.tipo == 'kit' }}>Kit</option>
+          <option value="produto" {{ 'selected' if filtros.tipo == 'produto' }}>Peça avulsa</option>
+        </select></label>
+      {% endif %}
+      <label class="ca-campo"><span>Status</span>
+        <select name="status"><option value="">Todos</option>
+          {% for v, r in (('disponivel', 'Ativo (peça)'), ('ativo', 'Ativo (kit)'), ('manutencao', 'Manutenção'), ('inativo', 'Inativo')) %}
+          <option value="{{ v }}" {{ 'selected' if filtros.status == v }}>{{ r }}</option>{% endfor %}
+        </select></label>
+      <div class="ca-campo"><span>Faixa de preço (R$)</span>
+        <span class="ca-faixa"><input type="number" name="preco_min" min="0" step="0.01" value="{{ filtros.preco_min if filtros.preco_min is not none }}" placeholder="mín." aria-label="Preço mínimo">
+        <input type="number" name="preco_max" min="0" step="0.01" value="{{ filtros.preco_max if filtros.preco_max is not none }}" placeholder="máx." aria-label="Preço máximo"></span></div>
+      <label class="ca-campo"><span>Disponibilidade</span>
+        <select name="estoque"><option value="">Todas</option>
+          <option value="com" {{ 'selected' if filtros.estoque == 'com' }}>Com estoque</option>
+          <option value="sem" {{ 'selected' if filtros.estoque == 'sem' }}>Sem estoque</option>
+        </select></label>
+      {% if todas_tags %}
+      <label class="ca-campo"><span>Tag / tema</span>
+        <select name="tag"><option value="">Todas</option>
+          {% for t in todas_tags %}<option value="{{ t }}" {{ 'selected' if filtros.tag == t }}>{{ t }}</option>{% endfor %}
+        </select></label>
+      {% endif %}
+      <div class="ca-filtros-acoes">
+        <a class="ca-botao ca-botao--texto" href="{{ url_for(rota_lista, aba=filtros.aba) }}">Limpar</a>
+        <button type="submit" class="ca-botao ca-botao--primario">Aplicar</button>
+      </div>
+    </div>
+  </form>
+  <div class="ca-fundo" id="ca-fundo" hidden></div>
+
+  <nav class="ca-abas" aria-label="Situação">
+    {% for chave, rotulo in abas %}
+    <a href="{{ url_lista(aba=chave) }}" class="ca-aba{{ ' ativo' if filtros.aba == chave }}" {% if filtros.aba == chave %}aria-current="page"{% endif %}>{{ rotulo }} <span>({{ contagens[chave] }})</span></a>
+    {% endfor %}
+  </nav>
+
+  {% if itens %}
+  <div class="ca-tabela-caixa">
+    <table class="tabela ca-tabela">
+      <thead><tr>
+        <th>Produto</th>
+        <th>Categoria</th>
+        <th>Tipo</th>
+        <th>Preço</th>
+        <th>Status</th>
+        <th>Ativo</th>
+        <th>Ações</th>
+      </tr></thead>
+      <tbody>
+        {% for i in itens %}
+        {% set editar = url_for('editar_produto' if i.tipo == 'produto' else 'editar_kit', id_=i.id) %}
+        <tr class="{{ 'inativo' if not i.ativo }}" data-item="{{ i.tipo }}-{{ i.id }}">
+          <td data-rotulo="Produto" class="ca-produto">
+            <span class="ca-thumb">{% if i.capa %}<img src="{{ url_for('static', filename=i.capa) }}" alt="" loading="lazy" width="44" height="44">{% else %}<span aria-hidden="true">{{ i.nome[:1] }}</span>{% endif %}</span>
+            <span class="ca-produto-textos">
+              <a href="{{ editar }}" class="ca-produto-nome">{{ i.nome }}</a>
+              <small>{% if i.tipo == 'produto' %}{{ i.codigo_sku }} · {{ i.quantidade_total }} un.{% else %}{{ i.componentes }} componente{{ 's' if i.componentes != 1 }}{% endif %}{% if i.selo %} · <span class="ca-selo">{{ i.selo }}</span>{% endif %}{% if i.destaque %} · ★ destaque{% endif %}</small>
+            </span>
+          </td>
+          <td data-rotulo="Categoria">{{ i.categoria_nome or '—' }}</td>
+          <td data-rotulo="Tipo">{% if i.tipo == 'kit' %}<span class="ca-tipo ca-tipo--kit">Kit</span>{% else %}<span class="ca-tipo">Peça</span>{% endif %}</td>
+          <td data-rotulo="Preço" class="num">{{ i.preco|dinheiro }}{% if i.economia %} <small class="ca-economia">-{{ i.economia }}%</small>{% endif %}</td>
+          <td data-rotulo="Status">
+            {% if i.status in ('disponivel', 'ativo') %}<span class="ca-status ca-status--ativo">Ativo</span>
+            {% elif i.status == 'manutencao' %}<span class="ca-status ca-status--manutencao">Manutenção</span>
+            {% else %}<span class="ca-status ca-status--inativo">Inativo</span>{% endif %}
+            {% if i.publicado and i.ativo %}<small class="ca-vitrine">na vitrine</small>{% endif %}
+          </td>
+          <td data-rotulo="Ativo">
+            <form method="post" action="{{ url_for('ativar_item', tipo=i.tipo, id_=i.id) }}" class="ca-alternar" data-alternar>
+              <input type="hidden" name="ativo" value="{{ '0' if i.ativo else '1' }}">
+              <button type="submit" class="ca-chave{{ ' ca-chave--on' if i.ativo }}" role="switch" aria-checked="{{ 'true' if i.ativo else 'false' }}"
+                      aria-label="{{ 'Inativar' if i.ativo else 'Ativar' }} {{ i.nome }}" {{ 'disabled' if not tem('catalog.status') }}
+                      title="{{ '' if tem('catalog.status') else 'Só o administrador ativa ou inativa' }}"><span></span></button>
+            </form>
+          </td>
+          <td data-rotulo="Ações" class="ca-acoes">
+            <details class="ca-menu">
+              <summary aria-label="Ações de {{ i.nome }}">⋯</summary>
+              <div class="ca-menu-lista">
+                {% if i.publicado and i.ativo %}<a href="{{ url_for('catalogo_item', slug=i.slug) }}" target="_blank" rel="noopener">Ver na vitrine</a>{% endif %}
+                <a href="{{ editar }}">Editar</a>
+                {% if tem('catalog.edit') %}
+                <form method="post" action="{{ url_for('duplicar_item', tipo=i.tipo, id_=i.id) }}"><button type="submit">Duplicar</button></form>
+                {% endif %}
+                {% if tem('catalog.status') %}
+                <form method="post" action="{{ url_for('ativar_item', tipo=i.tipo, id_=i.id) }}"><input type="hidden" name="ativo" value="{{ '0' if i.ativo else '1' }}"><button type="submit">{{ 'Inativar' if i.ativo else 'Ativar' }}</button></form>
+                {% endif %}
+              </div>
+            </details>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="ca-rodape">{{ itens|length }} {{ 'itens' if itens|length != 1 else 'item' }}</p>
+  </div>
+  {% elif filtros.busca or filtros_ativos %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum resultado{% if filtros.busca %} para "{{ filtros.busca }}"{% endif %}.</b>
+    <span>Revise a busca ou <a href="{{ url_for(rota_lista, aba=filtros.aba) }}">limpe os filtros</a>.</span>
+  </div>
+  {% else %}
+  <div class="cartao cartao-vazio">
+    <b>Nenhum item nesta aba.</b>
+    {% if tem('catalog.edit') %}<span><a href="{{ url_for('editar_kit' if tipo_pagina == 'kit' else 'editar_produto') }}">Cadastrar {{ 'um kit' if tipo_pagina == 'kit' else 'um produto' }}</a></span>{% endif %}
+  </div>
+  {% endif %}
+  <p class="ca-aviso-sutil">Nada é excluído: um item inativo sai da vitrine e continua ligado aos pedidos antigos.</p>
+</main>
+
+<script>
+(function(){
+  var painel = document.getElementById('ca-filtros'), abrir = document.getElementById('ca-abrir-filtros');
+  var fundo = document.getElementById('ca-fundo'), fechar = document.getElementById('ca-fechar-filtros');
+  function mostrar(sim) { painel.hidden = !sim; fundo.hidden = !sim || window.innerWidth > 760;
+    abrir.setAttribute('aria-expanded', sim ? 'true' : 'false'); if (sim) painel.querySelector('select, input').focus(); }
+  abrir.addEventListener('click', function() { mostrar(painel.hidden); });
+  fechar.addEventListener('click', function() { mostrar(false); abrir.focus(); });
+  fundo.addEventListener('click', function() { mostrar(false); });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && !painel.hidden) mostrar(false); });
+  // Ativar/inativar na hora (o servidor confere a permissão)
+  document.querySelectorAll('form[data-alternar]').forEach(function(f) {
+    f.addEventListener('submit', function(e) {
+      if (!window.fetch) return;
+      e.preventDefault();
+      var botao = f.querySelector('button'), campo = f.querySelector('input[name=ativo]');
+      botao.disabled = true;
+      fetch(f.action, { method: 'POST', body: new FormData(f), headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+          botao.disabled = false;
+          if (!res.ok) { alert(res.mensagem); return; }
+          var ativo = campo.value === '1';
+          campo.value = ativo ? '0' : '1';
+          botao.classList.toggle('ca-chave--on', ativo);
+          botao.setAttribute('aria-checked', ativo ? 'true' : 'false');
+          var linha = f.closest('tr'); linha.classList.toggle('inativo', !ativo);
+          var status = linha.querySelector('.ca-status');
+          status.className = 'ca-status ' + (ativo ? 'ca-status--ativo' : 'ca-status--inativo');
+          status.textContent = ativo ? 'Ativo' : 'Inativo';
+        })
+        .catch(function() { botao.disabled = false; f.submit(); });
+    });
+  });
+  document.addEventListener('click', function(e) {
+    document.querySelectorAll('details.ca-menu[open]').forEach(function(d) { if (!d.contains(e.target)) d.open = false; });
+  });
+})();
+</script>
+{% endblock %}

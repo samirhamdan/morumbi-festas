@@ -1,0 +1,15 @@
+{# Cartão de item da vitrine: i = item de dados.vitrine_itens #}
+<article class="vt-card">
+  <a href="{{ url_for('catalogo_item', slug=i.slug) }}" class="vt-card-link">
+    <span class="vt-card-img">
+      {% if i.capa %}<img src="{{ url_for('static', filename=i.capa) }}" alt="" loading="lazy" decoding="async" width="480" height="360">
+      {% else %}<span class="vt-card-sem" aria-hidden="true">{{ i.nome }}</span>{% endif %}
+      {% if i.selo %}<span class="vt-selo">{{ i.selo }}</span>{% endif %}
+    </span>
+    <span class="vt-card-info">
+      <span class="vt-card-nome">{{ i.nome }}</span>
+      <span class="vt-card-preco">{{ i.preco|dinheiro }}{% if i.economia %} <small class="vt-economia">{{ i.economia }}% de economia</small>{% endif %}</span>
+      <span class="vt-card-meta">{{ 'Kit completo' if i.tipo == 'kit' else 'Peça avulsa' }}{% if i.categoria_nome %} · {{ i.categoria_nome }}{% endif %}</span>
+    </span>
+  </a>
+</article>

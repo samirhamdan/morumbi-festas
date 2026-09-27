@@ -3,6 +3,9 @@
 import io
 import os
 import re
+import threading
+import time
+from urllib.parse import quote
 from datetime import timedelta
 
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template,
@@ -718,38 +721,53 @@ def criar_app() -> Flask:
     @app.route("/categorias")
     @auth.exige_permissao("catalog.view")
     def lista_categorias():
-        arvore = dados.categorias_arvore()
-        return render_template("categorias.html", arvore=arvore,
-                               categorias=dados.listar_categorias())
+        return render_template("categorias.html", arvore=dados.categorias_arvore(),
+                               categorias=dados.listar_categorias(),
+                               contagem=dados.contagem_por_categoria())
 
     @app.route("/categoria", methods=["POST"])
     @auth.exige_permissao("catalog.edit")
     def salvar_categoria():
-        nome = (request.form.get("nome") or "").strip()
-        pai_id = request.form.get("pai_id") or None
-        if pai_id:
-            try:
-                pai_id = int(pai_id)
-            except (TypeError, ValueError):
-                pai_id = None
-        id_ = request.form.get("id") or None
-        if id_:
-            try:
-                id_ = int(id_)
-            except (TypeError, ValueError):
-                id_ = None
-
+        f = request.form
+        nome = (f.get("nome") or "").strip()
+        pai_id = f.get("pai_id", type=int) or None
+        id_ = f.get("id", type=int) or None
         try:
-            novo_id = dados.salvar_categoria(nome, pai_id, id_)
-            acao = "alterou" if id_ else "criou"
-            dados.registrar_acao(
-                session.get("usuario_id"), f"categoria_{acao}",
-                f"{acao.capitalize()} categoria {nome}",
-                {"categoria_id": novo_id})
+            dados.salvar_categoria_completa(
+                nome, pai_id, id_, descricao=f.get("descricao", ""),
+                visivel=f.get("visivel", "1") == "1", slug=f.get("slug", ""),
+                usuario_id=session.get("usuario_id"))
             flash(f"Categoria {'atualizada' if id_ else 'criada'}.", "ok")
-        except dados.ErroDeCampo as e:
+        except (dados.ErroDeCampo, ValueError) as e:
             flash(str(e), "erro")
+        return redirect(url_for("lista_categorias"))
 
+    @app.route("/categoria/<int:id_>/imagem", methods=["POST"])
+    @auth.exige_permissao("catalog.edit")
+    def imagem_categoria(id_):
+        if not dados.buscar_categoria(id_):
+            abort(404)
+        if request.form.get("remover") == "1":
+            dados.salvar_imagem_categoria(id_, "", session.get("usuario_id"))
+            flash("Imagem removida.", "ok")
+            return redirect(url_for("lista_categorias"))
+        arquivo = request.files.get("imagem")
+        if not arquivo or not arquivo.filename:
+            flash("Selecione uma imagem.", "erro")
+            return redirect(url_for("lista_categorias"))
+        try:
+            _, mini = imagens.preparar_foto(arquivo.read(imagens.FOTO_MAX_BYTES + 1))
+        except imagens.ImagemInvalida as e:
+            flash(f"{e} Use JPG, PNG ou WebP.", "erro")
+            return redirect(url_for("lista_categorias"))
+        pasta = os.path.join(app.static_folder, "uploads", "categorias", str(dados.tenant_atual()))
+        os.makedirs(pasta, exist_ok=True)
+        nome = f"{id_}-{os.urandom(4).hex()}.webp"
+        with open(os.path.join(pasta, nome), "wb") as fh:
+            fh.write(mini)
+        dados.salvar_imagem_categoria(
+            id_, f"uploads/categorias/{dados.tenant_atual()}/{nome}", session.get("usuario_id"))
+        flash("Imagem da categoria salva.", "ok")
         return redirect(url_for("lista_categorias"))
 
     @app.route("/categoria/<int:id_>/excluir", methods=["POST"])
@@ -766,220 +784,283 @@ def criar_app() -> Flask:
         return redirect(url_for("lista_categorias"))
 
     # ------------------------------------------------------------------
-    # Produtos
+    # Catálogo (administração): produtos e kits numa lista só (Sprint 7)
     # ------------------------------------------------------------------
+
+    VER_LEGADO = {"disponiveis": ("ativos", ""), "manutencao": ("todos", "manutencao"),
+                  "inativos": ("inativos", ""), "todos": ("todos", ""), "ativos": ("ativos", "")}
+
+    def _lista_catalogo(tipo_padrao=""):
+        a = request.args
+        aba = a.get("aba") if a.get("aba") in dict(dados.ABAS_CATALOGO) else ""
+        status = a.get("status", "") if a.get("status") in (
+            *dados.STATUS_PRODUTO, *dados.STATUS_KIT) else ""
+        if not aba:
+            aba, legado = VER_LEGADO.get(a.get("ver", ""), ("ativos", ""))
+            status = status or legado
+        tipo = a.get("tipo") if a.get("tipo") in dados.TIPOS_CATALOGO else tipo_padrao
+        if tipo_padrao == "kit" and aba in ("todos", "kits"):
+            aba = "todos" if a.get("ver") == "todos" else aba
+        categoria = a.get("categoria", type=int)
+
+        def preco(nome):
+            try:
+                return float((a.get(nome) or "").replace(",", ".")) if a.get(nome) else None
+            except ValueError:
+                return None
+        filtros = dict(aba=aba, busca=a.get("q", "").strip(), categoria_id=categoria,
+                       tipo=tipo, status=status, preco_min=preco("preco_min"),
+                       preco_max=preco("preco_max"),
+                       estoque=a.get("estoque", "") if a.get("estoque") in ("com", "sem") else "",
+                       tag=a.get("tag", "").strip())
+        todos = dados.itens_catalogo_admin()
+        base = [i for i in todos if not tipo or i["tipo"] == tipo]
+        itens = dados.filtrar_catalogo_admin(base, **filtros)
+        return render_template(
+            "catalogo_admin.html", itens=itens, filtros=filtros, abas=dados.ABAS_CATALOGO,
+            contagens=dados.contagem_abas_catalogo(base), categorias=dados.listar_categorias(),
+            todas_tags=sorted({t for i in todos for t in i["tags"]}, key=dados.normalizar_texto),
+            tipo_pagina=tipo_padrao or "", filtros_ativos=sum(1 for c in (
+                "categoria_id", "status", "preco_min", "preco_max", "estoque", "tag")
+                if filtros[c] not in (None, "")) + (1 if tipo and not tipo_padrao else 0))
 
     @app.route("/produtos")
     @auth.exige_permissao("catalog.view")
     def lista_produtos():
-        ver = request.args.get("ver", "disponiveis")
-        if ver == "todos":
-            lista = dados.listar_produtos()
-        elif ver == "manutencao":
-            lista = dados.listar_produtos("manutencao")
-        elif ver == "inativos":
-            lista = dados.listar_produtos("inativo")
+        return _lista_catalogo()
+
+    @app.route("/kits")
+    @auth.exige_permissao("catalog.view")
+    def lista_kits():
+        return _lista_catalogo("kit")
+
+    def _tags_do_form():
+        texto = (request.form.get("tags") or "").strip()
+        return [t.strip() for t in texto.split(",") if t.strip()]
+
+    def _campos_permitidos(tipo, campos, atual):
+        """Estoque/regras e ativação só com a permissão própria (vale no servidor)."""
+        if atual:
+            if not auth.tem("inventory.edit"):
+                for c in dados.CAMPOS_ESTOQUE:
+                    if c in atual:
+                        campos[c] = atual[c]
+            if not auth.tem("catalog.status"):
+                campos["status"] = atual["status"]
         else:
-            lista = dados.listar_produtos("disponivel")
+            if not auth.tem("inventory.edit") and tipo == "produto":
+                campos["quantidade_total"] = 0  # o estoque é informado pelo administrador
+            if not auth.tem("catalog.status"):
+                campos["status"] = "inativo"
+        return campos
 
-        cat_id = request.args.get("categoria", "")
-        if cat_id:
+    def _contexto_item(tipo, atual, **ctx):
+        from datetime import date
+        mes = request.args.get("mes", "")
+        try:
+            ref = date.fromisoformat(mes + "-01") if mes else date.fromisoformat(formato.agora()[:10]).replace(day=1)
+        except ValueError:
+            ref = date.fromisoformat(formato.agora()[:10]).replace(day=1)
+        calendario = pedidos_mes = None
+        if atual.get("id"):
+            import calendar as cal_mod
+            ultimo = cal_mod.monthrange(ref.year, ref.month)[1]
+            ini, fim = ref.isoformat(), ref.replace(day=ultimo).isoformat()
+            dias = dados.calendario_item(tipo, atual["id"], ini, fim)
+            vazias = (ref.weekday() + 1) % 7
+            casas = [None] * vazias + dias
+            casas += [None] * (-len(casas) % 7)
+            calendario = {"semanas": [casas[i:i + 7] for i in range(0, len(casas), 7)],
+                          "titulo": f"{MESES_PT[ref.month - 1]} de {ref.year}",
+                          "anterior": (ref - timedelta(days=1)).strftime("%Y-%m"),
+                          "seguinte": (ref.replace(day=ultimo) + timedelta(days=1)).strftime("%Y-%m"),
+                          "hoje": formato.agora()[:10]}
+            pedidos_mes = dados.pedidos_do_item(tipo, atual["id"], ini, fim)
+        return dict(tipo=tipo, atual=atual, categorias=dados.listar_categorias(),
+                    status_opcoes=dados.STATUS_PRODUTO if tipo == "produto" else dados.STATUS_KIT,
+                    selos=dados.SELOS, calendario=calendario, pedidos_mes=pedidos_mes,
+                    produtos=dados.listar_produtos() if tipo == "kit" else [],
+                    disponibilidade=(dados.disponibilidade_kit(atual["id"])
+                                     if tipo == "kit" and atual.get("id") else None),
+                    pode_estoque=auth.tem("inventory.edit"),
+                    pode_status=auth.tem("catalog.status"),
+                    aba=request.args.get("aba", "info"), **ctx)
+
+    def _editar_item(tipo, id_):
+        buscar = dados.buscar_produto if tipo == "produto" else dados.buscar_kit
+        atual = buscar(id_) if id_ else None
+        if id_ and not atual:
+            abort(404)
+        if request.method == "POST":
+            campos = (dados.campos_produto if tipo == "produto" else dados.campos_kit)(request.form)
+            campos = _campos_permitidos(tipo, campos, atual)
+            tags = _tags_do_form()
+            salvar = dados.salvar_produto if tipo == "produto" else dados.salvar_kit
             try:
-                cat_id_int = int(cat_id)
-                lista = [p for p in lista if p.get("categoria_id") == cat_id_int]
-            except (TypeError, ValueError):
-                cat_id = ""
-
-        tag = request.args.get("tag", "")
-        if tag:
-            lista = [p for p in lista if tag in p.get("tags", [])]
-
-        busca = request.args.get("q", "")
-        lista = listas.filtrar(lista, busca, listas.BUSCA_PRODUTOS)
-
-        ordem = request.args.get("ordem", "")
-        invertido = request.args.get("dir") == "desc"
-        lista = listas.ordenar(lista, ordem, listas.ORDENS_PRODUTOS, invertido)
-
-        todas_tags = _todas_tags_produtos()
-
-        return render_template("produtos.html", produtos=lista,
-                               ver=ver, busca=busca, ordem=ordem,
-                               invertido=invertido,
-                               ordens=listas.ORDENS_PRODUTOS,
-                               categorias=dados.listar_categorias(),
-                               cat_filtro=cat_id,
-                               tag_filtro=tag,
-                               todas_tags=todas_tags)
-
-    def _todas_tags_produtos() -> list:
-        return dados.tags_em_uso("produtos")
+                novo_id = salvar(campos, id_, tags, usuario_id=session.get("usuario_id"))
+            except (dados.ErroDeCampo, ValueError) as e:
+                return render_template("item_catalogo.html", **_contexto_item(
+                    tipo, dict(atual or {}, **campos, tags=tags), **_erro(e)))
+            flash(f"{'Produto' if tipo == 'produto' else 'Kit'} "
+                  f"{'atualizado' if id_ else 'cadastrado'}.", "ok")
+            return redirect(url_for("editar_produto" if tipo == "produto" else "editar_kit",
+                                    id_=novo_id, aba=request.form.get("aba_atual") or None))
+        return render_template("item_catalogo.html", **_contexto_item(tipo, atual or {}))
 
     @app.route("/produto", methods=["GET", "POST"])
     @app.route("/produto/<int:id_>", methods=["GET", "POST"])
     @auth.exige_permissao("catalog.edit")
     def editar_produto(id_=None):
-        produto = dados.buscar_produto(id_) if id_ else None
-        if id_ and not produto:
+        return _editar_item("produto", id_)
+
+    @app.route("/kit", methods=["GET", "POST"])
+    @app.route("/kit/<int:id_>", methods=["GET", "POST"])
+    @auth.exige_permissao("catalog.edit")
+    def editar_kit(id_=None):
+        return _editar_item("kit", id_)
+
+    @app.route("/catalogo-admin/<tipo>/<int:id_>/ativo", methods=["POST"])
+    @auth.exige_permissao("catalog.status")
+    def ativar_item(tipo, id_):
+        if tipo not in dados.TIPOS_CATALOGO:
             abort(404)
+        ativo = request.form.get("ativo") == "1"
+        try:
+            novo = dados.definir_ativo(tipo, id_, ativo, session.get("usuario_id"))
+            ok, msg = True, ("Ativado." if ativo else "Inativado. Não aparece mais na vitrine.")
+        except ValueError as e:
+            ok, msg, novo = False, str(e), None
+        if request.headers.get("X-Requested-With") == "fetch":
+            return jsonify({"ok": ok, "mensagem": msg, "status": novo}), 200 if ok else 409
+        flash(msg, "ok" if ok else "erro")
+        return redirect(request.referrer or url_for("lista_produtos"))
 
-        if request.method == "POST":
-            campos = dados.campos_produto(request.form)
-            tags_texto = (request.form.get("tags") or "").strip()
-            tags = [t.strip() for t in tags_texto.split(",") if t.strip()] if tags_texto else []
+    def _copiar_arquivo(tipo):
+        def copiar(caminho, novo_id):
+            import shutil
+            origem = os.path.join(app.static_folder, caminho or "")
+            if not caminho or not os.path.isfile(origem):
+                return ""
+            pasta = "produtos" if tipo == "produto" else "kits"
+            destino_dir = os.path.join(app.static_folder, "uploads", pasta, str(novo_id))
+            os.makedirs(destino_dir, exist_ok=True)
+            nome = f"{os.urandom(6).hex()}{os.path.splitext(caminho)[1]}"
+            shutil.copyfile(origem, os.path.join(destino_dir, nome))
+            return f"uploads/{pasta}/{novo_id}/{nome}"
+        return copiar
 
+    @app.route("/catalogo-admin/<tipo>/<int:id_>/duplicar", methods=["POST"])
+    @auth.exige_permissao("catalog.edit")
+    def duplicar_item(tipo, id_):
+        if tipo not in dados.TIPOS_CATALOGO:
+            abort(404)
+        try:
+            novo = dados.duplicar_item(tipo, id_, session.get("usuario_id"), _copiar_arquivo(tipo))
+        except ValueError as e:
+            flash(str(e), "erro")
+            return redirect(url_for("lista_produtos"))
+        flash("Cópia criada (inativa e fora da vitrine). Revise antes de ativar.", "ok")
+        return redirect(url_for("editar_produto" if tipo == "produto" else "editar_kit", id_=novo))
+
+    # --- fotos (produto e kit) -------------------------------------------
+
+    def _enviar_fotos(tipo, id_):
+        buscar = dados.buscar_produto if tipo == "produto" else dados.buscar_kit
+        item = buscar(id_)
+        if not item:
+            abort(404)
+        editar = "editar_produto" if tipo == "produto" else "editar_kit"
+        arquivos = [f for f in request.files.getlist("fotos") + request.files.getlist("foto")
+                    if f and f.filename]
+        if not arquivos:
+            flash("Selecione uma ou mais fotos.", "erro")
+            return redirect(url_for(editar, id_=id_, aba="imagens"))
+        pasta = "produtos" if tipo == "produto" else "kits"
+        destino = os.path.join(app.static_folder, "uploads", pasta, str(id_))
+        os.makedirs(destino, exist_ok=True)
+        salvar = dados.salvar_foto_produto if tipo == "produto" else dados.salvar_foto_kit
+        enviadas, erros = 0, []
+        for n, arquivo in enumerate(arquivos):
             try:
-                novo_id = dados.salvar_produto(campos, id_, tags)
-                acao = "alterou" if id_ else "criou"
-                dados.registrar_acao(
-                    session.get("usuario_id"), f"produto_{acao}",
-                    f"{acao.capitalize()} produto {campos['nome']}",
-                    {"produto_id": novo_id})
-                flash(f"Produto {'atualizado' if id_ else 'cadastrado'}.", "ok")
-                return redirect(url_for("editar_produto", id_=novo_id))
-            except dados.ErroDeCampo as e:
-                campos["tags"] = tags
-                return render_template("produto.html", atual=campos,
-                                       categorias=dados.listar_categorias(),
-                                       status_opcoes=dados.STATUS_PRODUTO,
-                                       **_erro(e))
+                grande, mini = imagens.preparar_foto(arquivo.read(imagens.FOTO_MAX_BYTES + 1))
+            except imagens.ImagemInvalida as e:
+                erros.append(f"{secure_filename(arquivo.filename) or 'arquivo'}: {e}")
+                continue
+            nome = os.urandom(6).hex()
+            for sufixo, conteudo in (("", grande), ("-mini", mini)):
+                with open(os.path.join(destino, f"{nome}{sufixo}.webp"), "wb") as f:
+                    f.write(conteudo)
+            salvar(id_, f"uploads/{pasta}/{id_}/{nome}.webp",
+                   principal=request.form.get("principal") == "1" and n == 0,
+                   miniatura=f"uploads/{pasta}/{id_}/{nome}-mini.webp")
+            enviadas += 1
+        if enviadas:
+            dados.registrar_acao(session.get("usuario_id"), f"{tipo}_foto",
+                                 f"Adicionou {enviadas} foto(s) em {item['nome']}",
+                                 {f"{tipo}_id": id_})
+            flash(f"{enviadas} foto(s) adicionada(s).", "ok")
+        for e in erros:
+            flash(e + " Use JPG, PNG ou WebP.", "erro")
+        return redirect(url_for(editar, id_=id_, aba="imagens"))
 
-        return render_template("produto.html",
-                               atual=produto or {},
-                               categorias=dados.listar_categorias(),
-                               status_opcoes=dados.STATUS_PRODUTO)
-
-    def _pasta_fotos(produto_id: int) -> str:
-        pasta = os.path.join(app.static_folder, "uploads", "produtos",
-                             str(produto_id))
-        os.makedirs(pasta, exist_ok=True)
-        return pasta
+    def _excluir_foto(tipo, id_, foto_id):
+        excluir = dados.excluir_foto_produto if tipo == "produto" else dados.excluir_foto_kit
+        foto = excluir(foto_id)
+        if foto:
+            for c in ("arquivo", "miniatura"):
+                caminho = os.path.join(app.static_folder, foto.get(c) or "")
+                if foto.get(c) and os.path.isfile(caminho):
+                    os.remove(caminho)
+            dados.registrar_acao(session.get("usuario_id"), f"{tipo}_foto_excluiu",
+                                 f"Excluiu foto do {tipo} {id_}", {f"{tipo}_id": id_})
+            flash("Foto excluída.", "ok")
+        return redirect(url_for("editar_produto" if tipo == "produto" else "editar_kit",
+                                id_=id_, aba="imagens"))
 
     @app.route("/produto/<int:id_>/foto", methods=["POST"])
     @auth.exige_permissao("catalog.edit")
     def upload_foto(id_):
-        produto = dados.buscar_produto(id_)
-        if not produto:
-            abort(404)
-
-        arquivo = request.files.get("foto")
-        if not arquivo or not arquivo.filename:
-            flash("Selecione uma foto.", "erro")
-            return redirect(url_for("editar_produto", id_=id_))
-
-        nome_seguro = secure_filename(arquivo.filename)
-        _, ext = os.path.splitext(nome_seguro)
-        if ext.lower() not in UPLOAD_EXTENSOES:
-            flash("Formato inválido. Use JPG, PNG ou WebP.", "erro")
-            return redirect(url_for("editar_produto", id_=id_))
-
-        pasta = _pasta_fotos(id_)
-        caminho = os.path.join(pasta, nome_seguro)
-        arquivo.save(caminho)
-
-        try:
-            from PIL import Image
-            img = Image.open(caminho)
-            if max(img.size) > 1200:
-                img.thumbnail((1200, 1200), Image.LANCZOS)
-                img.save(caminho)
-        except ImportError:
-            pass
-
-        principal = request.form.get("principal") == "1"
-        caminho_rel = f"uploads/produtos/{id_}/{nome_seguro}"
-        dados.salvar_foto_produto(id_, caminho_rel, principal)
-
-        dados.registrar_acao(
-            session.get("usuario_id"), "produto_foto",
-            f"Adicionou foto ao produto {produto['nome']}",
-            {"produto_id": id_})
-        flash("Foto adicionada.", "ok")
-        return redirect(url_for("editar_produto", id_=id_))
+        return _enviar_fotos("produto", id_)
 
     @app.route("/produto/<int:id_>/foto/<int:foto_id>/excluir", methods=["POST"])
     @auth.exige_permissao("catalog.edit")
     def excluir_foto(id_, foto_id):
-        foto = dados.excluir_foto_produto(foto_id)
-        if foto:
-            caminho = os.path.join(app.static_folder, foto["arquivo"])
-            if os.path.exists(caminho):
-                os.remove(caminho)
-            dados.registrar_acao(
-                session.get("usuario_id"), "produto_foto_excluiu",
-                f"Excluiu foto do produto {id_}",
-                {"produto_id": id_})
-            flash("Foto excluída.", "ok")
-        return redirect(url_for("editar_produto", id_=id_))
+        return _excluir_foto("produto", id_, foto_id)
 
     @app.route("/produto/<int:id_>/foto/<int:foto_id>/principal", methods=["POST"])
     @auth.exige_permissao("catalog.edit")
     def definir_capa(id_, foto_id):
         dados.definir_foto_principal(foto_id, id_)
         flash("Foto de capa definida.", "ok")
-        return redirect(url_for("editar_produto", id_=id_))
+        return redirect(url_for("editar_produto", id_=id_, aba="imagens"))
 
-    # ------------------------------------------------------------------
-    # Kits
-    # ------------------------------------------------------------------
-
-    @app.route("/kits")
-    @auth.exige_permissao("catalog.view")
-    def lista_kits():
-        ver = request.args.get("ver", "ativos")
-        if ver == "todos":
-            lista = dados.listar_kits()
-        elif ver == "inativos":
-            lista = dados.listar_kits("inativo")
-        else:
-            lista = dados.listar_kits("ativo")
-
-        busca = request.args.get("q", "")
-        lista = listas.filtrar(lista, busca, listas.BUSCA_KITS)
-
-        ordem = request.args.get("ordem", "")
-        invertido = request.args.get("dir") == "desc"
-        lista = listas.ordenar(lista, ordem, listas.ORDENS_KITS, invertido)
-
-        return render_template("kits.html", kits=lista,
-                               ver=ver, busca=busca, ordem=ordem,
-                               invertido=invertido,
-                               ordens=listas.ORDENS_KITS)
-
-    @app.route("/kit", methods=["GET", "POST"])
-    @app.route("/kit/<int:id_>", methods=["GET", "POST"])
+    @app.route("/kit/<int:id_>/foto", methods=["POST"])
     @auth.exige_permissao("catalog.edit")
-    def editar_kit(id_=None):
-        kit = dados.buscar_kit(id_) if id_ else None
-        if id_ and not kit:
+    def upload_foto_kit(id_):
+        return _enviar_fotos("kit", id_)
+
+    @app.route("/kit/<int:id_>/foto/<int:foto_id>/excluir", methods=["POST"])
+    @auth.exige_permissao("catalog.edit")
+    def excluir_foto_kit(id_, foto_id):
+        return _excluir_foto("kit", id_, foto_id)
+
+    @app.route("/kit/<int:id_>/foto/<int:foto_id>/principal", methods=["POST"])
+    @auth.exige_permissao("catalog.edit")
+    def definir_capa_kit(id_, foto_id):
+        dados.definir_foto_principal_kit(foto_id, id_)
+        flash("Foto de capa definida.", "ok")
+        return redirect(url_for("editar_kit", id_=id_, aba="imagens"))
+
+    @app.route("/catalogo-admin/<tipo>/<int:id_>/foto/<int:foto_id>/mover", methods=["POST"])
+    @auth.exige_permissao("catalog.edit")
+    def mover_foto(tipo, id_, foto_id):
+        if tipo not in dados.TIPOS_CATALOGO:
             abort(404)
+        dados.mover_foto(tipo, id_, foto_id, 1 if request.form.get("direcao") == "depois" else -1)
+        return redirect(url_for("editar_produto" if tipo == "produto" else "editar_kit",
+                                id_=id_, aba="imagens"))
 
-        if request.method == "POST":
-            campos = dados.campos_kit(request.form)
-            try:
-                novo_id = dados.salvar_kit(campos, id_)
-                acao = "alterou" if id_ else "criou"
-                dados.registrar_acao(
-                    session.get("usuario_id"), f"kit_{acao}",
-                    f"{acao.capitalize()} kit {campos['nome']}",
-                    {"kit_id": novo_id})
-                flash(f"Kit {'atualizado' if id_ else 'cadastrado'}.", "ok")
-                return redirect(url_for("editar_kit", id_=novo_id))
-            except dados.ErroDeCampo as e:
-                return render_template("kit.html", atual=campos,
-                                       produtos=dados.listar_produtos("disponivel"),
-                                       status_opcoes=dados.STATUS_KIT,
-                                       **_erro(e))
-
-        disp = None
-        if kit:
-            disp = dados.disponibilidade_kit(id_)
-
-        return render_template("kit.html",
-                               atual=kit or {},
-                               produtos=dados.listar_produtos("disponivel"),
-                               status_opcoes=dados.STATUS_KIT,
-                               disponibilidade=disp)
+    # --- componentes do kit ------------------------------------------------
 
     @app.route("/kit/<int:id_>/item", methods=["POST"])
     @auth.exige_permissao("catalog.edit")
@@ -987,153 +1068,187 @@ def criar_app() -> Flask:
         kit = dados.buscar_kit(id_)
         if not kit:
             abort(404)
-
-        produto_id = request.form.get("produto_id")
-        quantidade = request.form.get("quantidade", "1")
         try:
-            produto_id = int(produto_id)
-            quantidade = int(quantidade)
-        except (TypeError, ValueError):
-            flash("Produto e quantidade inválidos.", "erro")
-            return redirect(url_for("editar_kit", id_=id_))
-
-        try:
-            dados.adicionar_item_kit(id_, produto_id, quantidade)
-            dados.registrar_acao(
-                session.get("usuario_id"), "kit_item_adicionou",
-                f"Adicionou item ao kit {kit['nome']}",
-                {"kit_id": id_, "produto_id": produto_id})
-            flash("Produto adicionado ao kit.", "ok")
-        except dados.ErroDeCampo as e:
-            flash(str(e), "erro")
-
-        return redirect(url_for("editar_kit", id_=id_))
+            produto_id = int(request.form.get("produto_id") or 0)
+            dados.adicionar_item_kit(id_, produto_id, request.form.get("quantidade", "1"),
+                                     usuario_id=session.get("usuario_id"))
+            flash("Componente salvo no kit.", "ok")
+        except (dados.ErroDeCampo, ValueError) as e:
+            flash(str(e) if isinstance(e, dados.ErroDeCampo) else "Produto e quantidade inválidos.",
+                  "erro")
+        return redirect(url_for("editar_kit", id_=id_, aba="componentes"))
 
     @app.route("/kit/<int:id_>/item/<int:item_id>/remover", methods=["POST"])
     @auth.exige_permissao("catalog.edit")
     def remover_item_kit(id_, item_id):
-        dados.remover_item_kit(item_id, id_)
-        dados.registrar_acao(
-            session.get("usuario_id"), "kit_item_removeu",
-            f"Removeu item do kit {id_}",
-            {"kit_id": id_, "item_id": item_id})
-        flash("Produto removido do kit.", "ok")
-        return redirect(url_for("editar_kit", id_=id_))
-
-    def _pasta_fotos_kit(kit_id: int) -> str:
-        pasta = os.path.join(app.static_folder, "uploads", "kits",
-                             str(kit_id))
-        os.makedirs(pasta, exist_ok=True)
-        return pasta
-
-    @app.route("/kit/<int:id_>/foto", methods=["POST"])
-    @auth.exige_permissao("catalog.edit")
-    def upload_foto_kit(id_):
-        kit = dados.buscar_kit(id_)
-        if not kit:
-            abort(404)
-
-        arquivo = request.files.get("foto")
-        if not arquivo or not arquivo.filename:
-            flash("Selecione uma foto.", "erro")
-            return redirect(url_for("editar_kit", id_=id_))
-
-        nome_seguro = secure_filename(arquivo.filename)
-        _, ext = os.path.splitext(nome_seguro)
-        if ext.lower() not in UPLOAD_EXTENSOES:
-            flash("Formato inválido. Use JPG, PNG ou WebP.", "erro")
-            return redirect(url_for("editar_kit", id_=id_))
-
-        pasta = _pasta_fotos_kit(id_)
-        caminho = os.path.join(pasta, nome_seguro)
-        arquivo.save(caminho)
-
-        try:
-            from PIL import Image
-            img = Image.open(caminho)
-            if max(img.size) > 1200:
-                img.thumbnail((1200, 1200), Image.LANCZOS)
-                img.save(caminho)
-        except ImportError:
-            pass
-
-        principal = request.form.get("principal") == "1"
-        caminho_rel = f"uploads/kits/{id_}/{nome_seguro}"
-        dados.salvar_foto_kit(id_, caminho_rel, principal)
-
-        dados.registrar_acao(
-            session.get("usuario_id"), "kit_foto",
-            f"Adicionou foto ao kit {kit['nome']}",
-            {"kit_id": id_})
-        flash("Foto adicionada.", "ok")
-        return redirect(url_for("editar_kit", id_=id_))
-
-    @app.route("/kit/<int:id_>/foto/<int:foto_id>/excluir", methods=["POST"])
-    @auth.exige_permissao("catalog.edit")
-    def excluir_foto_kit(id_, foto_id):
-        foto = dados.excluir_foto_kit(foto_id)
-        if foto:
-            caminho = os.path.join(app.static_folder, foto["arquivo"])
-            if os.path.exists(caminho):
-                os.remove(caminho)
-            dados.registrar_acao(
-                session.get("usuario_id"), "kit_foto_excluiu",
-                f"Excluiu foto do kit {id_}",
-                {"kit_id": id_})
-            flash("Foto excluída.", "ok")
-        return redirect(url_for("editar_kit", id_=id_))
-
-    @app.route("/kit/<int:id_>/foto/<int:foto_id>/principal", methods=["POST"])
-    @auth.exige_permissao("catalog.edit")
-    def definir_capa_kit(id_, foto_id):
-        dados.definir_foto_principal_kit(foto_id, id_)
-        flash("Foto de capa definida.", "ok")
-        return redirect(url_for("editar_kit", id_=id_))
+        dados.remover_item_kit(item_id, id_, usuario_id=session.get("usuario_id"))
+        flash("Componente removido do kit.", "ok")
+        return redirect(url_for("editar_kit", id_=id_, aba="componentes"))
 
     # ------------------------------------------------------------------
     # Catalogo publico
     # ------------------------------------------------------------------
 
+    # A vitrine só lê o cadastro e o estoque; pedir orçamento não reserva nada.
+    _limite_orcamento: dict = {}
+    _limite_trava = threading.Lock()
+    LIMITE_ORCAMENTOS, JANELA_ORCAMENTOS = 5, 600  # por IP a cada 10 minutos
+
+    def _vitrine(titulo, itens_todos, *, categoria=None, pagina_tipo="", destaques=None,
+                 categorias=None, meta_descricao=""):
+        pag = dados.paginar(itens_todos, request.args.get("pagina", 1, type=int))
+        return render_template(
+            "catalogo.html", pag=pag, titulo=titulo, categoria=categoria,
+            pagina_tipo=pagina_tipo, destaques=destaques or [],
+            categorias=categorias if categorias is not None else dados.vitrine_categorias(),
+            busca=request.args.get("q", "").strip()[:80],
+            cat_filtro=request.args.get("categoria", ""), org=dados.organizacao(),
+            meta_descricao=meta_descricao, eh_inicio=request.endpoint == "catalogo"
+            and not request.args.get("q") and not request.args.get("categoria"))
+
     @app.route("/catalogo")
     def catalogo():
-        busca = request.args.get("q", "")
-        cat_id = request.args.get("categoria", "")
-        cat_id_int = None
-        if cat_id:
-            try:
-                cat_id_int = int(cat_id)
-            except (TypeError, ValueError):
-                cat_id = ""
+        busca = request.args.get("q", "").strip()[:80]
+        cat_id = request.args.get("categoria", type=int)
+        itens = dados.vitrine_itens(categoria_id=cat_id, busca=busca)
+        inicio = not busca and not cat_id
+        destaques = [i for i in itens if i["destaque"] or i["selo"]][:8] if inicio else []
+        titulo = (f'Resultados para "{busca}"' if busca else
+                  next((c["nome"] for c in dados.listar_categorias() if c["id"] == cat_id),
+                       "Catálogo") if cat_id else "Todo o catálogo")
+        return _vitrine(titulo, itens, destaques=destaques)
 
-        produtos = dados.catalogo_produtos(cat_id_int, busca or None)
-        kits = dados.catalogo_kits(busca or None)
-        org = dados.organizacao()
+    @app.route("/catalogo/kits")
+    def catalogo_kits():
+        busca = request.args.get("q", "").strip()[:80]
+        return _vitrine("Kits completos", dados.vitrine_itens("kit", busca=busca),
+                        pagina_tipo="kit",
+                        meta_descricao="Kits de decoração completos, prontos para montar.")
 
-        return render_template("catalogo.html",
-                               produtos=produtos,
-                               kits=kits,
-                               categorias=dados.listar_categorias(),
-                               busca=busca,
-                               cat_filtro=cat_id,
-                               org=org)
+    @app.route("/catalogo/pecas")
+    def catalogo_pecas():
+        busca = request.args.get("q", "").strip()[:80]
+        return _vitrine("Peças avulsas", dados.vitrine_itens("produto", busca=busca),
+                        pagina_tipo="produto",
+                        meta_descricao="Peças de decoração para locação, uma a uma.")
 
     @app.route("/catalogo/produto/<int:id_>")
     def catalogo_produto(id_):
-        produto = dados.produto_publico(id_)
-        if not produto:
+        item = dados.produto_publico(id_)
+        if not item or not item.get("slug"):
             abort(404)
-        org = dados.organizacao()
-        return render_template("catalogo_produto.html",
-                               produto=produto, org=org)
+        return redirect(url_for("catalogo_item", slug=item["slug"]), 301)
 
     @app.route("/catalogo/kit/<int:id_>")
     def catalogo_kit(id_):
-        kit = dados.kit_publico(id_)
-        if not kit:
+        item = dados.kit_publico(id_)
+        if not item or not item.get("slug"):
             abort(404)
+        return redirect(url_for("catalogo_item", slug=item["slug"]), 301)
+
+    @app.route("/catalogo/<slug>")
+    def catalogo_item(slug):
+        achado = dados.publico_por_slug(slug)
+        if not achado:
+            abort(404)
+        tipo, item = achado
+        if tipo == "categoria":
+            busca = request.args.get("q", "").strip()[:80]
+            return _vitrine(item["nome"], dados.vitrine_itens(categoria_id=item["id"], busca=busca),
+                            categoria=item, meta_descricao=item.get("descricao") or "")
+        relacionados = [i for i in dados.vitrine_itens(categoria_id=item.get("categoria_id"))
+                        if not (i["tipo"] == tipo and i["id"] == item["id"])][:4] \
+            if item.get("categoria_id") else []
+        return render_template("catalogo_detalhe.html", tipo=tipo, item=item,
+                               org=dados.organizacao(), relacionados=relacionados,
+                               hoje=formato.agora()[:10],
+                               data_escolhida=request.args.get("data", ""))
+
+    def _dados_json():
+        corpo = request.get_json(silent=True)
+        return corpo if isinstance(corpo, dict) else {}
+
+    @app.route("/catalogo/api/disponibilidade")
+    def catalogo_api_disponibilidade():
+        """Situação de um item da vitrine numa faixa de datas (máx. 62 dias)."""
+        from datetime import date as _date
+        a = request.args
+        tipo, id_ = a.get("tipo", ""), a.get("id", type=int)
+        inicio = a.get("inicio") or a.get("data") or ""
+        fim = a.get("fim") or inicio
+        qtd = min(max(a.get("qtd", 1, type=int) or 1, 1), dados.ORCAMENTO_MAX_QTD)
+        try:
+            d_ini, d_fim = _date.fromisoformat(inicio), _date.fromisoformat(fim)
+        except ValueError:
+            return jsonify({"erro": "Data inválida."}), 400
+        if tipo not in dados.TIPOS_CATALOGO or not id_ or d_fim < d_ini \
+                or (d_fim - d_ini).days > 62:
+            return jsonify({"erro": "Consulta inválida."}), 400
+        with dados.conectar() as conn:
+            publico = dados._item_publico(conn, tipo, id_)
+        if not publico:
+            return jsonify({"erro": "Item não encontrado."}), 404
+        dias = dados.calendario_item(tipo, id_, inicio, fim, qtd)
+        # para o público: situação e rótulo; nada de estoque exato nem de pedidos
+        return jsonify({"dias": [{"data": d["data"], "situacao": d["situacao"],
+                                  "rotulo": d["rotulo"], "motivo": d["motivo"]} for d in dias]})
+
+    @app.route("/catalogo/api/resumo", methods=["POST"])
+    def catalogo_api_resumo():
+        corpo = _dados_json()
+        try:
+            resumo = dados.resumo_orcamento_publico(corpo.get("itens") or [],
+                                                    str(corpo.get("data") or "")[:10])
+        except ValueError:
+            return jsonify({"erro": "Data inválida."}), 400
+        for ln in resumo["itens"]:
+            ln.pop("livres", None)
+            ln["url"] = url_for("catalogo_item", slug=ln["slug"])
+            ln["capa"] = url_for("static", filename=ln["capa"]) if ln.get("capa") else ""
+        return jsonify(resumo)
+
+    def _ip_cliente():
+        return request.remote_addr or "?"
+
+    def _pode_enviar_orcamento() -> bool:
+        agora_ = time.monotonic()
+        with _limite_trava:
+            for ip in [ip for ip, ts in _limite_orcamento.items()
+                       if not ts or agora_ - ts[-1] > JANELA_ORCAMENTOS]:
+                _limite_orcamento.pop(ip, None)
+            envios = [t for t in _limite_orcamento.get(_ip_cliente(), [])
+                      if agora_ - t < JANELA_ORCAMENTOS]
+            if len(envios) >= LIMITE_ORCAMENTOS:
+                return False
+            envios.append(agora_)
+            _limite_orcamento[_ip_cliente()] = envios
+            return True
+
+    @app.route("/catalogo/orcamento", methods=["GET", "POST"])
+    def catalogo_orcamento():
+        if request.method == "GET":
+            return render_template("catalogo_orcamento.html", org=dados.organizacao(),
+                                   hoje=formato.agora()[:10])
+        if not request.is_json:  # JSON exige a mesma origem (pré-verificação do navegador)
+            return jsonify({"ok": False, "mensagem": "Envio inválido."}), 400
+        corpo = _dados_json()
+        if str(corpo.get("site") or "").strip():  # campo-armadilha: robôs preenchem
+            return jsonify({"ok": True, "mensagem": "Pedido recebido."})
+        if not _pode_enviar_orcamento():
+            return jsonify({"ok": False, "mensagem": "Muitos envios seguidos. Tente de novo em alguns minutos."}), 429
+        try:
+            r = dados.solicitar_orcamento_catalogo(
+                corpo.get("contato") if isinstance(corpo.get("contato"), dict) else {},
+                corpo.get("itens") or [], str(corpo.get("data") or "")[:10])
+        except dados.ErroDeCampo as e:
+            return jsonify({"ok": False, "campo": e.campo, "mensagem": str(e)}), 422
         org = dados.organizacao()
-        return render_template("catalogo_kit.html",
-                               kit=kit, org=org)
+        texto = (f"Olá! Acabei de pedir um orçamento pelo site (nº {r['orcamento_id']}) "
+                 f"para a festa em {formato.fmt_data(str(corpo.get('data'))[:10])}.")
+        wpp = formato.whatsapp_link(org.get("whatsapp")) if org else ""
+        return jsonify({"ok": True, "numero": r["orcamento_id"], "total": r["total"],
+                        "mensagem": "Pedido recebido! Nossa equipe vai responder pelo WhatsApp.",
+                        "whatsapp": f"{wpp}?text={quote(texto)}" if wpp else ""})
 
     # ------------------------------------------------------------------
     # Catalogo interno
@@ -1317,6 +1432,7 @@ def criar_app() -> Flask:
                     "desconto": request.form.get("desconto", "0"),
                     "observacoes": request.form.get("observacoes", ""),
                     "status": request.form.get("status", "rascunho"),
+                    "data_evento": (request.form.get("data_evento") or "").strip() or None,
                 }
                 itens = []
                 i = 0

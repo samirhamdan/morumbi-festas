@@ -334,13 +334,21 @@ class TestePerfilProdutos:
         r = client.get("/produto")
         assert r.status_code == 403
 
-    def test_comercial_nao_cria_produto(self, app, client):
+    def test_comercial_cadastra_mas_nao_mexe_em_estoque_nem_ativa(self, app, client):
+        """Sprint 7: o Comercial administra produtos; estoque e ativação são do admin."""
         from werkzeug.security import generate_password_hash
         dados.salvar_usuario(
             {"nome": "Vendedor", "login": "vend", "perfil": "comercial"},
             senha_hash=generate_password_hash("123"))
         client.post("/entrar", data={"login": "vend", "senha": "123"})
-        r = client.get("/produto")
+        assert client.get("/produto").status_code == 200
+        r = client.post("/produto", data={"nome": "Painel Comercial", "preco_locacao": "50",
+                                          "quantidade_total": "99", "status": "disponivel"})
+        assert r.status_code == 302
+        p = [x for x in dados.listar_produtos() if x["nome"] == "Painel Comercial"][0]
+        assert p["quantidade_total"] == 0      # estoque fica com o administrador
+        assert p["status"] == "inativo"        # novo item do Comercial nasce inativo
+        r = client.post(f"/catalogo-admin/produto/{p['id']}/ativo", data={"ativo": "1"})
         assert r.status_code == 403
 
 

@@ -2,50 +2,125 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{% block titulo %}Catálogo — {{ empresa.nome_exibicao }}{% endblock %}</title>
+<meta name="theme-color" content="#5a1bbd">
 {% block meta %}{% endblock %}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="{{ url_for('static', filename='sistema.css') }}?v={{ css_ver|default(2) }}">
 </head>
-<body class="publico">
+<body class="publico vt" data-empresa="{{ empresa.id }}">
+<a class="vt-pular" href="#vt-conteudo">Pular para o conteúdo</a>
+{% set ep = request.endpoint %}
+{% macro marca() -%}
+  <a href="{{ url_for('catalogo') }}" class="vt-marca" aria-label="{{ empresa.nome_exibicao }} — início">
+    {% if empresa.nome_exibicao == 'Morumbi Festas' %}<b>MORUMBI</b><span>FESTAS</span>{% else %}<b>{{ empresa.nome_exibicao }}</b>{% endif %}
+  </a>
+{%- endmacro %}
 
-<header class="cat-topo">
-  <div class="cat-topo-inner">
-    <a href="{{ url_for('catalogo') }}" class="cat-marca">
-      {% if empresa.nome_exibicao == 'Morumbi Festas' %}
-      <span class="cat-morumbi">MORUMBI</span>
-      <span class="cat-festas">FESTAS</span>
-      {% else %}<span class="cat-morumbi">{{ empresa.nome_exibicao }}</span>{% endif %}
+<header class="vt-topo">
+  <div class="vt-topo-in">
+    <button type="button" class="vt-menu-btn" aria-controls="vt-nav" aria-expanded="false" aria-label="Abrir menu" id="vt-menu-btn">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    {{ marca() }}
+    <nav class="vt-nav" id="vt-nav" aria-label="Principal">
+      <a href="{{ url_for('catalogo') }}" {% if ep == 'catalogo' and not request.args %}aria-current="page"{% endif %}>Início</a>
+      <a href="{{ url_for('catalogo') }}#temas">Temas</a>
+      <a href="{{ url_for('catalogo_kits') }}" {% if ep == 'catalogo_kits' %}aria-current="page"{% endif %}>Kits</a>
+      <a href="{{ url_for('catalogo_pecas') }}" {% if ep == 'catalogo_pecas' %}aria-current="page"{% endif %}>Peças avulsas</a>
+      <a href="{{ url_for('catalogo') }}#como-funciona">Como funciona</a>
+      <a href="#contato">Contato</a>
+    </nav>
+    <a href="{{ url_for('catalogo_orcamento') }}" class="vt-carrinho" aria-label="Minha lista de orçamento">
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="19" r="1.5" fill="currentColor"/><circle cx="17" cy="19" r="1.5" fill="currentColor"/></svg>
+      <span class="vt-contador" data-contador hidden>0</span>
     </a>
-    {% if org and org.get('whatsapp') %}
-    <a href="{{ org.whatsapp|whatsapp_link }}" class="botao cat-btn-wpp" target="_blank" rel="noopener">
-      WhatsApp
-    </a>
-    {% endif %}
+    <a href="{{ url_for('catalogo_orcamento') }}" class="vt-botao vt-botao--cta vt-so-desktop">Solicitar orçamento</a>
   </div>
 </header>
+<div class="vt-nav-fundo" id="vt-nav-fundo" hidden></div>
 
-<main class="cat-corpo">
+<main class="vt-corpo" id="vt-conteudo">
   {% block conteudo %}{% endblock %}
 </main>
 
-<footer class="cat-rodape">
-  <div class="cat-rodape-inner">
-    {% if empresa.nome_exibicao == 'Morumbi Festas' %}
-    <span class="cat-morumbi" style="font-size:16px">MORUMBI</span>
-    <span class="cat-festas" style="font-size:16px">FESTAS</span>
-    {% else %}<span class="cat-morumbi" style="font-size:16px">{{ empresa.nome_exibicao }}</span>{% endif %}
+<footer class="vt-rodape" id="contato">
+  <div class="vt-rodape-in">
+    <div>
+      {{ marca() }}
+      <p>Locação de decoração para festas e eventos.</p>
+    </div>
     {% if org %}
-      <p>{{ org.get('endereco', '') }}{% if org.get('bairro') %}, {{ org.bairro }}{% endif %}{% if org.get('cidade') %} — {{ org.cidade }}{% endif %}</p>
-      {% if org.get('whatsapp') %}<p>WhatsApp: {{ org.whatsapp }}</p>{% endif %}
-      {% if org.get('instagram') %}<p>Instagram: {{ org.instagram }}</p>{% endif %}
+    <div class="vt-rodape-contato">
+      {% if org.get('whatsapp') %}<a href="{{ org.whatsapp|whatsapp_link }}" target="_blank" rel="noopener">WhatsApp: {{ org.whatsapp }}</a>{% endif %}
+      {% if org.get('instagram') %}<a href="https://instagram.com/{{ org.instagram|replace('@', '') }}" target="_blank" rel="noopener">Instagram: @{{ org.instagram|replace('@', '') }}</a>{% endif %}
+      {% if org.get('endereco') %}<span>{{ org.endereco }}{% if org.get('bairro') %}, {{ org.bairro }}{% endif %}{% if org.get('cidade') %} — {{ org.cidade }}{% endif %}</span>{% endif %}
+    </div>
     {% endif %}
-    <p style="margin-top:12px;font-size:12px;color:var(--suave)">Locação de decoração para eventos</p>
   </div>
 </footer>
 
+<nav class="vt-baixo" aria-label="Atalhos">
+  <a href="{{ url_for('catalogo') }}" {% if ep == 'catalogo' %}aria-current="page"{% endif %}>
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Início</span></a>
+  <a href="{{ url_for('catalogo') }}#temas">
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 9-9 9-9-9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Temas</span></a>
+  <a href="{{ url_for('catalogo_kits') }}" {% if ep == 'catalogo_kits' %}aria-current="page"{% endif %}>
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="9" y="9" width="6" height="6" fill="currentColor"/></svg><span>Kits</span></a>
+  <a href="{{ url_for('catalogo_orcamento') }}" {% if ep == 'catalogo_orcamento' %}aria-current="page"{% endif %}>
+    <span class="vt-baixo-icone"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="19" r="1.5" fill="currentColor"/><circle cx="17" cy="19" r="1.5" fill="currentColor"/></svg><span class="vt-contador" data-contador hidden>0</span></span><span>Orçamento</span></a>
+</nav>
+
+<div class="vt-aviso" role="status" aria-live="polite" id="vt-aviso" hidden></div>
+
+<script>
+/* Lista de orçamento: fica só no navegador do visitante e não reserva nada.
+   Preço e disponibilidade são sempre conferidos de novo no servidor. */
+window.Orcamento = (function(){
+  var CHAVE = 'mf_orcamento_' + (document.body.dataset.empresa || '0');
+  function ler() {
+    try { var v = JSON.parse(localStorage.getItem(CHAVE) || '{}'); return { itens: Array.isArray(v.itens) ? v.itens : [], data: v.data || '' }; }
+    catch (e) { return { itens: [], data: '' }; }
+  }
+  function gravar(v) { try { localStorage.setItem(CHAVE, JSON.stringify(v)); } catch (e) {} contar(); }
+  function contar() {
+    var n = ler().itens.reduce(function(s, i) { return s + (i.quantidade || 1); }, 0);
+    document.querySelectorAll('[data-contador]').forEach(function(el) { el.textContent = n > 99 ? '99+' : n; el.hidden = !n; });
+  }
+  function adicionar(item, qtd) {
+    var v = ler(), achado = v.itens.find(function(i) { return i.tipo === item.tipo && i.id === item.id; });
+    if (achado) achado.quantidade = Math.min((achado.quantidade || 1) + qtd, 99);
+    else v.itens.push({ tipo: item.tipo, id: item.id, nome: item.nome, quantidade: Math.min(qtd, 99) });
+    v.itens = v.itens.slice(0, 30); gravar(v);
+  }
+  function definir(tipo, id, qtd) {
+    var v = ler();
+    v.itens = v.itens.map(function(i) { if (i.tipo === tipo && i.id === id) i.quantidade = qtd; return i; })
+                     .filter(function(i) { return i.quantidade > 0; });
+    gravar(v);
+  }
+  function data(d) { var v = ler(); if (d !== undefined) { v.data = d; gravar(v); } return v.data; }
+  function limpar() { gravar({ itens: [], data: '' }); }
+  function avisar(texto) {
+    var el = document.getElementById('vt-aviso'); el.textContent = texto; el.hidden = false;
+    clearTimeout(avisar.t); avisar.t = setTimeout(function() { el.hidden = true; }, 3200);
+  }
+  contar();
+  window.addEventListener('storage', contar);
+  return { ler: ler, adicionar: adicionar, definir: definir, data: data, limpar: limpar, avisar: avisar };
+})();
+(function(){
+  var btn = document.getElementById('vt-menu-btn'), nav = document.getElementById('vt-nav'), fundo = document.getElementById('vt-nav-fundo');
+  function abrir(sim) { nav.classList.toggle('aberto', sim); fundo.hidden = !sim; btn.setAttribute('aria-expanded', sim ? 'true' : 'false'); }
+  btn.addEventListener('click', function() { abrir(!nav.classList.contains('aberto')); });
+  fundo.addEventListener('click', function() { abrir(false); });
+  nav.addEventListener('click', function(e) { if (e.target.closest('a')) abrir(false); });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') abrir(false); });
+})();
+</script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

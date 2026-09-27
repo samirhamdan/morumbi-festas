@@ -137,6 +137,26 @@ Para o sistema enviar o link sozinho por e-mail, acrescente no arquivo
 Depois: systemctl daemon-reload && systemctl restart morumbi-festas
 
 
+Catalogo e vitrine (Sprint 7)
+-----------------------------
+A atualizacao ajusta o banco sozinha ao reiniciar (colunas novas em
+produtos, kits, categorias e orcamentos; enderecos por nome, como
+/catalogo/kit-safari-encantado). Nada e apagado. Antes de atualizar,
+faca uma copia do banco:
+
+    cp /opt/morumbi-festas/morumbi_festas.db /root/backup-antes-sprint7.db
+
+Depois de atualizar, confira:
+- /catalogo abre sem login e mostra so o que esta publicado e ativo;
+- kit sem pecas nao aparece na vitrine (cadastre as pecas em
+  Kits -> Editar -> Componentes);
+- os links antigos /catalogo/produto/123 e /catalogo/kit/123 levam ao
+  endereco novo;
+- "Solicitar orcamento" na vitrine cria cliente (sem duplicar pelo
+  WhatsApp), lead com origem "Catalogo" e orcamento em rascunho. Isso
+  nao reserva estoque: a reserva continua acontecendo so no pedido.
+
+
 Para ver os logs
 ----------------
 
