@@ -6,18 +6,24 @@ aceito depois de passar por uma lista do que é permitido (sem scripts,
 eventos, links externos ou conteúdo embutido).
 """
 
+from __future__ import annotations
+
 import io
 import re
 import xml.etree.ElementTree as ET
 
-from PIL import Image, UnidentifiedImageError
+try:
+    from PIL import Image, UnidentifiedImageError
+except ImportError:  # sem Pillow o sistema funciona; só o envio de imagens fica bloqueado
+    Image = UnidentifiedImageError = None
 
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 FUNDO_MAX_BYTES = 8 * 1024 * 1024
 LOGO_MAX_PX = 1200
 FUNDO_MAX_PX = 1920
 # Proteção contra imagens "bomba" (dimensões absurdas em arquivo pequeno).
-Image.MAX_IMAGE_PIXELS = 40_000_000
+if Image is not None:
+    Image.MAX_IMAGE_PIXELS = 40_000_000
 
 
 class ImagemInvalida(ValueError):
@@ -25,6 +31,9 @@ class ImagemInvalida(ValueError):
 
 
 def _abrir(conteudo: bytes, formatos: tuple) -> Image.Image:
+    if Image is None:
+        raise ImagemInvalida("Envio de imagens indisponível no servidor: falta instalar o "
+                             "Pillow (venv/bin/pip install -r requirements.txt).")
     try:
         img = Image.open(io.BytesIO(conteudo))
         img.verify()  # confere a estrutura do arquivo
