@@ -12,6 +12,19 @@
 
   {% include "_erro.html" %}
 
+  {% if link_senha %}
+  <section class="cartao usr-link" role="status" aria-labelledby="usr-link-titulo">
+    <h3 id="usr-link-titulo" class="usr-pedidos-titulo">Link de nova senha para {{ atual.nome }}</h3>
+    <p class="usr-pedidos-ajuda">Envie este link para a pessoa. Ele vale por {{ validade }} minutos, só pode ser usado uma vez e não aparece de novo.</p>
+    <div class="usr-link-campo">
+      <label class="sr" for="usr-link">Link de nova senha</label>
+      <input id="usr-link" type="text" value="{{ link_senha }}" readonly onfocus="this.select()">
+      <button type="button" class="botao" onclick="var c=document.getElementById('usr-link');c.select();navigator.clipboard&&navigator.clipboard.writeText(c.value);this.textContent='Copiado'">Copiar</button>
+      <a class="botao vazado" target="_blank" rel="noopener" href="https://wa.me/?text={{ ('Olá, ' ~ atual.nome ~ '! Use este link para criar sua nova senha no sistema (vale por ' ~ validade ~ ' minutos): ' ~ link_senha)|urlencode }}">Enviar por WhatsApp</a>
+    </div>
+  </section>
+  {% endif %}
+
   <form method="post" class="formulario" data-avisar>
     <div class="cartao" style="padding:20px">
       <label class="campo" id="campo-nome">
@@ -67,5 +80,11 @@
       <a href="{{ url_for('lista_usuarios') }}" class="botao vazado">Cancelar</a>
     </div>
   </form>
+  {% if atual.get('id') and not link_senha %}
+  <form method="post" action="{{ url_for('link_senha_usuario', id_=atual.id) }}" class="usr-gerar-link">
+    <p class="usr-pedidos-ajuda">Esqueceu a senha? Gere um link para a pessoa criar uma nova, sem você precisar saber qual é.</p>
+    <button type="submit" class="botao vazado">Gerar link de nova senha</button>
+  </form>
+  {% endif %}
 </main>
 {% endblock %}

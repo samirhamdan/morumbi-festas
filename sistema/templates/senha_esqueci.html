@@ -1,0 +1,30 @@
+{% extends "_login_moldura.html" %}
+{% block titulo_pagina %}Esqueceu a senha?{% endblock %}
+{% block cabecalho %}
+<h1 class="lg-titulo">Esqueceu a senha?</h1>
+<p class="lg-sub">Informe seu usuário ou e-mail. Vamos registrar o pedido e enviar um link para você criar uma nova senha.</p>
+{% endblock %}
+{% block cartao %}
+{% set erros = erros or {} %}
+{% if enviado %}
+<p class="lg-aviso lg-aviso--ok" role="status">{{ mensagem }}</p>
+<a class="lg-botao lg-botao--link" href="{{ url_for('entrar') }}"><span class="lg-botao-texto">Voltar para o login</span></a>
+{% else %}
+<form method="post" class="lg-form" novalidate data-lg-form>
+  <div class="lg-campo{{ ' lg-campo--erro' if erros.login }}">
+    <label class="lg-rotulo" for="lg-login">Usuário ou e-mail</label>
+    <div class="lg-entrada">
+      <input id="lg-login" name="login" type="text" value="{{ login_digitado or '' }}" autocomplete="username"
+             autocapitalize="none" spellcheck="false" inputmode="email" required autofocus
+             data-obrigatorio="Informe seu usuário ou e-mail." placeholder="Digite seu usuário ou e-mail"
+             aria-describedby="lg-login-erro" aria-invalid="{{ 'true' if erros.login else 'false' }}">
+    </div>
+    <p class="lg-erro" id="lg-login-erro" aria-live="polite">{{ erros.login or '' }}</p>
+  </div>
+  <button type="submit" class="lg-botao" data-carregando="Enviando…">
+    <span class="lg-botao-texto">Enviar link</span><span class="lg-giro" aria-hidden="true"></span>
+  </button>
+</form>
+<p class="lg-voltar"><a class="lg-link" href="{{ url_for('entrar') }}">← Voltar para o login</a></p>
+{% endif %}
+{% endblock %}

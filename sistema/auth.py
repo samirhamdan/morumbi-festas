@@ -101,7 +101,7 @@ def pode_acessar(endpoint: str, view_functions) -> bool:
 
 
 def login(login_: str, senha: str) -> dict | None:
-    u = dados.buscar_usuario_por_login(login_)
+    u = dados.usuario_para_entrar(login_)  # login ou e-mail (se for único)
     if not u or not u["ativo"]:
         return None
     if not check_password_hash(u["senha_hash"], senha):

@@ -112,6 +112,9 @@ def _get_de_todas_as_rotas(app, cliente, ids_outra):
             continue
         args = {}
         for arg in regra.arguments:
+            if arg == "token":  # link público de nova senha: não é registro da empresa
+                args[arg] = "token-invalido"
+                continue
             chave = _ID_DA_ROTA.get(regra.endpoint)
             assert chave, f"rota sem mapeamento de id: {regra.rule}"
             args[arg] = ids_outra[chave]
@@ -407,7 +410,15 @@ class TesteConfiguracoes:
 
     def test_logo_da_empresa(self, app, admin, tmp_path):
         import io
-        png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+        from PIL import Image
+        falso = b"\x89PNG\r\n\x1a\n" + b"0" * 64  # só a assinatura: conteúdo é conferido
+        r = admin.post("/configuracoes/empresa", data={
+            "nome": "Morumbi Festas", "logo": (io.BytesIO(falso), "logo.png")},
+            content_type="multipart/form-data")
+        assert "inválido" in r.text and not dados.empresa_atual().get("logo")
+        buf = io.BytesIO()
+        Image.new("RGBA", (40, 40), (111, 28, 133, 255)).save(buf, "PNG")
+        png = buf.getvalue()
         r = admin.post("/configuracoes/empresa", data={
             "nome": "Morumbi Festas", "logo": (io.BytesIO(png), "logo.png")},
             content_type="multipart/form-data")
@@ -425,7 +436,7 @@ class TesteConfiguracoes:
         r = admin.post("/configuracoes/empresa", data={
             "nome": "Morumbi Festas", "logo": (io.BytesIO(b"x"), "logo.svg")},
             content_type="multipart/form-data")
-        assert "Formato inválido" in r.text
+        assert "inválido" in r.text
 
     def test_operacao_servicos_e_sistema(self, app, admin):
         admin.post("/configuracoes/operacao", data={"prazo_preparacao_dias": "2",

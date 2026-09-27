@@ -18,12 +18,12 @@ class TesteLogin:
     def test_login_invalido_mostra_erro(self, client):
         r = client.post("/entrar", data={"login": "admin", "senha": "errada"},
                         follow_redirects=True)
-        assert "incorretos" in r.text
+        assert "Usuário ou senha inválidos." in r.text
 
     def test_login_inexistente(self, client):
         r = client.post("/entrar", data={"login": "naoexiste", "senha": "x"},
                         follow_redirects=True)
-        assert "incorretos" in r.text
+        assert "Usuário ou senha inválidos." in r.text
 
     def test_logout_redireciona_para_login(self, logado):
         r = logado.get("/sair", follow_redirects=False)

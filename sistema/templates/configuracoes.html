@@ -37,8 +37,8 @@
         {% if pode_editar %}
         <label class="campo" id="campo-logo">
           <span class="campo-rotulo">Logo</span>
-          <input type="file" name="logo" accept=".png,.jpg,.jpeg,.webp">
-          <small class="campo-ajuda">JPG, PNG ou WebP, até 2 MB.</small>
+          <input type="file" name="logo" accept=".png,.jpg,.jpeg,.webp,.svg">
+          <small class="campo-ajuda">PNG, JPG, WebP ou SVG, até 2 MB. Também aparece na página de login.</small>
           {% if campo_erro == 'logo' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
         </label>
         {% endif %}
@@ -185,7 +185,7 @@
         </label>
         {% endfor %}
       </div>
-      <p class="cfg-nota">As cores ficam guardadas para a personalização visual futura; a aparência atual do sistema não muda.</p>
+      <p class="cfg-nota">As cores principais já são usadas na página de login{% if pode('config_login') %} (<a href="{{ url_for('config_login') }}">Personalização do Login</a>){% endif %}; o restante do sistema ainda não muda.</p>
     </div>
     {% if pode_editar %}
     <div class="barra-acoes"><button type="submit" class="botao primario">Salvar alterações</button></div>

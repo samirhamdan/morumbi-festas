@@ -1,98 +1,42 @@
-{% extends "base.html" %}
-{% block titulo %}Entrar — {{ empresa.nome_exibicao }}{% endblock %}
-{% block corpo %}palco{% endblock %}
-{% block conteudo %}
-
-<main class="login-pagina">
-  <div class="login-visual" role="presentation">
-    <div class="login-visual-conteudo">
-      <img src="{{ url_for('static', filename='logo-morumbi.webp') }}"
-           alt="{{ empresa.nome_exibicao }} — Seu momento, sua festa" class="login-logo-img">
+{% extends "_login_moldura.html" %}
+{% block cartao %}
+{% set erros = erros or {} %}
+<form method="post" action="{{ url_for('entrar') }}" class="lg-form" novalidate data-lg-form {{ 'data-previa' if previa }}>
+  <div class="lg-campo{{ ' lg-campo--erro' if erros.login }}">
+    <label class="lg-rotulo" for="lg-login">Usuário ou e-mail</label>
+    <div class="lg-entrada">
+      <svg class="lg-icone" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm0 7c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4zm0 2c2.9 0 6 1.5 6 2v0H6c0-.5 3.1-2 6-2z"/></svg>
+      <input id="lg-login" name="login" type="text" value="{{ login_digitado or '' }}"
+             autocomplete="username" autocapitalize="none" spellcheck="false" inputmode="email"
+             placeholder="Digite seu usuário ou e-mail" required data-obrigatorio="Informe seu usuário ou e-mail."
+             aria-describedby="lg-login-erro{{ ' lg-erro-geral' if erro_geral }}" aria-invalid="{{ 'true' if erros.login else 'false' }}"
+             {{ 'autofocus' if not login_digitado and not previa }}>
     </div>
+    <p class="lg-erro" id="lg-login-erro" aria-live="polite">{{ erros.login or '' }}</p>
   </div>
-
-  <div class="login-painel">
-    <svg class="login-geo" viewBox="0 0 500 800" preserveAspectRatio="none" aria-hidden="true">
-      <polygon points="380,0 500,100 460,0" fill="none" stroke="rgba(232,102,90,0.25)" stroke-width="1.5"/>
-      <polygon points="420,20 500,150 485,10" fill="none" stroke="rgba(155,123,199,0.15)" stroke-width="1"/>
-      <polygon points="0,620 100,800 0,800" fill="none" stroke="rgba(232,102,90,0.2)" stroke-width="1.5"/>
-      <polygon points="20,700 80,800 0,770" fill="none" stroke="rgba(155,123,199,0.12)" stroke-width="1"/>
-    </svg>
-
-    <div class="login-logo-mobile">
-      <img src="{{ url_for('static', filename='logo-morumbi.webp') }}"
-           alt="{{ empresa.nome_exibicao }}" class="login-logo-img-mobile">
+  <div class="lg-campo{{ ' lg-campo--erro' if erros.senha }}">
+    <label class="lg-rotulo" for="lg-senha">Senha</label>
+    <div class="lg-entrada">
+      <svg class="lg-icone" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 1 1 6 0v2H9V6zm9 14H6V10h12v10zm-6-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
+      <input id="lg-senha" name="senha" type="password" autocomplete="current-password"
+             placeholder="Digite sua senha" required data-obrigatorio="Informe sua senha."
+             aria-describedby="lg-senha-erro" aria-invalid="{{ 'true' if erros.senha else 'false' }}"
+             {{ 'autofocus' if login_digitado and not previa }}>
+      <button type="button" class="lg-olho" data-olho aria-controls="lg-senha" aria-pressed="false" aria-label="Mostrar senha">
+        <svg class="lg-olho-fechado" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 5C7 5 2.7 8.1 1 12.5 2.7 16.9 7 20 12 20s9.3-3.1 11-7.5C21.3 8.1 17 5 12 5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+        <svg class="lg-olho-aberto" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M2 4.3 3.3 3 21 20.7 19.7 22l-3.2-3.2A11.6 11.6 0 0 1 12 20c-5 0-9.3-3.1-11-7.5a12 12 0 0 1 4-5.1L2 4.3zm5.5 5.5A5 5 0 0 0 14.2 16.5l-1.6-1.6a3 3 0 0 1-3.5-3.5L7.5 9.8zM12 5c5 0 9.3 3.1 11 7.5-.6 1.6-1.6 3-2.8 4.2l-3.3-3.3A5 5 0 0 0 11.1 7.1L8.8 4.9A12 12 0 0 1 12 5z"/></svg>
+      </button>
     </div>
-
-    <div class="login-card">
-      {% include "_erro.html" %}
-
-      <form method="post" class="login-form" id="form-login">
-        <div class="login-campo">
-          <svg class="login-icone" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm0 7c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4zm0 2c2.93 0 6 1.47 6 2v1H6v-1c0-.53 3.07-2 6-2z"/>
-          </svg>
-          <input type="text" name="login" autocomplete="username" autofocus
-                 required placeholder="Usuário ou e-mail"
-                 aria-label="Usuário ou e-mail">
-        </div>
-
-        <div class="login-campo">
-          <svg class="login-icone" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/>
-          </svg>
-          <input type="password" name="senha" autocomplete="current-password"
-                 required placeholder="Senha"
-                 id="input-senha" aria-label="Senha">
-          <button type="button" class="login-olho" aria-label="Mostrar senha" id="btn-olho">
-            <svg viewBox="0 0 24 24" fill="currentColor" class="olho-fechado">
-              <path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
-            </svg>
-            <svg viewBox="0 0 24 24" fill="currentColor" class="olho-aberto" hidden>
-              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
-            </svg>
-          </button>
-        </div>
-
-        <button type="submit" class="login-botao" id="btn-entrar">
-          <span class="login-botao-texto">Entrar</span>
-          <svg class="login-botao-seta" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
-          </svg>
-          <svg class="login-botao-spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true" hidden>
-            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5"
-                    stroke-dasharray="31.4 31.4" stroke-linecap="round"/>
-          </svg>
-        </button>
-      </form>
-    </div>
+    <p class="lg-erro" id="lg-senha-erro" aria-live="polite">{{ erros.senha or '' }}</p>
   </div>
-</main>
-
-<script>
-(function(){
-  var btn = document.getElementById('btn-olho');
-  var inp = document.getElementById('input-senha');
-  if (btn && inp) {
-    btn.addEventListener('click', function() {
-      var mostrar = inp.type === 'password';
-      inp.type = mostrar ? 'text' : 'password';
-      btn.querySelector('.olho-fechado').toggleAttribute('hidden', mostrar);
-      btn.querySelector('.olho-aberto').toggleAttribute('hidden', !mostrar);
-      btn.setAttribute('aria-label', mostrar ? 'Ocultar senha' : 'Mostrar senha');
-    });
-  }
-  var form = document.getElementById('form-login');
-  var botao = document.getElementById('btn-entrar');
-  if (form && botao) {
-    form.addEventListener('submit', function() {
-      botao.disabled = true;
-      botao.querySelector('.login-botao-texto').textContent = 'Entrando…';
-      botao.querySelector('.login-botao-seta').setAttribute('hidden', '');
-      botao.querySelector('.login-botao-spinner').removeAttribute('hidden');
-    });
-  }
-})();
-</script>
-
+  <div class="lg-opcoes">
+    <label class="lg-lembrar"><input type="checkbox" name="lembrar" value="1" {{ 'checked' if lembrar }}> Lembrar de mim</label>
+    <a class="lg-link" href="{{ url_for('esqueci_senha') }}">Esqueceu a senha?</a>
+  </div>
+  <button type="submit" class="lg-botao" data-carregando="Entrando…">
+    <span class="lg-botao-texto">Entrar</span>
+    <svg class="lg-botao-seta" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 4l-1.4 1.4 5.6 5.6H4v2h12.2l-5.6 5.6L12 20l8-8z"/></svg>
+    <span class="lg-giro" aria-hidden="true"></span>
+  </button>
+</form>
 {% endblock %}

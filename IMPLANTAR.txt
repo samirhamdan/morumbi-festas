@@ -118,6 +118,25 @@ Quando tiver codigo novo:
     systemctl restart morumbi-festas
 
 
+Recuperacao de senha por e-mail (opcional)
+------------------------------------------
+Sem configurar nada, o "Esqueceu a senha?" ja funciona: o pedido aparece
+para o administrador em Configuracoes -> Usuarios, que gera um link de
+nova senha (vale 1 hora, uso unico) e envia por WhatsApp.
+
+Para o sistema enviar o link sozinho por e-mail, acrescente no arquivo
+/etc/systemd/system/morumbi-festas.service (secao [Service]):
+
+    Environment=FESTAS_URL_BASE=https://morumbifestas.duckdns.org
+    Environment=FESTAS_SMTP_HOST=smtp.seuprovedor.com
+    Environment=FESTAS_SMTP_PORTA=587
+    Environment=FESTAS_SMTP_USUARIO=usuario-do-email
+    Environment=FESTAS_SMTP_SENHA=senha-do-email
+    Environment=FESTAS_SMTP_REMETENTE=sistema@seudominio.com
+
+Depois: systemctl daemon-reload && systemctl restart morumbi-festas
+
+
 Para ver os logs
 ----------------
 

@@ -3,13 +3,15 @@
 import io
 import os
 import re
+from datetime import timedelta
 
-from flask import (Flask, Response, abort, flash, g, redirect, render_template,
+from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template,
                    request, session, url_for)
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash
 from werkzeug.utils import secure_filename
 
-from sistema import auth, dados, formato, listas, permissoes
+from sistema import auth, correio, dados, formato, imagens, listas, permissoes
 
 UPLOAD_EXTENSOES = {".jpg", ".jpeg", ".png", ".webp"}
 UPLOAD_MAX_MB = 10
@@ -44,6 +46,7 @@ MENU = (
         ("config_permissoes", "Permissões"),
         ("config_operacao", "Operação"),
         ("config_sistema", "Sistema"),
+        ("config_login", "Personalização do Login"),
         ("lista_origens", "Origens de lead"),
     )),
 )
@@ -52,7 +55,7 @@ MENU = (
 ABAS_CONFIG = (
     ("config_empresa", "Empresa"), ("lista_usuarios", "Usuários"),
     ("config_permissoes", "Permissões"), ("config_operacao", "Operação"),
-    ("config_sistema", "Sistema"),
+    ("config_sistema", "Sistema"), ("config_login", "Personalização do Login"),
 )
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 
@@ -75,6 +78,10 @@ def criar_app() -> Flask:
                 template_folder="templates",
                 static_folder="static")
     app.secret_key = os.environ.get("FESTAS_SECRET", "dev-morumbi-festas-2026")
+    # Atrás do proxy (Caddy): endereço real do visitante e https nos links.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                      PERMANENT_SESSION_LIFETIME=timedelta(days=30))
 
     formato.registrar(app)
     dados.inicializar()
@@ -123,21 +130,110 @@ def criar_app() -> Flask:
     # Login
     # ------------------------------------------------------------------
 
+    def _render_login(template="login.html", status=200, **ctx):
+        resposta = app.make_response((render_template(
+            template, lg=dados.config_login(), **ctx), status))
+        # a página de login nunca é guardada por navegador ou proxy nem
+        # exibida dentro de outro site (só na prévia do próprio sistema)
+        resposta.headers["Cache-Control"] = "no-store"
+        resposta.headers["X-Frame-Options"] = "SAMEORIGIN"
+        resposta.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+        return resposta
+
+    def _link_absoluto(endpoint, **valores):
+        base = os.environ.get("FESTAS_URL_BASE", "").rstrip("/")
+        return (base + url_for(endpoint, **valores)) if base else url_for(
+            endpoint, _external=True, **valores)
+
     @app.route("/entrar", methods=["GET", "POST"])
     def entrar():
-        if request.method == "POST":
-            login_ = (request.form.get("login") or "").strip().lower()
-            senha = request.form.get("senha") or ""
-            try:
-                u = auth.login(login_, senha)
-            except auth.AcessoNegado as e:
-                flash(str(e), "erro")
-                return render_template("login.html")
-            if u:
-                dados.registrar_acao(u["id"], "login", f"{u['nome']} entrou")
+        if request.method == "GET":
+            if session.get("usuario_id") and auth.membro_atual():
                 return redirect(url_for("painel"))
-            flash("Login ou senha incorretos.", "erro")
-        return render_template("login.html")
+            return _render_login()
+        login_ = (request.form.get("login") or "").strip().lower()
+        senha = request.form.get("senha") or ""
+        lembrar = request.form.get("lembrar") == "1"
+        erros = {}
+        if not login_:
+            erros["login"] = "Informe seu usuário ou e-mail."
+        if not senha:
+            erros["senha"] = "Informe sua senha."
+        if erros:
+            return _render_login(erros=erros, login_digitado=login_, lembrar=lembrar)
+        ip = request.remote_addr or ""
+        if dados.login_bloqueado(login_, ip):
+            return _render_login(erro_geral="Muitas tentativas seguidas. Aguarde alguns"
+                                 " minutos e tente de novo.", login_digitado=login_,
+                                 lembrar=lembrar)
+        try:
+            u = auth.login(login_, senha)
+        except auth.AcessoNegado as e:
+            return _render_login(erro_geral=str(e), login_digitado=login_, lembrar=lembrar)
+        if not u:
+            dados.registrar_falha_login(login_, ip)
+            # mesma resposta para usuário inexistente ou senha errada
+            return _render_login(erro_geral="Usuário ou senha inválidos.",
+                                 login_digitado=login_, lembrar=lembrar)
+        dados.limpar_falhas_login(login_)
+        session.permanent = lembrar
+        dados.registrar_acao(u["id"], "login", f"{u['nome']} entrou")
+        return redirect(url_for("painel"))
+
+    MENSAGEM_PEDIDO_SENHA = (
+        "Se houver uma conta ativa com esses dados, o pedido foi registrado."
+        " Você receberá o link por e-mail, quando houver e-mail cadastrado, ou pelo"
+        " administrador do sistema. O link vale por 1 hora.")
+
+    @app.route("/esqueci-senha", methods=["GET", "POST"])
+    def esqueci_senha():
+        if request.method == "GET":
+            return _render_login("senha_esqueci.html")
+        ident = (request.form.get("login") or "").strip().lower()
+        if not ident:
+            return _render_login("senha_esqueci.html", status=400, login_digitado=ident,
+                                 erros={"login": "Informe seu usuário ou e-mail."})
+        resultado = dados.pedir_nova_senha(ident)
+        if resultado:
+            u, token = resultado
+            if u.get("email") and correio.configurado():
+                correio.enviar(
+                    u["email"], "Nova senha — " + dados.empresa_atual()["nome_exibicao"],
+                    f"Olá, {u['nome']}.\n\nPara criar uma nova senha, abra o link abaixo"
+                    f" (válido por 1 hora):\n\n{_link_absoluto('redefinir_senha', token=token)}"
+                    "\n\nSe você não pediu, ignore esta mensagem.")
+        return _render_login("senha_esqueci.html", enviado=True,
+                             mensagem=MENSAGEM_PEDIDO_SENHA)
+
+    @app.route("/redefinir-senha/<token>", methods=["GET", "POST"])
+    def redefinir_senha(token):
+        if not dados.link_de_senha_valido(token):
+            return _render_login("senha_redefinir.html", invalido=True, status=410)
+        if request.method == "POST":
+            try:
+                dados.redefinir_senha(token, request.form.get("senha") or "",
+                                      request.form.get("confirmacao") or "")
+            except dados.ErroDeCampo as e:
+                return _render_login("senha_redefinir.html", status=400,
+                                     erros={e.campo: str(e)})
+            except ValueError:
+                return _render_login("senha_redefinir.html", invalido=True, status=410)
+            session.clear()
+            flash("Senha alterada. Entre com a nova senha.", "ok")
+            return redirect(url_for("entrar"))
+        return _render_login("senha_redefinir.html", minimo=dados.SENHA_MINIMA)
+
+    @app.route("/api/login/config")
+    def api_login_config():
+        """Configuração pública da página de login (uma chamada, só dados visuais)."""
+        c = dados.config_login()
+        corpo = {k: c[k] for k in (*dados.CHAVES_LOGIN, "texto_botao")}
+        corpo["logo_url"] = url_for("static", filename=c["logo"] or c["logo_padrao"])
+        corpo["imagem_url"] = (url_for("static", filename=c["login_imagem"])
+                               if c["login_imagem"] else "")
+        resposta = jsonify(corpo)
+        resposta.headers["Cache-Control"] = "public, max-age=60"
+        return resposta
 
     @app.route("/sair")
     def sair():
@@ -235,6 +331,8 @@ def criar_app() -> Flask:
         lista = listas.ordenar(lista, ordem, listas.ORDENS_USUARIOS, invertido)
 
         return render_template("usuarios.html", usuarios=lista,
+                               pedidos_senha=(dados.pedidos_de_senha_pendentes()
+                                              if auth.tem("users.manage") else []),
                                rotulos_perfil=dados.ROTULOS_PERFIL,
                                abas_config=ABAS_CONFIG,
                                ver=ver, busca=busca, ordem=ordem,
@@ -268,6 +366,21 @@ def criar_app() -> Flask:
                                        **contexto, **_erro(e))
 
         return render_template("usuario.html", atual=usuario or {}, **contexto)
+
+    @app.route("/usuario/<int:id_>/link-senha", methods=["POST"])
+    @auth.exige_permissao("users.manage")
+    def link_senha_usuario(id_):
+        try:
+            token = dados.gerar_link_senha(id_, session.get("usuario_id"))
+        except ValueError as e:
+            flash(str(e), "erro")
+            return redirect(url_for("editar_usuario", id_=id_))
+        usuario = dados.buscar_usuario(id_)
+        return render_template("usuario.html", atual=usuario, perfis=dados.PERFIS,
+                               rotulos_perfil=dados.ROTULOS_PERFIL,
+                               proprio=id_ == session.get("usuario_id"),
+                               link_senha=_link_absoluto("redefinir_senha", token=token),
+                               validade=dados.VALIDADE_LINK_SENHA_MINUTOS)
 
     @app.route("/usuario/<int:id_>/alternar", methods=["POST"])
     @auth.exige_permissao("users.manage")
@@ -316,23 +429,25 @@ def criar_app() -> Flask:
             atual[c] = dados.config(c)
         return _render_config("empresa", atual=atual)
 
-    def _salvar_logo(arquivo):
-        nome = secure_filename(arquivo.filename)
-        _, ext = os.path.splitext(nome)
-        if ext.lower() not in UPLOAD_EXTENSOES:
-            raise dados.ErroDeCampo("logo", "Formato inválido. Use JPG, PNG ou WebP.")
-        conteudo = arquivo.read(LOGO_MAX_BYTES + 1)
-        if len(conteudo) > LOGO_MAX_BYTES:
-            raise dados.ErroDeCampo("logo", "O logo deve ter no máximo 2 MB.")
+    def _gravar_arquivo_empresa(conteudo: bytes, prefixo: str, ext: str) -> str:
         # pasta da própria empresa: arquivos nunca se misturam entre empresas
         pasta = os.path.join(app.static_folder, "uploads", "empresas",
                              str(dados.tenant_atual()))
         os.makedirs(pasta, exist_ok=True)
-        destino = f"logo-{formato.agora().replace(':', '').replace('-', '')}{ext.lower()}"
+        marca = formato.agora().replace(":", "").replace("-", "")
+        destino = f"{prefixo}-{marca}-{os.urandom(3).hex()}{ext}"
         with open(os.path.join(pasta, destino), "wb") as f:
             f.write(conteudo)
-        dados.salvar_logo_empresa(
-            f"uploads/empresas/{dados.tenant_atual()}/{destino}", session.get("usuario_id"))
+        return f"uploads/empresas/{dados.tenant_atual()}/{destino}"
+
+    def _salvar_logo(arquivo, campo="logo"):
+        """Logo da empresa (identidade central: login, topo e documentos)."""
+        try:
+            conteudo, ext = imagens.preparar_logo(arquivo.read(imagens.LOGO_MAX_BYTES + 1))
+        except imagens.ImagemInvalida as e:
+            raise dados.ErroDeCampo(campo, f"{e} Use PNG, JPG, WebP ou SVG, até 2 MB.")
+        dados.salvar_logo_empresa(_gravar_arquivo_empresa(conteudo, "logo", ext),
+                                  session.get("usuario_id"))
 
     @app.route("/configuracoes/permissoes")
     @auth.exige_permissao("users.view")
@@ -407,6 +522,81 @@ def criar_app() -> Flask:
                               idiomas=dados.ROTULOS_IDIOMA, moedas=dados.ROTULOS_MOEDA,
                               fusos=dados.FUSOS_HORARIOS,
                               formatos=dados.ROTULOS_FORMATO_DATA)
+
+    # ------------------------------------------------------------------
+    # Personalização do Login
+    # ------------------------------------------------------------------
+
+    CAMPOS_PERSONALIZACAO = (*dados.CORES_LOGIN, "login_layout", "login_modelo",
+                             *dados.TEXTOS_LOGIN)
+
+    def _contexto_personalizacao(**ctx):
+        c = dados.config_login()
+        atual = {k: c[k] for k in CAMPOS_PERSONALIZACAO}
+        atual.update(ctx.pop("atual", {}))
+        return dict(atual=atual, lg=c, layouts=dados.LAYOUTS_LOGIN,
+                    modelos=dados.MODELOS_LOGIN, limites=dados.TEXTOS_LOGIN,
+                    abas_config=ABAS_CONFIG, **ctx)
+
+    @app.route("/configuracoes/login", methods=["GET", "POST"])
+    @auth.exige_permissao("settings.view", post="settings.edit")
+    def config_login():
+        fetch = request.headers.get("X-Requested-With") == "fetch"
+        if request.method == "POST":
+            f = request.form
+            valores = {c: f.get(c, "") for c in CAMPOS_PERSONALIZACAO}
+            uid = session.get("usuario_id")
+            try:
+                logo, fundo = request.files.get("logo"), request.files.get("imagem")
+                # tudo validado antes de gravar qualquer coisa
+                logo_pronta = fundo_pronto = None
+                if logo and logo.filename:
+                    try:
+                        logo_pronta = imagens.preparar_logo(
+                            logo.read(imagens.LOGO_MAX_BYTES + 1))
+                    except imagens.ImagemInvalida as e:
+                        raise dados.ErroDeCampo("logo", f"{e} Use PNG, JPG, WebP ou SVG, até 2 MB.")
+                if fundo and fundo.filename:
+                    try:
+                        fundo_pronto = imagens.preparar_fundo(
+                            fundo.read(imagens.FUNDO_MAX_BYTES + 1))
+                    except imagens.ImagemInvalida as e:
+                        raise dados.ErroDeCampo("imagem", f"{e} Use JPG, PNG ou WebP, até 8 MB.")
+                if fundo_pronto:
+                    valores["login_imagem"] = _gravar_arquivo_empresa(
+                        fundo_pronto[0], "login-fundo", fundo_pronto[1])
+                elif f.get("remover_imagem") == "1":
+                    valores["login_imagem"] = ""
+                dados.salvar_config_login(valores, uid)
+                if logo_pronta:
+                    dados.salvar_logo_empresa(
+                        _gravar_arquivo_empresa(logo_pronta[0], "logo", logo_pronta[1]), uid)
+                elif f.get("remover_logo") == "1" and dados.empresa_atual().get("logo"):
+                    dados.salvar_logo_empresa("", uid)
+            except dados.ErroDeCampo as e:
+                if fetch:
+                    return jsonify({"ok": False, "mensagem": str(e),
+                                    "campo": e.campo}), 400
+                return render_template("login_personalizar.html", **_contexto_personalizacao(
+                    atual=valores, **_erro(e))), 400
+            if fetch:
+                return jsonify({"ok": True, "mensagem": "Alterações salvas."})
+            flash("Alterações salvas.", "ok")
+            return redirect(url_for("config_login"))
+        return render_template("login_personalizar.html", **_contexto_personalizacao())
+
+    @app.route("/configuracoes/login/restaurar", methods=["POST"])
+    @auth.exige_permissao("settings.edit")
+    def restaurar_login():
+        dados.restaurar_login(session.get("usuario_id"))
+        flash("Login restaurado para o padrão.", "ok")
+        return redirect(url_for("config_login"))
+
+    @app.route("/configuracoes/login/previa")
+    @auth.exige_permissao("settings.view")
+    def previa_login():
+        """A mesma página de login, só para a pré-visualização (não envia nada)."""
+        return _render_login(previa=True)
 
     # ------------------------------------------------------------------
     # Clientes

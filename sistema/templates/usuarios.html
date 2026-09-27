@@ -23,6 +23,23 @@
 
   {% include "_erro.html" %}
 
+  {% if pedidos_senha %}
+  <section class="cartao usr-pedidos" aria-labelledby="usr-pedidos-titulo">
+    <h3 id="usr-pedidos-titulo" class="usr-pedidos-titulo">Pedidos de nova senha</h3>
+    <p class="usr-pedidos-ajuda">Estas pessoas usaram "Esqueceu a senha?". Gere um link de uso único e envie a elas (por WhatsApp, por exemplo).</p>
+    <ul class="usr-pedidos-lista">
+      {% for p in pedidos_senha %}
+      <li>
+        <span><strong>{{ p.nome }}</strong> <small>({{ p.login }}) — pediu em {{ p.pedido_em[8:10] }}/{{ p.pedido_em[5:7] }} às {{ p.pedido_em[11:16] }}</small></span>
+        <form method="post" action="{{ url_for('link_senha_usuario', id_=p.usuario_id) }}">
+          <button type="submit" class="botao vazado">Gerar link</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
   <form class="peneira" method="get">
     {% if ver != 'ativos' %}<input type="hidden" name="ver" value="{{ ver }}">{% endif %}
     <label class="busca">

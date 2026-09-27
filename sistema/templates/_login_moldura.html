@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{#- Moldura das telas de acesso (entrar, esqueci a senha, nova senha).
+    Aparência vem da configuração central (dados.config_login), já validada. -#}
+{% block titulo %}{% block titulo_pagina %}Entrar{% endblock %} — {{ empresa.nome_exibicao }}{% endblock %}
+{% block corpo %}palco-login{% endblock %}
+{% block conteudo %}
+{% set logo_url = url_for('static', filename=lg.logo or lg.logo_padrao) %}
+{% set imagem_url = url_for('static', filename=lg.login_imagem) if lg.login_imagem else '' %}
+<main class="lg lg--{{ lg.login_layout }} lg--modelo-{{ lg.login_modelo }}{{ ' lg--com-imagem' if imagem_url }}" id="lg"
+      style="--lg-primaria: {{ lg.cor_primaria }}; --lg-secundaria: {{ lg.cor_secundaria }}; --lg-botao: {{ lg.login_cor_botao }}; --lg-botao-texto: {{ lg.texto_botao }}; --lg-fundo: {{ lg.login_cor_fundo }}; --lg-texto: {{ lg.login_cor_texto }}; --lg-texto-sec: {{ lg.login_cor_texto_sec }};{% if imagem_url %} --lg-imagem: url('{{ imagem_url }}');{% endif %}"
+      data-logo-padrao="{{ url_for('static', filename=lg.logo_padrao) }}">
+  <section class="lg-marca" aria-label="{{ empresa.nome_exibicao }}">
+    <div class="lg-marca-foto" aria-hidden="true"></div>
+    <svg class="lg-facetas" viewBox="0 0 600 800" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+      <polygon points="0,0 170,0 60,130" fill="var(--lg-secundaria)" opacity=".22"/>
+      <polygon points="600,70 600,260 470,150" fill="#fff" opacity=".10"/>
+      <polygon points="520,640 600,560 600,800 470,800" fill="var(--lg-secundaria)" opacity=".18"/>
+      <polygon points="0,610 110,700 0,800" fill="#fff" opacity=".08"/>
+      <polygon points="90,300 150,260 140,340" fill="#fff" opacity=".12"/>
+      <polygon points="470,400 520,370 505,440" fill="var(--lg-secundaria)" opacity=".30"/>
+    </svg>
+    <div class="lg-marca-conteudo">
+      <span class="lg-logo-moldura"><img class="lg-logo" data-logo src="{{ logo_url }}" alt="Logo {{ empresa.nome_exibicao }}" width="168" height="168"></span>
+      <p class="lg-nome">{{ empresa.nome_exibicao|upper }}</p>
+      <p class="lg-slogan" data-texto="login_slogan">{{ lg.login_slogan }}</p>
+      <p class="lg-mensagem" data-texto="login_mensagem">{{ lg.login_mensagem }}</p>
+    </div>
+  </section>
+
+  <section class="lg-acesso">
+    <div class="lg-cartao">
+      <span class="lg-logo-moldura lg-logo-cartao"><img class="lg-logo" data-logo src="{{ logo_url }}" alt="Logo {{ empresa.nome_exibicao }}" width="96" height="96"></span>
+      {% block cabecalho %}
+      <h1 class="lg-titulo" data-texto="login_titulo">{{ lg.login_titulo }}</h1>
+      <p class="lg-sub" data-texto="login_subtitulo">{{ lg.login_subtitulo }}</p>
+      {% endblock %}
+      {% with msgs = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in msgs %}
+      <p class="lg-aviso lg-aviso--{{ 'ok' if cat == 'ok' else 'erro' }}" role="{{ 'status' if cat == 'ok' else 'alert' }}">{{ msg }}</p>
+      {% endfor %}
+      {% endwith %}
+      {% if erro_geral %}<p class="lg-aviso lg-aviso--erro" role="alert" id="lg-erro-geral">{{ erro_geral }}</p>{% endif %}
+      {% block cartao %}{% endblock %}
+    </div>
+    <p class="lg-rodape"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3zm0 2.2 6 2.2V11c0 3.9-2.5 7.6-6 8.9-3.5-1.3-6-5-6-8.9V6.4l6-2.2zm-1 10.4-2.3-2.3-1.4 1.4 3.7 3.7 6-6-1.4-1.4-4.6 4.6z"/></svg>Acesso seguro e protegido</p>
+  </section>
+</main>
+
+<script>
+(function(){
+  // Mostrar/ocultar senha (todas as telas de acesso)
+  document.querySelectorAll('[data-olho]').forEach(function(botao) {
+    var campo = document.getElementById(botao.getAttribute('aria-controls'));
+    botao.addEventListener('click', function() {
+      var mostrar = campo.type === 'password';
+      campo.type = mostrar ? 'text' : 'password';
+      botao.setAttribute('aria-pressed', mostrar ? 'true' : 'false');
+      botao.setAttribute('aria-label', mostrar ? 'Ocultar senha' : 'Mostrar senha');
+      botao.classList.toggle('lg-olho--aberto', mostrar);
+      campo.focus();
+    });
+  });
+  // Validação no navegador (o servidor valida de novo) e envio único
+  var form = document.querySelector('form[data-lg-form]');
+  if (!form) return;
+  function marcar(campo, mensagem) {
+    var caixa = campo.closest('.lg-campo');
+    var msg = document.getElementById(campo.id + '-erro');
+    caixa.classList.toggle('lg-campo--erro', !!mensagem);
+    campo.setAttribute('aria-invalid', mensagem ? 'true' : 'false');
+    if (msg) msg.textContent = mensagem || '';
+  }
+  form.querySelectorAll('input[data-obrigatorio]').forEach(function(campo) {
+    campo.addEventListener('input', function() { if (campo.value.trim()) marcar(campo, ''); });
+  });
+  form.addEventListener('submit', function(e) {
+    if (form.hasAttribute('data-previa')) { e.preventDefault(); return; }
+    var primeiro = null;
+    form.querySelectorAll('input[data-obrigatorio]').forEach(function(campo) {
+      var vazio = !campo.value.trim();
+      marcar(campo, vazio ? campo.getAttribute('data-obrigatorio') : '');
+      if (vazio && !primeiro) primeiro = campo;
+    });
+    if (primeiro) { e.preventDefault(); primeiro.focus(); return; }
+    if (form.dataset.enviando) { e.preventDefault(); return; }
+    form.dataset.enviando = '1';
+    var botao = form.querySelector('.lg-botao');
+    botao.disabled = true;
+    botao.setAttribute('aria-busy', 'true');
+    botao.classList.add('lg-botao--carregando');
+    botao.querySelector('.lg-botao-texto').textContent = botao.getAttribute('data-carregando');
+  });
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) { delete form.dataset.enviando; var b = form.querySelector('.lg-botao');
+      b.disabled = false; b.classList.remove('lg-botao--carregando'); b.removeAttribute('aria-busy'); }
+  });
+})();
+</script>
+{% if previa %}
+<script>
+// Pré-visualização: a tela de Personalização envia os valores ainda não salvos.
+(function(){
+  var raiz = document.getElementById('lg');
+  var padrao = raiz.getAttribute('data-logo-padrao');
+  function luminancia(hex) {
+    var c = [1, 3, 5].map(function(i) { var v = parseInt(hex.substr(i, 2), 16) / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  var mapa = { cor_primaria: '--lg-primaria', cor_secundaria: '--lg-secundaria', login_cor_botao: '--lg-botao',
+               login_cor_fundo: '--lg-fundo', login_cor_texto: '--lg-texto', login_cor_texto_sec: '--lg-texto-sec' };
+  window.addEventListener('message', function(e) {
+    if (e.origin !== location.origin || !e.data || e.data.tipo !== 'lg-previa') return;
+    var v = e.data.valores;
+    Object.keys(mapa).forEach(function(k) { if (/^#[0-9a-f]{6}$/i.test(v[k] || '')) raiz.style.setProperty(mapa[k], v[k]); });
+    if (/^#[0-9a-f]{6}$/i.test(v.login_cor_botao || '')) {
+      var l = luminancia(v.login_cor_botao);
+      raiz.style.setProperty('--lg-botao-texto', (1.05 / (l + 0.05)) >= 3 ? '#FFFFFF' : '#1E1C22');
+    }
+    raiz.className = raiz.className.replace(/lg--(dividido|centralizado|modelo-\w+|com-imagem)/g, '').trim()
+      + ' lg--' + v.login_layout + ' lg--modelo-' + v.login_modelo + (e.data.imagem_url ? ' lg--com-imagem' : '');
+    raiz.style.setProperty('--lg-imagem', e.data.imagem_url ? 'url("' + e.data.imagem_url + '")' : 'none');
+    document.querySelectorAll('[data-texto]').forEach(function(el) {
+      var chave = el.getAttribute('data-texto');
+      if (typeof v[chave] === 'string') el.textContent = v[chave];
+    });
+    document.querySelectorAll('[data-logo]').forEach(function(img) { img.src = e.data.logo_url || padrao; });
+  });
+  if (window.parent !== window) window.parent.postMessage({ tipo: 'lg-previa-pronta' }, location.origin);
+})();
+</script>
+{% endif %}
+{% endblock %}

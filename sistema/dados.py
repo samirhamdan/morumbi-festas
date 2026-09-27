@@ -1,10 +1,13 @@
 """Camada de dados — SQLite."""
 
 import contextvars
+import hashlib
 import json
 import os
 import re
+import secrets
 import sqlite3
+import time
 import unicodedata
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -573,6 +576,7 @@ def inicializar():
             " WHERE classificacao = 'Cliente VIP historico'")
 
         _migrar_empresa(conn)
+        _migrar_login(conn)
     # caches montados durante a migração podem estar incompletos
     _tenant_padrao_cache.pop(CAMINHO_BD, None)
     for cache in (_config_cache, _nome_cache):
@@ -777,8 +781,16 @@ CONFIG_PADRAO = {
     # Sistema
     "idioma": "pt-BR", "moeda": "BRL", "fuso_horario": "America/Campo_Grande",
     "formato_data": "DD/MM/YYYY",
-    # Identidade visual (white label futuro)
+    # Identidade visual (cores centrais: login e, no futuro, o sistema)
     "cor_primaria": "#6F1C85", "cor_secundaria": "#FF8C00",
+    # Página de login (Personalização do Login). Botão vazio = cor primária.
+    "login_layout": "dividido", "login_modelo": "padrao", "login_imagem": "",
+    "login_cor_botao": "", "login_cor_fundo": "#FFFFFF",
+    "login_cor_texto": "#1E1C22", "login_cor_texto_sec": "#6B6472",
+    "login_titulo": "Bem-vindo(a)",
+    "login_subtitulo": "Acesse sua conta e continue gerenciando as festas com praticidade.",
+    "login_slogan": "SEU MOMENTO, SUA FESTA",
+    "login_mensagem": "Organize pedidos, agenda e operação das suas festas em um só lugar.",
     # Empresa
     "horario_funcionamento": "", "facebook": "", "site": "",
     # Operação
@@ -805,15 +817,22 @@ _config_cache: dict = {}
 _fusos_cache: dict = {}
 
 
+# Validade do cache: com mais de um processo no servidor, a mudança feita em um
+# chega aos outros em até este tempo (no mesmo processo, na hora).
+CONFIG_CACHE_SEGUNDOS = 60
+
+
 def config(chave: str, padrao: str | None = None) -> str:
     """Configuração da empresa atual (ou o padrão do sistema)."""
     tid = tenant_atual()
-    cache = _config_cache.get((CAMINHO_BD, tid))
-    if cache is None:
+    guardado = _config_cache.get((CAMINHO_BD, tid))
+    if guardado is None or time.monotonic() - guardado[0] > CONFIG_CACHE_SEGUNDOS:
         with conectar() as conn:
             cache = {r["chave"]: r["valor"] for r in conn.execute(
                 "SELECT chave, valor FROM configuracoes WHERE tenant_id = ?", (tid,))}
-        _config_cache[(CAMINHO_BD, tid)] = cache
+        _config_cache[(CAMINHO_BD, tid)] = (time.monotonic(), cache)
+    else:
+        cache = guardado[1]
     if chave in cache and cache[chave] is not None:
         return cache[chave]
     return CONFIG_PADRAO.get(chave, "") if padrao is None else padrao
@@ -5249,3 +5268,345 @@ def agenda_periodo(inicio: str, fim: str, filtros: dict | None = None,
     return {"inicio": inicio, "fim": fim, "compromissos": lista, "por_dia": por_dia,
             "kpis": kpis, "total_periodo": len(validos), "sem_data": sem_data,
             "filtrado": any(filtros.values()), **_opcoes_de_filtro(pedidos)}
+
+
+# ---------------------------------------------------------------------------
+# Login, recuperação de senha e personalização do login
+#
+# A autenticação continua a do sistema (usuarios + membros); aqui ficam a
+# identificação por login ou e-mail, o limite de tentativas, os links de
+# redefinição de senha (token guardado só como hash, uso único, 1 hora) e as
+# configurações visuais do login, que vivem na tabela central configuracoes
+# (logo = logo da empresa; cores primária/secundária = identidade visual).
+# ---------------------------------------------------------------------------
+
+LIMITE_FALHAS_LOGIN = 5          # por usuário digitado, na janela abaixo
+LIMITE_FALHAS_IP = 20            # por endereço, na janela abaixo
+JANELA_FALHAS_MINUTOS = 15
+VALIDADE_LINK_SENHA_MINUTOS = 60
+INTERVALO_PEDIDO_SENHA_MINUTOS = 10
+SENHA_MINIMA = 8
+
+LAYOUTS_LOGIN = {"dividido": "Dividido", "centralizado": "Centralizado"}
+# Modelos prontos: aplicar um modelo só preenche os campos da tela; nada é
+# gravado até "Salvar alterações".
+MODELOS_LOGIN = {
+    "padrao": {"rotulo": "Padrão", "login_layout": "dividido", "cor_primaria": "#6F1C85",
+               "cor_secundaria": "#FF8C00", "login_cor_botao": "#6F1C85",
+               "login_cor_fundo": "#FFFFFF", "login_cor_texto": "#1E1C22",
+               "login_cor_texto_sec": "#6B6472"},
+    "minimalista": {"rotulo": "Minimalista", "login_layout": "centralizado",
+                    "cor_primaria": "#6F1C85", "cor_secundaria": "#C9B6DC",
+                    "login_cor_botao": "#1E1C22", "login_cor_fundo": "#FFFFFF",
+                    "login_cor_texto": "#1E1C22", "login_cor_texto_sec": "#71717A"},
+    "escuro": {"rotulo": "Escuro", "login_layout": "dividido", "cor_primaria": "#A66BD6",
+               "cor_secundaria": "#FF8C00", "login_cor_botao": "#8E44C4",
+               "login_cor_fundo": "#17111F", "login_cor_texto": "#F4EFFA",
+               "login_cor_texto_sec": "#B8AEC6"},
+    "foto": {"rotulo": "Foto real", "login_layout": "dividido", "cor_primaria": "#6F1C85",
+             "cor_secundaria": "#FF8C00", "login_cor_botao": "#6F1C85",
+             "login_cor_fundo": "#FFFFFF", "login_cor_texto": "#1E1C22",
+             "login_cor_texto_sec": "#6B6472"},
+    "clean": {"rotulo": "Clean", "login_layout": "centralizado", "cor_primaria": "#6F1C85",
+              "cor_secundaria": "#FFB866", "login_cor_botao": "#6F1C85",
+              "login_cor_fundo": "#FFFFFF", "login_cor_texto": "#111827",
+              "login_cor_texto_sec": "#6B7280"},
+}
+CORES_LOGIN = ("cor_primaria", "cor_secundaria", "login_cor_botao", "login_cor_fundo",
+               "login_cor_texto", "login_cor_texto_sec")
+# texto -> tamanho máximo
+TEXTOS_LOGIN = {"login_titulo": 60, "login_subtitulo": 160, "login_slogan": 60,
+                "login_mensagem": 200}
+CHAVES_LOGIN = ("login_layout", "login_modelo", "login_imagem", *CORES_LOGIN,
+                *TEXTOS_LOGIN)
+LOGO_OFICIAL = "logo-morumbi.webp"
+
+
+def _migrar_login(conn):
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS tentativas_login (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chave TEXT NOT NULL,
+            criado_em TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_tentativas_login ON tentativas_login (chave, criado_em);
+        CREATE TABLE IF NOT EXISTS redefinicoes_senha (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+            tenant_id INTEGER REFERENCES organizacoes(id),
+            token_hash TEXT NOT NULL UNIQUE,
+            origem TEXT NOT NULL,
+            criado_por INTEGER REFERENCES usuarios(id),
+            criado_em TEXT NOT NULL,
+            expira_em TEXT NOT NULL,
+            usado_em TEXT
+        );
+        CREATE INDEX IF NOT EXISTS ix_redefinicoes_usuario
+            ON redefinicoes_senha (usuario_id, criado_em);
+    """)
+
+
+def _minutos_atras(minutos: int) -> str:
+    agora_ = datetime.fromisoformat(formato.agora())
+    return (agora_ - timedelta(minutes=minutos)).isoformat(timespec="seconds")
+
+
+def usuario_para_entrar(identificacao: str) -> dict | None:
+    """Usuário pelo login ou, se não houver, pelo e-mail (só se for único)."""
+    ident = (identificacao or "").strip().lower()
+    if not ident:
+        return None
+    with conectar() as conn:
+        r = conn.execute("SELECT * FROM usuarios WHERE login = ?", (ident,)).fetchone()
+        if r:
+            return dict(r)
+        if "@" in ident:
+            rows = conn.execute("SELECT * FROM usuarios WHERE lower(email) = ?",
+                                (ident,)).fetchall()
+            if len(rows) == 1:
+                return dict(rows[0])
+    return None
+
+
+def _chaves_tentativa(identificacao: str, ip: str) -> tuple:
+    ident = (identificacao or "").strip().lower()
+    return f"u:{hashlib.sha256(ident.encode()).hexdigest()}", f"ip:{ip or '-'}"
+
+
+def login_bloqueado(identificacao: str, ip: str) -> bool:
+    """Muitas senhas erradas seguidas para este usuário ou deste endereço."""
+    por_usuario, por_ip = _chaves_tentativa(identificacao, ip)
+    desde = _minutos_atras(JANELA_FALHAS_MINUTOS)
+    with conectar() as conn:
+        def falhas(chave):
+            return conn.execute("SELECT COUNT(*) FROM tentativas_login"
+                                " WHERE chave = ? AND criado_em >= ?",
+                                (chave, desde)).fetchone()[0]
+        return (falhas(por_usuario) >= LIMITE_FALHAS_LOGIN
+                or falhas(por_ip) >= LIMITE_FALHAS_IP)
+
+
+def registrar_falha_login(identificacao: str, ip: str):
+    agora_ = formato.agora()
+    with conectar() as conn:
+        conn.executemany("INSERT INTO tentativas_login (chave, criado_em) VALUES (?, ?)",
+                         [(c, agora_) for c in _chaves_tentativa(identificacao, ip)])
+        conn.execute("DELETE FROM tentativas_login WHERE criado_em < ?",
+                     (_minutos_atras(24 * 60),))
+
+
+def limpar_falhas_login(identificacao: str):
+    with conectar() as conn:
+        conn.execute("DELETE FROM tentativas_login WHERE chave = ?",
+                     (_chaves_tentativa(identificacao, "")[0],))
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256((token or "").encode()).hexdigest()
+
+
+def _criar_token(conn, usuario_id: int, tenant_id, origem: str, criado_por=None) -> str:
+    token = secrets.token_urlsafe(32)
+    agora_ = formato.agora()
+    expira = (datetime.fromisoformat(agora_)
+              + timedelta(minutes=VALIDADE_LINK_SENHA_MINUTOS)).isoformat(timespec="seconds")
+    conn.execute("INSERT INTO redefinicoes_senha (usuario_id, tenant_id, token_hash, origem,"
+                 " criado_por, criado_em, expira_em) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (usuario_id, tenant_id, _hash_token(token), origem, criado_por,
+                  agora_, expira))
+    return token
+
+
+def pedir_nova_senha(identificacao: str) -> tuple | None:
+    """Pedido feito na tela "Esqueceu a senha?".
+
+    Devolve (usuário, token) quando há uma conta ativa com esse login/e-mail
+    e ela não pediu há poucos minutos; senão None. Quem chama nunca revela a
+    diferença para a tela. O pedido fica visível para os administradores.
+    """
+    u = usuario_para_entrar(identificacao)
+    if not u or not u["ativo"]:
+        return None
+    vinculos = membros_do_usuario(u["id"])
+    if not vinculos:
+        return None
+    tid = vinculos[0]["tenant_id"]
+    with conectar() as conn:
+        recente = conn.execute(
+            "SELECT 1 FROM redefinicoes_senha WHERE usuario_id = ? AND origem = 'pedido'"
+            " AND criado_em >= ?", (u["id"], _minutos_atras(INTERVALO_PEDIDO_SENHA_MINUTOS))
+        ).fetchone()
+        if recente:
+            return None
+        token = _criar_token(conn, u["id"], tid, "pedido")
+    with usando_tenant(tid):
+        with conectar() as conn:
+            auditar(conn, "usuario", u["id"], "pedir_senha",
+                    f"{u['nome']} pediu uma nova senha", u["id"])
+    return u, token
+
+
+def pedidos_de_senha_pendentes() -> list:
+    """Pedidos de nova senha da empresa ainda sem senha redefinida depois deles."""
+    with conectar() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT r.usuario_id, MAX(r.criado_em) AS pedido_em, u.nome, u.login, u.email"
+            " FROM redefinicoes_senha r JOIN usuarios u ON u.id = r.usuario_id"
+            f" WHERE r.origem = 'pedido' AND {_t('r')} AND r.criado_em >= ?"
+            " AND NOT EXISTS (SELECT 1 FROM redefinicoes_senha x WHERE"
+            "   x.usuario_id = r.usuario_id AND x.usado_em IS NOT NULL"
+            "   AND x.usado_em >= r.criado_em)"
+            " GROUP BY r.usuario_id ORDER BY pedido_em DESC",
+            (_minutos_atras(7 * 24 * 60),)).fetchall()]
+
+
+def gerar_link_senha(usuario_id: int, admin_id=None) -> str:
+    """Link de nova senha criado pelo administrador (usuário da própria empresa)."""
+    u = buscar_usuario(usuario_id)
+    if not u:
+        raise ValueError("Usuário não encontrado.")
+    if not u["ativo"]:
+        raise ValueError("Ative o usuário antes de gerar um link de nova senha.")
+    with conectar() as conn:
+        token = _criar_token(conn, usuario_id, tenant_atual(), "admin", admin_id)
+        auditar(conn, "usuario", usuario_id, "gerar_link_senha",
+                f"Link de nova senha gerado para {u['nome']}", admin_id)
+    return token
+
+
+def link_de_senha_valido(token: str) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute(
+            "SELECT r.*, u.nome, u.login, u.ativo FROM redefinicoes_senha r"
+            " JOIN usuarios u ON u.id = r.usuario_id WHERE r.token_hash = ?",
+            (_hash_token(token),)).fetchone()
+    if not r or r["usado_em"] or r["expira_em"] < formato.agora() or not r["ativo"]:
+        return None
+    return dict(r)
+
+
+def redefinir_senha(token: str, nova: str, confirmacao: str):
+    """Troca a senha pelo link; o link (e os outros abertos) deixam de valer."""
+    from werkzeug.security import generate_password_hash
+    pedido = link_de_senha_valido(token)
+    if not pedido:
+        raise ValueError("Este link não é mais válido. Peça um novo.")
+    if len(nova or "") < SENHA_MINIMA:
+        raise ErroDeCampo("senha", f"A senha precisa ter pelo menos {SENHA_MINIMA} caracteres.")
+    if nova != confirmacao:
+        raise ErroDeCampo("confirmacao", "As senhas não conferem.")
+    agora_ = formato.agora()
+    with conectar() as conn:
+        conn.execute("UPDATE usuarios SET senha_hash = ?, atualizado_em = ? WHERE id = ?",
+                     (generate_password_hash(nova), agora_, pedido["usuario_id"]))
+        conn.execute("UPDATE redefinicoes_senha SET usado_em = ?"
+                     " WHERE usuario_id = ? AND usado_em IS NULL",
+                     (agora_, pedido["usuario_id"]))
+    with usando_tenant(pedido["tenant_id"] or tenant_padrao()):
+        with conectar() as conn:
+            auditar(conn, "usuario", pedido["usuario_id"], "redefinir_senha",
+                    f"Senha de {pedido['nome']} redefinida pelo link", pedido["usuario_id"])
+    limpar_falhas_login(pedido["login"])
+    return pedido
+
+
+# --- Personalização do login -------------------------------------------------
+
+def _cor_valida(valor: str) -> bool:
+    return bool(re.fullmatch(r"#[0-9A-Fa-f]{6}", valor or ""))
+
+
+def limpar_texto(texto: str, maximo: int) -> str:
+    """Texto simples: sem marcação HTML, sem caracteres de controle, 1 linha."""
+    t = re.sub(r"<[^>]*>", "", str(texto or ""))
+    t = "".join(c for c in t if c.isprintable())
+    return " ".join(t.replace("<", "").replace(">", "").split())[:maximo]
+
+
+def _contraste(cor_a: str, cor_b: str) -> float:
+    def lum(cor):
+        canais = [int(cor[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        c = [v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4 for v in canais]
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    a, b = sorted((lum(cor_a), lum(cor_b)), reverse=True)
+    return (a + 0.05) / (b + 0.05)
+
+
+def _arquivo_da_empresa(caminho: str) -> bool:
+    """Só arquivos gravados pelo sistema na pasta da empresa (nomes gerados)."""
+    return bool(re.fullmatch(r"uploads/empresas/\d+/[A-Za-z0-9_.-]+\.(png|jpe?g|webp|svg)",
+                             caminho or ""))
+
+
+def config_login() -> dict:
+    """Tudo o que a página de login precisa, numa leitura (cache da empresa).
+
+    Valor ausente ou inválido volta ao padrão Morumbi Festas: o login nunca
+    fica quebrado por causa de uma configuração.
+    """
+    c = {chave: config(chave) for chave in CHAVES_LOGIN}
+    for chave in CORES_LOGIN:
+        if not _cor_valida(c[chave]):
+            c[chave] = CONFIG_PADRAO[chave] or CONFIG_PADRAO["cor_primaria"]
+    if c["login_layout"] not in LAYOUTS_LOGIN:
+        c["login_layout"] = CONFIG_PADRAO["login_layout"]
+    if c["login_modelo"] not in MODELOS_LOGIN:
+        c["login_modelo"] = CONFIG_PADRAO["login_modelo"]
+    for chave, maximo in TEXTOS_LOGIN.items():
+        c[chave] = limpar_texto(c[chave], maximo) or CONFIG_PADRAO[chave]
+    if not _arquivo_da_empresa(c["login_imagem"]):
+        c["login_imagem"] = ""
+    logo = empresa_atual().get("logo") or ""
+    c["logo"] = logo if _arquivo_da_empresa(logo) else ""
+    c["logo_padrao"] = LOGO_OFICIAL
+    c["texto_botao"] = "#FFFFFF" if _contraste(c["login_cor_botao"], "#FFFFFF") >= 3 else "#1E1C22"
+    return c
+
+
+def salvar_config_login(valores: dict, usuario_id=None) -> dict:
+    """Valida e grava a personalização (auditoria: antes e depois de cada campo)."""
+    limpos = {}
+    for chave in CORES_LOGIN:
+        if chave in valores:
+            v = (valores[chave] or "").strip()
+            if not _cor_valida(v):
+                raise ErroDeCampo(chave, "Cor inválida. Use o formato #RRGGBB.")
+            limpos[chave] = v.upper()
+    if "login_layout" in valores:
+        if valores["login_layout"] not in LAYOUTS_LOGIN:
+            raise ErroDeCampo("login_layout", "Layout inválido.")
+        limpos["login_layout"] = valores["login_layout"]
+    if "login_modelo" in valores:
+        if valores["login_modelo"] not in MODELOS_LOGIN:
+            raise ErroDeCampo("login_modelo", "Modelo inválido.")
+        limpos["login_modelo"] = valores["login_modelo"]
+    for chave, maximo in TEXTOS_LOGIN.items():
+        if chave in valores:
+            texto = limpar_texto(valores[chave], maximo)
+            if not texto and chave in ("login_titulo", "login_subtitulo"):
+                raise ErroDeCampo(chave, "Preencha este texto.")
+            limpos[chave] = texto
+    if "login_imagem" in valores:
+        limpos["login_imagem"] = valores["login_imagem"] or ""
+    return salvar_config(limpos, usuario_id)
+
+
+def restaurar_login(usuario_id=None) -> dict:
+    """Volta o login ao padrão: apaga as configurações (valem os padrões) e a logo."""
+    tid = tenant_atual()
+    antes = {c: config(c) for c in CHAVES_LOGIN}
+    logo = empresa_atual().get("logo") or ""
+    with conectar() as conn:
+        marcas = ",".join("?" * len(CHAVES_LOGIN))
+        conn.execute(f"DELETE FROM configuracoes WHERE tenant_id = ? AND chave IN ({marcas})",
+                     (tid, *CHAVES_LOGIN))
+        conn.execute("UPDATE organizacoes SET logo = '', atualizado_em = ? WHERE id = ?",
+                     (formato.agora(), tid))
+        mudancas = {c: [v, CONFIG_PADRAO.get(c, "")] for c, v in antes.items()
+                    if v != CONFIG_PADRAO.get(c, "")}
+        if logo:
+            mudancas["logo"] = [logo, ""]
+        auditar(conn, "configuracao", tid, "restaurar",
+                "Login restaurado para o padrão", usuario_id, mudancas)
+    _config_cache.pop((CAMINHO_BD, tid), None)
+    return mudancas
