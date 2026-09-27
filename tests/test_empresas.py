@@ -385,7 +385,10 @@ class TestePermissoes:
         assert "Pedidos" in texto and "Usuários" not in texto
         assert "Configurações" not in texto
         texto = logados["admin"].get("/").text
-        assert "Empresa" in texto and "Permissões" in texto
+        assert 'data-dica="Configurações"' in texto
+        # as telas de configuração ficam nas abas da área de Configurações
+        texto = logados["admin"].get("/configuracoes/empresa").text
+        assert "Empresa" in texto and "Permissões" in texto and "Origens de lead" in texto
 
 
 # --- Configurações ------------------------------------------------------------

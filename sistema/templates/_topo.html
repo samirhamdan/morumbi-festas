@@ -1,6 +1,5 @@
 <header class="topo">
-  <button class="gaveta-botao" aria-label="Menu" aria-expanded="false" aria-controls="nav"
-          onclick="var nav=document.getElementById('nav');nav.classList.toggle('aberta');this.setAttribute('aria-expanded',nav.classList.contains('aberta'))">
+  <button type="button" class="gaveta-botao" aria-label="Abrir menu" aria-expanded="false" aria-controls="nav">
     <span></span><span></span><span></span>
   </button>
 
@@ -29,37 +28,96 @@
   </details>
 </header>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="mi-inicio" viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="mi-funil" viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></symbol>
+    <symbol id="mi-orcamento" viewBox="0 0 24 24"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
+    <symbol id="mi-clientes" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.8c1.9.6 3.2 2.3 3.5 5.2"/></symbol>
+    <symbol id="mi-pedido" viewBox="0 0 24 24"><path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></symbol>
+    <symbol id="mi-agenda" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+    <symbol id="mi-esteira" viewBox="0 0 24 24"><rect x="3.5" y="4" width="4.5" height="16" rx="1"/><rect x="9.8" y="4" width="4.5" height="11" rx="1"/><rect x="16" y="4" width="4.5" height="7" rx="1"/></symbol>
+    <symbol id="mi-produto" viewBox="0 0 24 24"><path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.3 7.3a1 1 0 0 1-1.4 0z"/><circle cx="8" cy="8" r="1.4"/></symbol>
+    <symbol id="mi-categoria" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="mi-vitrine" viewBox="0 0 24 24"><path d="M4 9.5 5.5 4h13L20 9.5M4 9.5V20h16V9.5M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0"/><path d="M10 20v-5h4v5"/></symbol>
+    <symbol id="mi-relatorio" viewBox="0 0 24 24"><path d="M4 20h16M7 16v-5M12 16V6M17 16v-8"/></symbol>
+    <symbol id="mi-config" viewBox="0 0 24 24"><path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.7l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.7l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="mi-recolher" viewBox="0 0 24 24"><path d="M11 7l-5 5 5 5M18 7l-5 5 5 5"/></symbol>
+  </defs>
+</svg>
+
 <nav id="nav" class="lateral" aria-label="Menu principal">
-  <a class="lateral-marca" href="{{ url_for('painel') }}">
+  <a class="lateral-marca" href="{{ url_for('painel') }}" aria-label="{{ empresa.nome_exibicao }} — início">
     {% if empresa.logo %}
     <img src="{{ url_for('static', filename=empresa.logo) }}" alt="{{ empresa.nome_exibicao }}" class="lateral-marca-logo">
     {% elif empresa.nome_exibicao == 'Morumbi Festas' %}
-    <span class="lateral-marca-nome">MORUMBI</span>
-    <span class="lateral-marca-festas">FESTAS</span>
+    <span class="lateral-marca-texto"><span class="lateral-marca-nome">MORUMBI</span>
+    <span class="lateral-marca-festas">FESTAS</span></span>
     {% else %}
-    <span class="lateral-marca-nome">{{ empresa.nome_exibicao }}</span>
+    <span class="lateral-marca-texto"><span class="lateral-marca-nome">{{ empresa.nome_exibicao }}</span></span>
     {% endif %}
+    <span class="lateral-marca-mini" aria-hidden="true">{{ (empresa.nome_exibicao or 'M')[:1]|upper }}</span>
   </a>
-  {% for grupo, itens in menu %}
-    {% set links = [] %}
-    {% for ep, rotulo in itens %}{% if pode(ep) %}{% set _ = links.append((ep, rotulo)) %}{% endif %}{% endfor %}
-    {% if links %}
-      {% if grupo == 'Painel' %}
+
+  <div class="lateral-lista">
+  {% for grupo, links in menu_usuario %}
+    <div class="lateral-grupo">
+      {% if grupo %}<p class="lateral-titulo">{{ grupo }}</p>{% endif %}
       <ul>
-        {% for ep, rotulo in links %}
-        <li><a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}"{{ ' aria-current="page"'|safe if request.endpoint == ep }}>{{ rotulo }}</a></li>
+        {% for l in links %}
+        <li><a href="{{ url_for(l.ep) }}" class="lateral-item{{ ' aqui' if l.ativo }}" data-dica="{{ l.rotulo }}"{{ ' aria-current="page"'|safe if l.ativo }}>
+          <svg class="lateral-ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#mi-{{ l.icone }}"/></svg>
+          <span class="lateral-rotulo">{{ l.rotulo }}</span>
+        </a></li>
         {% endfor %}
       </ul>
-      {% else %}
-      <details class="grupo" open>
-        <summary>{{ grupo }}</summary>
-        <ul>
-          {% for ep, rotulo in links %}
-          <li><a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}"{{ ' aria-current="page"'|safe if request.endpoint == ep }}>{{ rotulo }}</a></li>
-          {% endfor %}
-        </ul>
-      </details>
-      {% endif %}
-    {% endif %}
+    </div>
   {% endfor %}
+  </div>
+
+  <button type="button" class="lateral-recolher" id="lateral-recolher" aria-pressed="false" data-dica="Expandir menu">
+    <svg class="lateral-ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#mi-recolher"/></svg>
+    <span class="lateral-rotulo">Recolher menu</span>
+  </button>
 </nav>
+<div class="lateral-fundo" id="lateral-fundo" hidden></div>
+<div class="lateral-dica" id="lateral-dica" role="tooltip" hidden></div>
+
+<script>
+(function(){
+  var raiz = document.documentElement, nav = document.getElementById('nav');
+  var botao = document.getElementById('lateral-recolher'), dica = document.getElementById('lateral-dica');
+  var fundo = document.getElementById('lateral-fundo'), gaveta = document.querySelector('.gaveta-botao');
+  function marcar() {
+    var sim = raiz.classList.contains('menu-recolhido');
+    botao.setAttribute('aria-pressed', sim ? 'true' : 'false');
+    botao.setAttribute('aria-label', sim ? 'Expandir menu' : 'Recolher menu');
+  }
+  marcar();
+  botao.addEventListener('click', function() {
+    var sim = raiz.classList.toggle('menu-recolhido');
+    try { localStorage.setItem('mf_menu', sim ? 'recolhido' : 'aberto'); } catch (e) {}
+    marcar(); dica.hidden = true;
+  });
+  // Recolhido: o nome aparece ao lado do ícone (mouse ou teclado)
+  function mostrar(e) {
+    var alvo = e.target.closest("[data-dica]");
+    if (!alvo || !raiz.classList.contains('menu-recolhido') || window.innerWidth <= 768) return;
+    var r = alvo.getBoundingClientRect();
+    dica.textContent = alvo.dataset.dica; dica.hidden = false;
+    dica.style.top = (r.top + r.height / 2) + 'px'; dica.style.left = (r.right + 10) + 'px';
+  }
+  nav.addEventListener('mouseover', mostrar); nav.addEventListener('focusin', mostrar);
+  nav.addEventListener('mouseleave', function() { dica.hidden = true; });
+  nav.addEventListener('focusout', function() { dica.hidden = true; });
+  nav.addEventListener('scroll', function() { dica.hidden = true; });
+  // Celular: gaveta com fundo escuro; fecha ao tocar fora, no Esc ou ao escolher
+  function gavetaAberta(sim) {
+    nav.classList.toggle('aberta', sim); fundo.hidden = !sim;
+    if (gaveta) gaveta.setAttribute('aria-expanded', sim ? 'true' : 'false');
+  }
+  if (gaveta) gaveta.addEventListener('click', function() { gavetaAberta(!nav.classList.contains('aberta')); });
+  fundo.addEventListener('click', function() { gavetaAberta(false); });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && nav.classList.contains('aberta')) { gavetaAberta(false); if (gaveta) gaveta.focus(); } });
+})();
+</script>

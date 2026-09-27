@@ -6,6 +6,11 @@
 {% include "_topo.html" %}
 
 <main id="conteudo" class="pagina">
+  <nav class="abas cfg-abas-topo" aria-label="Configurações">
+    {% for ep, rotulo in abas_config %}{% if pode(ep) %}
+    <a href="{{ url_for(ep) }}" class="{{ 'aqui' if request.endpoint == ep }}">{{ rotulo }}</a>
+    {% endif %}{% endfor %}
+  </nav>
   <div class="cabecalho-lista">
     <h2 class="secao">Origens de Lead</h2>
   </div>

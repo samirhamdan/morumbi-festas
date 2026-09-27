@@ -159,8 +159,10 @@ class TesteRotaAgenda:
         assert r.status_code == 302
 
     def test_agenda_menu_operacao(self, app, admin):
+        # menu reorganizado: a Agenda fica no grupo Pedidos, marcada como tela atual
         r = admin.get("/agenda")
-        assert "Operação" in r.text
+        assert '<p class="lateral-titulo">Pedidos</p>' in r.text
+        assert 'class="lateral-item aqui" data-dica="Agenda"' in r.text
 
 
 

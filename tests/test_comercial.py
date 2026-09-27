@@ -462,8 +462,9 @@ class TesteRotasComerciais:
         from sistema.app import MENU
         endpoints = []
         for grupo, itens in MENU:
-            for ep, _ in itens:
+            for ep, _, _, extras in itens:
                 endpoints.append(ep)
+                endpoints.extend(extras)  # telas que abrem pelo item (ex.: abas de Configurações)
         assert "lista_leads" in endpoints
         assert "lista_orcamentos" in endpoints
         assert "lista_pedidos" in endpoints

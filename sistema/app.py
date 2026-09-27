@@ -20,37 +20,37 @@ UPLOAD_EXTENSOES = {".jpg", ".jpeg", ".png", ".webp"}
 UPLOAD_MAX_MB = 10
 
 
+# Menu lateral, organizado pelo caminho do trabalho: vender -> atender o
+# pedido -> manter o catálogo -> acompanhar e configurar.
+# Cada item: (endpoint, rótulo, ícone, telas internas que também acendem o item).
+# O primeiro endpoint que o usuário pode abrir é o destino do link.
+CONFIG_TELAS = ("config_empresa", "lista_usuarios", "config_permissoes", "config_operacao",
+                "config_sistema", "config_login", "lista_origens")
 MENU = (
-    ("Painel", (
-        ("painel", "Dashboard"),
+    ("", (
+        ("painel", "Início", "inicio", ()),
     )),
-    ("Comercial", (
-        ("lista_leads", "Leads"),
-        ("lista_orcamentos", "Orçamentos"),
-        ("lista_pedidos", "Pedidos"),
-        ("lista_clientes", "Clientes"),
+    ("Vendas", (
+        ("lista_leads", "Leads", "funil", ("editar_lead",)),
+        ("lista_orcamentos", "Orçamentos", "orcamento", ("editar_orcamento",)),
+        ("lista_clientes", "Clientes", "clientes", ("editar_cliente",)),
     )),
-    ("Operação", (
-        ("agenda", "Agenda"),
-        ("painel_operacional", "Esteira de pedidos"),
+    ("Pedidos", (
+        ("lista_pedidos", "Pedidos", "pedido", ("ver_pedido", "editar_pedido",
+                                                "ver_pedido_historico")),
+        ("agenda", "Agenda", "agenda", ()),
+        ("painel_operacional", "Esteira", "esteira", ("ver_pedido_operacional",)),
     )),
     ("Catálogo", (
-        ("lista_produtos", "Produtos"),
-        ("lista_kits", "Kits"),
-        ("lista_categorias", "Categorias"),
-        ("catalogo_interno", "Vitrine"),
+        ("lista_produtos", "Produtos e kits", "produto", ("lista_kits", "editar_produto",
+                                                          "editar_kit", "disponibilidade_produto")),
+        ("lista_categorias", "Categorias", "categoria", ()),
+        ("catalogo_interno", "Vitrine", "vitrine", ()),
     )),
-    ("BI", (
-        ("faturamento", "Relatórios"),
-    )),
-    ("Configurações", (
-        ("config_empresa", "Empresa"),
-        ("lista_usuarios", "Usuários"),
-        ("config_permissoes", "Permissões"),
-        ("config_operacao", "Operação"),
-        ("config_sistema", "Sistema"),
-        ("config_login", "Personalização do Login"),
-        ("lista_origens", "Origens de lead"),
+    ("Gestão", (
+        ("faturamento", "Relatórios", "relatorio", ()),
+        ("config_empresa", "Configurações", "config",
+         CONFIG_TELAS[1:] + ("configuracoes", "editar_usuario", "config_servicos")),
     )),
 )
 
@@ -59,16 +59,33 @@ ABAS_CONFIG = (
     ("config_empresa", "Empresa"), ("lista_usuarios", "Usuários"),
     ("config_permissoes", "Permissões"), ("config_operacao", "Operação"),
     ("config_sistema", "Sistema"), ("config_login", "Personalização do Login"),
+    ("lista_origens", "Origens de lead"),
 )
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 
 def _grupo_de(endpoint: str) -> str:
     for grupo, itens in MENU:
-        for ep, _ in itens:
-            if ep == endpoint:
+        for ep, _, _, extras in itens:
+            if endpoint == ep or endpoint in extras:
                 return grupo
     return ""
+
+
+def _menu_do_usuario(pode, endpoint: str) -> list:
+    """Menu já filtrado pelas permissões: [(grupo, [{href, rotulo, icone, ativo}])]."""
+    saida = []
+    for grupo, itens in MENU:
+        links = []
+        for ep, rotulo, icone, extras in itens:
+            destinos = [ep] + ([e for e in CONFIG_TELAS if e != ep] if ep == "config_empresa" else [])
+            destino = next((d for d in destinos if pode(d)), None)
+            if destino:
+                links.append({"ep": destino, "rotulo": rotulo, "icone": icone,
+                              "ativo": endpoint == ep or endpoint in extras})
+        if links:
+            saida.append((grupo, links))
+    return saida
 
 
 def _erro(exc):
@@ -122,6 +139,8 @@ def criar_app() -> Flask:
             "usuario_id": session.get("usuario_id"),
             "com_senha": auth.com_senha(),
             "menu": MENU,
+            "menu_usuario": _menu_do_usuario(_pode, request.endpoint or "") if m else [],
+            "abas_config": ABAS_CONFIG,
             "grupo_ativo": _grupo_de(request.endpoint or ""),
             "css_ver": _css_ver,
             "pode": _pode,

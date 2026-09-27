@@ -151,7 +151,7 @@ class TesteRotasMenu:
     def test_todas_as_rotas_do_menu_carregam(self, admin):
         from sistema.app import MENU
         for grupo, itens in MENU:
-            for ep, rotulo in itens:
+            for ep, rotulo, _icone, _extras in itens:
                 from flask import url_for
                 with admin.application.test_request_context():
                     url = url_for(ep)
@@ -173,3 +173,38 @@ class TesteCartoes:
     def test_tabela_usuarios(self, admin):
         r = admin.get("/usuarios")
         self._checar_rotulos(r.text)
+
+
+class TesteMenuLateral:
+    def test_menu_agrupado_com_icones_e_item_ativo(self, admin):
+        r = admin.get("/pedidos")
+        for grupo in ("Vendas", "Pedidos", "Catálogo", "Gestão"):
+            assert f'<p class="lateral-titulo">{grupo}</p>' in r.text
+        assert 'href="#mi-pedido"' in r.text or '#mi-pedido' in r.text
+        assert r.text.count('aria-current="page"') >= 1
+        assert 'id="lateral-recolher"' in r.text
+
+    def test_tela_interna_acende_o_item(self, admin):
+        from sistema.app import _menu_do_usuario
+        menu = _menu_do_usuario(lambda ep: True, "editar_kit")
+        ativos = [l["rotulo"] for _, links in menu for l in links if l["ativo"]]
+        assert ativos == ["Produtos e kits"]
+        menu = _menu_do_usuario(lambda ep: True, "lista_origens")
+        assert [l["rotulo"] for _, links in menu for l in links if l["ativo"]] == ["Configurações"]
+
+    def test_configuracoes_leva_a_primeira_tela_permitida(self, admin):
+        from sistema.app import _menu_do_usuario
+        menu = _menu_do_usuario(lambda ep: ep in ("lista_usuarios", "painel"), "painel")
+        itens = {l["rotulo"]: l["ep"] for _, links in menu for l in links}
+        assert itens == {"Início": "painel", "Configurações": "lista_usuarios"}
+
+    def test_perfil_operacional_ve_so_o_que_pode(self, app):
+        from werkzeug.security import generate_password_hash
+        dados.salvar_usuario({"nome": "Op", "login": "op_menu", "perfil": "operacional"},
+                             senha_hash=generate_password_hash("123"))
+        c = app.test_client()
+        c.post("/entrar", data={"login": "op_menu", "senha": "123"})
+        r = c.get("/agenda")
+        assert 'data-dica="Agenda"' in r.text
+        assert 'data-dica="Configurações"' not in r.text
+        assert 'data-dica="Relatórios"' not in r.text

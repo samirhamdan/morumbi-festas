@@ -420,6 +420,8 @@ body.bancada { background: var(--fundo); }
 }
 
 /* --- Lateral --- */
+/* Aberto: ícone + nome. Recolhido (html.menu-recolhido, só no computador):
+   só ícones, com o nome numa dica ao passar o mouse ou focar pelo teclado. */
 
 .lateral {
   position: fixed;
@@ -427,86 +429,111 @@ body.bancada { background: var(--fundo); }
   left: 0;
   bottom: 0;
   width: var(--lateral-largura);
+  display: flex;
+  flex-direction: column;
   background: var(--marca-roxo);
-  overflow-y: auto;
-  padding: 0 12px var(--esp-6);
   z-index: 110;
+  transition: width .18s ease;
 }
 
 .lateral-marca {
-  display: inline-flex;
-  flex-direction: column;
+  display: flex;
   align-items: center;
-  margin: 28px 0 23px 16px;
+  min-height: 84px;
+  padding: 20px 24px 16px;
   color: #fff;
   text-decoration: none;
+  flex-shrink: 0;
 }
 .lateral-marca:hover { text-decoration: none; }
+.lateral-marca-texto { display: inline-flex; flex-direction: column; align-items: center; }
 .lateral-marca-nome { font-size: 22px; line-height: 25px; }
 .lateral-marca-festas { font-size: 13px; line-height: 18px; color: var(--marca-laranja); }
-.lateral-marca-logo { display: block; max-width: 150px; max-height: 56px; object-fit: contain; }
+.lateral-marca-logo { display: block; max-width: 150px; max-height: 48px; object-fit: contain; }
+.lateral-marca-mini { display: none; width: 40px; height: 40px; border-radius: 12px; background: rgba(255,255,255,.14);
+  place-items: center; font-size: 18px; font-weight: 700; }
 
-.lateral .grupo { border-bottom: none; }
-
-.lateral .grupo summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px 4px 36px;
-  font-size: var(--texto-xs);
+.lateral-lista { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 12px 12px; scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.25) transparent; }
+.lateral-grupo + .lateral-grupo { margin-top: 14px; }
+.lateral-titulo {
+  margin: 0;
+  padding: 0 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .8px;
-  color: rgba(255,255,255,.55);
-  cursor: pointer;
-  list-style: none;
-  border-radius: 10px;
+  color: rgba(255,255,255,.5);
+  white-space: nowrap;
 }
-.lateral .grupo summary::-webkit-details-marker { display: none; }
-.lateral .grupo summary::after {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(45deg);
-  margin-top: -3px;
-}
-.lateral .grupo:not([open]) summary::after { transform: rotate(-45deg); margin-top: 0; }
-.lateral .grupo summary:hover { color: #fff; }
+.lateral ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 
-.lateral ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.lateral li + li { margin-top: 8px; }
-.lateral .grupo ul { padding-top: 4px; }
-
-.lateral li a {
+.lateral-item, .lateral-recolher {
   display: flex;
   align-items: center;
-  height: 40px;
-  padding: 0 12px 0 36px;
+  gap: 12px;
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 0;
   border-radius: 10px;
+  background: none;
+  font: inherit;
   font-size: var(--texto-md);
-  color: #fff;
+  font-weight: 500;
+  color: rgba(255,255,255,.86);
   text-decoration: none;
-  transition: background var(--trans-rapida);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--trans-rapida), color var(--trans-rapida);
 }
-.nav-icone {
-  font-size: 16px;
-  width: 22px;
-  text-align: center;
-  flex-shrink: 0;
-  opacity: .7;
-}
-.lateral li a:hover { background: rgba(255,255,255,.08); }
-.lateral li a.aqui { background: var(--marca-roxo-ativo); }
-.lateral li a:focus-visible,
-.lateral .grupo summary:focus-visible,
-.lateral-marca:focus-visible {
+.lateral-ic { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round; }
+.lateral-rotulo { overflow: hidden; text-overflow: ellipsis; }
+.lateral-item:hover, .lateral-recolher:hover { background: rgba(255,255,255,.09); color: #fff; text-decoration: none; }
+.lateral-item.aqui { background: var(--marca-roxo-ativo); color: #fff; font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--marca-laranja); }
+.lateral-item:focus-visible, .lateral-recolher:focus-visible, .lateral-marca:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(255,255,255,.7);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.75);
+}
+.lateral-recolher { flex-shrink: 0; width: auto; margin: 8px 12px 16px; color: rgba(255,255,255,.65);
+  border-top: 1px solid rgba(255,255,255,.1); border-radius: 0 0 10px 10px; padding-top: 2px; height: 48px; }
+.lateral-recolher .lateral-ic { transition: transform .18s ease; }
+.lateral-fundo { display: none; }
+.lateral-dica {
+  position: fixed;
+  z-index: 200;
+  transform: translateY(-50%);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--texto-titulo);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(26,18,64,.25);
+}
+.lateral-dica[hidden] { display: none; }
+
+@media (min-width: 769px) {
+  html.menu-recolhido { --lateral-largura: 76px; }
+  html.menu-recolhido .lateral-marca { justify-content: center; padding: 20px 0 16px; }
+  html.menu-recolhido .lateral-marca-texto, html.menu-recolhido .lateral-marca-logo { display: none; }
+  html.menu-recolhido .lateral-marca-mini { display: grid; }
+  html.menu-recolhido .lateral-lista { padding: 0 14px 12px; }
+  html.menu-recolhido .lateral-titulo { height: 1px; padding: 0; margin: 0 6px 8px; overflow: hidden; color: transparent;
+    background: rgba(255,255,255,.14); }
+  html.menu-recolhido .lateral-grupo:first-child .lateral-titulo { display: none; }
+  html.menu-recolhido .lateral-item, html.menu-recolhido .lateral-recolher { justify-content: center; padding: 0; gap: 0; }
+  html.menu-recolhido .lateral-rotulo { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  html.menu-recolhido .lateral-recolher { margin: 8px 14px 16px; }
+  html.menu-recolhido .lateral-recolher .lateral-ic { transform: rotate(180deg); }
+  .topo, .pagina { transition: margin-left .18s ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lateral, .topo, .pagina, .lateral-recolher .lateral-ic { transition: none; }
 }
 
 /* --- Pagina --- */
@@ -1544,9 +1571,12 @@ a.dash-kpi:focus-visible { outline: none; box-shadow: var(--foco); }
     width: min(300px, 85vw);
     box-shadow: var(--sombra-elevada);
   }
-  .lateral.aberta { display: block; }
-  .lateral-marca { display: none; }
-  .lateral > ul:first-of-type { margin-top: var(--esp-4); }
+  .lateral.aberta { display: flex; }
+  .lateral-marca, .lateral-recolher { display: none; }
+  .lateral-lista { padding-top: var(--esp-4); }
+  .lateral-item { height: 46px; }
+  .lateral-fundo:not([hidden]) { display: block; position: fixed; inset: var(--topo-altura) 0 0; z-index: 105;
+    background: rgba(26,18,64,.4); }
 
   .pagina { margin-left: 0; padding: var(--esp-4); }
 
