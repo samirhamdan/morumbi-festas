@@ -505,3 +505,55 @@ class TestePermissaoEEmpresa:
             _ped(outro)
             assert {c["cliente_nome"] for c in _comp()["compromissos"]} == {"Cliente B"}
         assert {c["cliente_nome"] for c in _comp()["compromissos"]} == {"Luciana Almeida"}
+
+
+class TesteHorarioDoEvento:
+    def test_campo_no_pedido_detalhe_e_auditoria(self, app, admin):
+        cli = _cli()
+        pid = _ped(cli, hora_evento="18:00", hora_retirada="08:00")
+        assert 'name="hora_evento"' in admin.get(f"/pedido/{pid}/editar").text
+        d = admin.get(f"/pedido/{pid}").text
+        assert "Festa em 24/09/2026 às 18:00" in d and "24/09/2026 • 18:00" in d
+        festa = [e for e in dados.buscar_pedido_detalhe(pid)["linha_do_tempo"]
+                 if e["titulo"] == "Festa"][0]
+        assert festa["quando"] == "2026-09-24T18:00:00"
+        p = dados.buscar_pedido_festas(pid)
+        admin.post(f"/pedido/{pid}/editar", data={
+            "cliente_id": cli, "data_evento": "2026-09-24", "hora_evento": "19:30",
+            "data_retirada": "2026-09-24", "hora_retirada": "08:00",
+            "data_devolucao": "2026-09-26", "versao": p["atualizado_em"]})
+        assert dados.buscar_pedido_festas(pid)["hora_evento"] == "19:30"
+        editado = [e for e in dados.buscar_pedido_detalhe(pid)["linha_do_tempo"]
+                   if e["titulo"] == "Pedido editado"][-1]
+        assert "horário do evento" in editado["detalhe"]
+
+    def test_agenda_ordena_a_festa_pelo_horario(self, app, admin):
+        pid = _ped(_cli(), hora_evento="18:00", hora_retirada="08:00")
+        ana = _ped(_cli("Ana"), servicos=())  # festa sem horário continua "dia todo"
+        dia = [(c["pedido_id"], c["tipo"], c["hora"]) for c in _comp()["por_dia"]["2026-09-24"]]
+        assert dia == [(ana, "evento", ""), (pid, "entrega", "08:00"),
+                       (pid, "evento", "18:00"), (ana, "retirada", "")]
+        t = admin.get("/agenda?data=2026-09-24").text
+        assert f'data-chip="p{pid}-evento"' in t and "18:00</span>" in t
+        d = admin.get("/agenda?visao=diaria&data=2026-09-24").text
+        assert d.index("Festas do dia") < d.index(">08:00<") < d.index(">18:00<")
+
+    def test_horarios_coerentes_com_a_festa(self, app):
+        cli = _cli()
+        for extra, campo in (({"hora_evento": "10:00", "hora_retirada": "11:00"}, "hora_retirada"),
+                             ({"hora_evento": "18:00", "devolucao": "2026-09-24",
+                               "hora_devolucao": "17:00"}, "hora_devolucao"),
+                             ({"hora_evento": "25:00"}, "hora_evento")):
+            try:
+                _ped(cli, **extra)
+                assert False, extra
+            except dados.ErroDeCampo as e:
+                assert e.campo == campo
+        pid = _ped(cli, hora_evento="10:00", hora_retirada="09:00")
+        _sql("UPDATE pedidos SET hora_retirada = '11:00' WHERE id = ?", pid)  # dado antigo
+        motivos = {m for c in _comp()["compromissos"] for _, m in c["alertas"]}
+        assert "Saída marcada depois do horário do evento." in motivos
+
+    def test_esteira_mostra_o_horario(self, app, admin):
+        pid = _ped(_cli(), evento=D(3), retirada=D(3), devolucao=D(4), hora_evento="16:00")
+        assert "• 16:00" in admin.get("/operacao").text and pid

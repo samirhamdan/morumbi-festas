@@ -55,7 +55,7 @@ ORIGENS_OCULTAS = ("Morumbi 3D",)
 # Campos de texto livre do pedido (Sprint 2; canal no Sprint 2.1).
 CAMPOS_TEXTO_PEDIDO = (
     "local_evento", "hora_retirada", "hora_devolucao", "responsavel",
-    "forma_pagamento", "condicao_pagamento", "canal",
+    "forma_pagamento", "condicao_pagamento", "canal", "hora_evento",
 )
 
 # Sprint 2.1 — operação, canal e fonte são conceitos separados.
@@ -2982,7 +2982,7 @@ def _validar_dados_pedido(d: dict):
                 date.fromisoformat(d[campo])
             except ValueError:
                 raise ErroDeCampo(campo, "Data inválida.")
-    for campo in ("hora_retirada", "hora_devolucao"):
+    for campo in ("hora_retirada", "hora_devolucao", "hora_evento"):
         if d.get(campo) and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", d[campo]):
             raise ErroDeCampo(campo, "Horário inválido (use HH:MM).")
     for campo in CAMPOS_TEXTO_PEDIDO:
@@ -3006,6 +3006,14 @@ def _validar_dados_pedido(d: dict):
             and d["hora_devolucao"] <= d["hora_retirada"]):
         raise ErroDeCampo("hora_devolucao",
                           "No mesmo dia, a devolução precisa ser depois da saída.")
+    for campo, hora, depois, mensagem in (
+            ("data_retirada", "hora_retirada", False,
+             "No dia da festa, a saída precisa ser antes do horário do evento."),
+            ("data_devolucao", "hora_devolucao", True,
+             "No dia da festa, a devolução precisa ser depois do horário do evento.")):
+        if (ev and d.get(campo) == ev and d.get(hora) and d.get("hora_evento")
+                and (d[hora] < d["hora_evento"] if depois else d[hora] > d["hora_evento"])):
+            raise ErroDeCampo(hora, mensagem)
 
 
 def _validar_itens_da_empresa(conn, itens: list):
@@ -3207,6 +3215,7 @@ ROTULOS_CAMPO_PEDIDO = {
     "status_operacional": "status operacional", "observacoes": "observações",
     "itens": "itens e valores", "local_evento": "local",
     "hora_retirada": "horário da retirada", "hora_devolucao": "horário da devolução",
+    "hora_evento": "horário do evento",
     "responsavel": "responsável", "responsavel_id": "responsável",
     "forma_pagamento": "forma de pagamento",
     "condicao_pagamento": "condição de pagamento", "canal": "canal",
@@ -4271,7 +4280,7 @@ def linha_do_tempo_pedido(ped: dict) -> list:
                            "categoria": "Comercial", "detalhe": "", "usuario": None})
     hoje = _hoje_iso()
     for campo, hora, titulo in (("data_retirada", "hora_retirada", "Retirada / entrega"),
-                                ("data_evento", None, "Festa"),
+                                ("data_evento", "hora_evento", "Festa"),
                                 ("data_devolucao", "hora_devolucao", "Devolução")):
         data = ped.get(campo)
         if not data:
@@ -4778,7 +4787,7 @@ def _pedidos_da_esteira(conn, dia: str) -> list:
         " AND a.descricao LIKE '%: Pedido finalizado')")
     rows = conn.execute(
         "SELECT p.id, p.cliente_id, p.data_evento, p.data_retirada, p.data_devolucao,"
-        " p.hora_retirada, p.status_comercial, p.status_operacional,"
+        " p.hora_retirada, p.hora_evento, p.status_comercial, p.status_operacional,"
         f" {_SQL_NOME_RESPONSAVEL} AS responsavel, p.atualizado_em,"
         " c.nome AS cliente_nome, c.whatsapp AS cliente_whatsapp,"
         " c.telefone AS cliente_telefone,"
@@ -4974,6 +4983,13 @@ def _alertas_das_datas(p: dict) -> list:
         saida, volta = _minutos(p.get("hora_retirada")), _minutos(p.get("hora_devolucao"))
         if saida is not None and volta is not None and volta <= saida:
             alertas.append(("conflito", "Devolução no mesmo dia, antes do horário da saída."))
+    festa = _minutos(p.get("hora_evento"))
+    if festa is not None and ev:
+        saida, volta = _minutos(p.get("hora_retirada")), _minutos(p.get("hora_devolucao"))
+        if ret == ev and saida is not None and saida > festa:
+            alertas.append(("conflito", "Saída marcada depois do horário do evento."))
+        if dev == ev and volta is not None and volta < festa:
+            alertas.append(("conflito", "Devolução marcada antes do horário do evento."))
     return alertas
 
 
@@ -4981,7 +4997,7 @@ def _pedidos_da_agenda(conn, inicio: str, fim: str) -> list:
     """Pedidos com alguma data no período (cada data por índice próprio)."""
     rows = conn.execute(
         "SELECT p.id, p.cliente_id, p.data_evento, p.data_retirada, p.data_devolucao,"
-        " p.hora_retirada, p.hora_devolucao, p.local_evento, p.status_comercial,"
+        " p.hora_retirada, p.hora_devolucao, p.hora_evento, p.local_evento, p.status_comercial,"
         " p.status_operacional, p.historico, p.responsavel_id,"
         f" {_SQL_NOME_RESPONSAVEL} AS responsavel,"
         " c.nome AS cliente_nome, c.whatsapp AS cliente_whatsapp,"
@@ -5028,6 +5044,7 @@ def _compromissos_do_pedido(p: dict, inicio: str, fim: str, agora_: str) -> list
         "data_devolucao": p.get("data_devolucao"),
         "hora_retirada": p.get("hora_retirada") or "",
         "hora_devolucao": p.get("hora_devolucao") or "",
+        "hora_evento": p.get("hora_evento") or "",
         "status_comercial": sc, "status_operacional": so,
         "etapa": None if cancelado or p["historico"] else COLUNA_DO_STATUS.get(so),
         "cancelado": cancelado, "historico": bool(p["historico"]),
@@ -5046,9 +5063,9 @@ def _compromissos_do_pedido(p: dict, inicio: str, fim: str, agora_: str) -> list
         base["rotulo_status"] = ROTULOS_OPERACIONAL.get(so, so)
 
     if p["historico"]:
-        datas = [("historico", p.get("data_evento"), "")]
+        datas = [("historico", p.get("data_evento"), base["hora_evento"])]
     else:
-        datas = [("evento", p.get("data_evento"), ""),
+        datas = [("evento", p.get("data_evento"), base["hora_evento"]),
                  (_tipo_da_saida(base["servicos"]), p.get("data_retirada"),
                   base["hora_retirada"]),
                  ("devolucao", p.get("data_devolucao"), base["hora_devolucao"])]
@@ -5083,7 +5100,7 @@ def _compromisso_importado(h: dict) -> dict:
         "principal": (h.get("descricao") or "").strip(), "itens": 0, "servicos": [],
         "descricoes": [h.get("descricao") or ""], "responsavel": "", "responsavel_chave": "",
         "local": "", "data_evento": h["data_evento"], "data_retirada": None,
-        "data_devolucao": None, "hora_retirada": "", "hora_devolucao": "",
+        "data_devolucao": None, "hora_retirada": "", "hora_devolucao": "", "hora_evento": "",
         "status_comercial": situacao, "status_operacional": None, "etapa": None,
         "cancelado": situacao == "cancelado", "historico": True, "operacional": False,
         "atrasado": False, "alertas": [], "importado": True,
@@ -5135,8 +5152,9 @@ def _nivel_alerta(c: dict) -> str | None:
 
 
 def _ordem_no_dia(c: dict) -> tuple:
-    # festa e históricos primeiro (o dia todo), depois por horário; sem horário no fim
-    dia_todo = c["tipo"] in ("evento", "historico")
+    # festa sem horário e históricos primeiro (o dia todo), depois por horário;
+    # compromissos da operação sem horário no fim
+    dia_todo = c["tipo"] in ("evento", "historico") and not c["hora"]
     return (not dia_todo, c["hora"] == "", c["hora"], c["pedido_id"] or 0, c["chave"])
 
 

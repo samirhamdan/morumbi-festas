@@ -38,10 +38,16 @@
           {% endif %}
         </label>
 
-        <label class="campo" id="campo-data_evento">
-          <span>Data do evento</span>
-          <input type="date" name="data_evento" value="{{ atual.get('data_evento') or '' }}">
-        </label>
+        <div class="campo-duplo">
+          <label class="campo" id="campo-data_evento">
+            <span>Data do evento</span>
+            <input type="date" name="data_evento" value="{{ atual.get('data_evento') or '' }}">
+          </label>
+          <label class="campo" id="campo-hora_evento">
+            <span>Horário</span>
+            <input type="time" name="hora_evento" value="{{ atual.get('hora_evento') or '' }}">
+          </label>
+        </div>
 
         <label class="campo" id="campo-local_evento">
           <span>Local do evento</span>

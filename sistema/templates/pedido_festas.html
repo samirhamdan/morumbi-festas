@@ -25,7 +25,7 @@
   <div class="ped-det-cab">
     <div class="ped-det-titulos">
       <h1 class="ped-titulo">{{ 'Pedido' if eh_pedido else ('Festa importada' if importado_pendente else 'Pedido importado') }} #{{ p.numero or p.id }}</h1>
-      <p class="ped-sub">{{ (p.cliente.nome if p.cliente else None) or 'Cliente não vinculado' }}{% if p.data_evento %} • Festa em {{ p.data_evento|data }}{% endif %}</p>
+      <p class="ped-sub">{{ (p.cliente.nome if p.cliente else None) or 'Cliente não vinculado' }}{% if p.data_evento %} • Festa em {{ p.data_evento|data }}{% if p.hora_evento %} às {{ p.hora_evento }}{% endif %}{% endif %}</p>
       <div class="ped-det-status">
         <span class="ped-badge ped-c-{{ p.status_comercial }}">{{ rot_com.get(p.status_comercial, p.status_comercial) }}</span>
         {% if p.status_operacional %}<span class="ped-badge ped-o-{{ p.status_operacional }}">{{ rot_op.get(p.status_operacional, p.status_operacional) }}</span>{% endif %}
@@ -73,7 +73,7 @@
         <h2 id="t-info" class="ped-bloco-titulo">Informações do pedido</h2>
         <dl class="ped-info">
           <div><dt>Cliente</dt><dd>{{ (p.cliente.nome if p.cliente else None) or '—' }}</dd></div>
-          <div><dt>Data do evento</dt><dd>{{ p.data_evento|data }}</dd></div>
+          <div><dt>Data do evento</dt><dd>{{ p.data_evento|data }}{% if p.hora_evento %} • {{ p.hora_evento }}{% endif %}</dd></div>
           {% if eh_pedido %}
           <div><dt>Retirada / entrega</dt><dd>{{ data_hora(p.data_retirada, p.hora_retirada) }}</dd></div>
           <div><dt>Devolução</dt><dd>{{ data_hora(p.data_devolucao, p.hora_devolucao) }}</dd></div>

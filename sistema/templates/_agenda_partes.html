@@ -112,7 +112,7 @@
     <p class="agd-card-nota">Pedido cancelado: não gera tarefa de operação.</p>
     {% endif %}
     <dl class="agd-card-dados">
-      {% if c.data_evento %}<div><dt>Evento</dt><dd>{{ c.data_evento|data }}{% if c.local %} • {{ c.local }}{% endif %}</dd></div>{% endif %}
+      {% if c.data_evento %}<div><dt>Evento</dt><dd>{{ c.data_evento|data }}{% if c.hora_evento %} • {{ c.hora_evento }}{% endif %}{% if c.local %} • {{ c.local }}{% endif %}</dd></div>{% endif %}
       {% if not c.historico %}
       <div><dt>Retirada / entrega</dt><dd>{{ c.data_retirada|data if c.data_retirada else '—' }}{% if c.hora_retirada %} • {{ c.hora_retirada }}{% endif %}</dd></div>
       <div><dt>Devolução</dt><dd>{{ c.data_devolucao|data if c.data_devolucao else '—' }}{% if c.hora_devolucao %} • {{ c.hora_devolucao }}{% endif %}</dd></div>
@@ -248,8 +248,8 @@
 
 {% macro diaria() %}
 {% set itens = agenda.por_dia.get(ref, []) %}
-{% set dia_todo = itens|selectattr('tipo', 'in', ['evento', 'historico'])|list %}
-{% set com_hora = itens|rejectattr('tipo', 'in', ['evento', 'historico'])|selectattr('hora')|list %}
+{% set dia_todo = itens|selectattr('tipo', 'in', ['evento', 'historico'])|rejectattr('hora')|list %}
+{% set com_hora = itens|selectattr('hora')|list %}
 {% set sem_hora = itens|rejectattr('tipo', 'in', ['evento', 'historico'])|rejectattr('hora')|list %}
 <section class="agd-dia" aria-label="{{ titulo_periodo }}">
     {{ vazio_periodo() }}

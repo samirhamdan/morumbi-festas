@@ -44,7 +44,7 @@
         {% elif c.situacao == 'no_prazo' %}<span class="est-badge est-badge--prazo">No prazo</span>{% endif %}
       </div>
       <p class="est-cliente">{{ c.cliente_nome or 'Cliente não vinculado' }}</p>
-      <p class="est-linha">{% if c.data_evento %}Evento {{ data_curta(c.data_evento) }}{% else %}Sem data do evento{% endif %}</p>
+      <p class="est-linha">{% if c.data_evento %}Evento {{ data_curta(c.data_evento) }}{% if c.hora_evento %} • {{ c.hora_evento }}{% endif %}{% else %}Sem data do evento{% endif %}</p>
       <p class="est-linha est-meta">
         <span>{{ c.itens }} {{ 'item' if c.itens == 1 else 'itens' }}</span>
         {% if c.principal %}<span aria-hidden="true">•</span><span class="est-principal">{{ c.principal }}</span>{% endif %}
