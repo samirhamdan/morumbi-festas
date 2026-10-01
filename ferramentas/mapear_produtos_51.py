@@ -5,9 +5,10 @@ sob encomenda, serviço) pelo nome, onde ele é usado (kits, orçamentos,
 pedidos) e o que é ambíguo. Serve para decidir a classificação antes da
 migração do Sprint 5.1.
 
-Uso na VPS:
+Uso na VPS (o banco é o da variável FESTAS_DADOS do serviço):
     cd /opt/morumbi-festas
-    venv/bin/python ferramentas/mapear_produtos_51.py morumbi_festas.db > mapa51.txt
+    BANCO=$(systemctl show morumbi-festas -p Environment | grep -o 'FESTAS_DADOS=[^ ]*' | cut -d= -f2)
+    venv/bin/python ferramentas/mapear_produtos_51.py "$BANCO" > mapa51.txt
 """
 
 import re
@@ -42,6 +43,10 @@ def sugerir(nome: str, descricao: str) -> tuple:
 def main(caminho: str):
     conn = sqlite3.connect(f"file:{caminho}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'produtos'").fetchone():
+        sys.exit(f"{caminho} não é o banco do sistema (não tem a tabela de produtos).\n"
+                 "O caminho certo está em FESTAS_DADOS:\n"
+                 "    systemctl show morumbi-festas -p Environment")
     q = lambda sql, *p: conn.execute(sql, p).fetchall()  # noqa: E731
     produtos = q("SELECT p.*, c.nome AS categoria FROM produtos p"
                  " LEFT JOIN categorias c ON c.id = p.categoria_id ORDER BY p.tenant_id, p.nome")

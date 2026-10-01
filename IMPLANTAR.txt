@@ -144,7 +144,11 @@ produtos, kits, categorias e orcamentos; enderecos por nome, como
 /catalogo/kit-safari-encantado). Nada e apagado. Antes de atualizar,
 faca uma copia do banco:
 
-    cp /opt/morumbi-festas/morumbi_festas.db /root/backup-antes-sprint7.db
+    BANCO=$(systemctl show morumbi-festas -p Environment | grep -o 'FESTAS_DADOS=[^ ]*' | cut -d= -f2)
+    cp "$BANCO" /root/backup-antes-sprint7.db
+
+(O banco é o arquivo indicado em FESTAS_DADOS no serviço, não o
+morumbi_festas.db da pasta do código.)
 
 Depois de atualizar, confira:
 - /catalogo abre sem login e mostra so o que esta publicado e ativo;
