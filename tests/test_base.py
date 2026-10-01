@@ -208,3 +208,21 @@ class TesteMenuLateral:
         assert 'data-dica="Agenda"' in r.text
         assert 'data-dica="Configurações"' not in r.text
         assert 'data-dica="Relatórios"' not in r.text
+
+    def test_celular_tem_barra_de_atalhos_com_menu(self, admin):
+        r = admin.get("/agenda")
+        assert 'class="barra-baixo"' in r.text and 'id="barra-baixo-menu"' in r.text
+        # até 4 atalhos + Menu; a tela atual fica marcada
+        assert r.text.count('class="barra-baixo-item') == 5
+        assert 'class="barra-baixo-item aqui" aria-current="page"' in r.text
+
+    def test_atalhos_seguem_as_permissoes(self):
+        from sistema.app import _atalhos_celular, _menu_do_usuario
+        pode = {"painel", "agenda", "painel_operacional", "lista_produtos"}
+        menu = _menu_do_usuario(lambda ep: ep in pode, "agenda")
+        rotulos = [a["rotulo"] for a in _atalhos_celular(menu)]
+        assert rotulos == ["Início", "Agenda", "Esteira", "Produtos"]
+
+    def test_sem_login_nao_tem_barra(self, app):
+        r = app.test_client().get("/entrar")
+        assert 'class="barra-baixo"' not in r.text

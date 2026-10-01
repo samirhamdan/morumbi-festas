@@ -439,8 +439,8 @@ body.bancada { background: var(--fundo); }
 .lateral-marca {
   display: flex;
   align-items: center;
-  min-height: 84px;
-  padding: 20px 24px 16px;
+  min-height: 68px;
+  padding: 14px 24px 10px;
   color: #fff;
   text-decoration: none;
   flex-shrink: 0;
@@ -453,12 +453,21 @@ body.bancada { background: var(--fundo); }
 .lateral-marca-mini { display: none; width: 40px; height: 40px; border-radius: 12px; background: rgba(255,255,255,.14);
   place-items: center; font-size: 18px; font-weight: 700; }
 
-.lateral-lista { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 12px 12px; scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,.25) transparent; }
-.lateral-grupo + .lateral-grupo { margin-top: 14px; }
+/* A lista rola sozinha; a barra fica sempre visível (o macOS esconde a padrão)
+   e um degradê avisa quando há itens abaixo. */
+.lateral-lista { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  padding: 0 10px 8px 12px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.3) transparent; }
+.lateral-lista::-webkit-scrollbar { width: 6px; }
+.lateral-lista::-webkit-scrollbar-thumb { background: rgba(255,255,255,.3); border-radius: 3px; }
+.lateral-lista::-webkit-scrollbar-track { background: transparent; }
+.lateral-lista::after { content: ""; position: sticky; bottom: -8px; display: block; height: 36px; margin-top: -36px;
+  background: linear-gradient(rgba(74,31,125,0), var(--marca-roxo)); pointer-events: none; opacity: 0;
+  transition: opacity var(--trans-rapida); }
+.lateral-lista.tem-mais::after { opacity: 1; }
+.lateral-grupo + .lateral-grupo { margin-top: 12px; }
 .lateral-titulo {
   margin: 0;
-  padding: 0 12px 6px;
+  padding: 0 12px 4px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -473,7 +482,7 @@ body.bancada { background: var(--fundo); }
   align-items: center;
   gap: 12px;
   width: 100%;
-  height: 42px;
+  height: 40px;
   padding: 0 12px;
   border: 0;
   border-radius: 10px;
@@ -497,10 +506,24 @@ body.bancada { background: var(--fundo); }
   outline: none;
   box-shadow: 0 0 0 2px rgba(255,255,255,.75);
 }
-.lateral-recolher { flex-shrink: 0; width: auto; margin: 8px 12px 16px; color: rgba(255,255,255,.65);
-  border-top: 1px solid rgba(255,255,255,.1); border-radius: 0 0 10px 10px; padding-top: 2px; height: 48px; }
+.lateral-recolher { flex-shrink: 0; width: auto; margin: 0 12px 10px; color: rgba(255,255,255,.65);
+  border-top: 1px solid rgba(255,255,255,.1); border-radius: 0 0 10px 10px; padding-top: 2px; height: 44px; }
+
+/* Telas baixas (notebook com barra do navegador): tudo cabe sem rolar */
+@media (min-width: 769px) and (max-height: 820px) {
+  .lateral-marca { min-height: 56px; padding: 10px 24px 6px; }
+  .lateral-marca-nome { font-size: 19px; line-height: 21px; }
+  .lateral-marca-festas { font-size: 11px; line-height: 14px; }
+  .lateral-marca-logo { max-height: 38px; }
+  .lateral-marca-mini { width: 34px; height: 34px; font-size: 16px; }
+  .lateral-grupo + .lateral-grupo { margin-top: 8px; }
+  .lateral-titulo { font-size: 10px; padding-bottom: 2px; }
+  .lateral ul { gap: 1px; }
+  .lateral-item { height: 34px; font-size: 13.5px; }
+  .lateral-recolher { height: 38px; margin-bottom: 6px; }
+}
 .lateral-recolher .lateral-ic { transition: transform .18s ease; }
-.lateral-fundo { display: none; }
+.lateral-fundo, .barra-baixo { display: none; }
 .lateral-dica {
   position: fixed;
   z-index: 200;
@@ -519,7 +542,7 @@ body.bancada { background: var(--fundo); }
 
 @media (min-width: 769px) {
   html.menu-recolhido { --lateral-largura: 76px; }
-  html.menu-recolhido .lateral-marca { justify-content: center; padding: 20px 0 16px; }
+  html.menu-recolhido .lateral-marca { justify-content: center; padding-left: 0; padding-right: 0; }
   html.menu-recolhido .lateral-marca-texto, html.menu-recolhido .lateral-marca-logo { display: none; }
   html.menu-recolhido .lateral-marca-mini { display: grid; }
   html.menu-recolhido .lateral-lista { padding: 0 14px 12px; }
@@ -528,7 +551,7 @@ body.bancada { background: var(--fundo); }
   html.menu-recolhido .lateral-grupo:first-child .lateral-titulo { display: none; }
   html.menu-recolhido .lateral-item, html.menu-recolhido .lateral-recolher { justify-content: center; padding: 0; gap: 0; }
   html.menu-recolhido .lateral-rotulo { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  html.menu-recolhido .lateral-recolher { margin: 8px 14px 16px; }
+  html.menu-recolhido .lateral-recolher { margin-left: 14px; margin-right: 14px; }
   html.menu-recolhido .lateral-recolher .lateral-ic { transform: rotate(180deg); }
   .topo, .pagina { transition: margin-left .18s ease; }
 }
@@ -1565,9 +1588,13 @@ a.dash-kpi:focus-visible { outline: none; box-shadow: var(--foco); }
   .topo-busca { flex: 1 1 auto; padding: 0 var(--esp-2); }
   .topo-nome, .topo-seta { display: none; }
 
+  /* Celular: barra de atalhos fixa no rodapé; a lista completa abre por
+     cima da página, entre o topo e a barra, sem cobrir nenhum dos dois. */
+  :root { --barra-baixo: calc(62px + env(safe-area-inset-bottom)); }
   .lateral {
     display: none;
     top: var(--topo-altura);
+    bottom: var(--barra-baixo);
     width: min(300px, 85vw);
     box-shadow: var(--sombra-elevada);
   }
@@ -1575,8 +1602,25 @@ a.dash-kpi:focus-visible { outline: none; box-shadow: var(--foco); }
   .lateral-marca, .lateral-recolher { display: none; }
   .lateral-lista { padding-top: var(--esp-4); }
   .lateral-item { height: 46px; }
-  .lateral-fundo:not([hidden]) { display: block; position: fixed; inset: var(--topo-altura) 0 0; z-index: 105;
-    background: rgba(26,18,64,.4); }
+  .lateral-fundo:not([hidden]) { display: block; position: fixed; top: var(--topo-altura); left: 0; right: 0;
+    bottom: var(--barra-baixo); z-index: 105; background: rgba(26,18,64,.4); }
+
+  .barra-baixo { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; position: fixed; z-index: 50;
+    left: 0; right: 0; bottom: 0; height: var(--barra-baixo); padding: 6px 4px env(safe-area-inset-bottom);
+    background: var(--superficie); border-top: 1px solid var(--borda); box-shadow: 0 -4px 16px rgba(26,18,64,.06); }
+  .barra-baixo-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    min-width: 0; border: 0; border-radius: 12px; background: none; font: inherit; font-size: 11px; font-weight: 600;
+    color: var(--texto-apoio); text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .barra-baixo-item span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .barra-baixo-item .lateral-ic { width: 22px; height: 22px; }
+  .barra-baixo-item:hover { text-decoration: none; color: var(--marca-roxo); }
+  .barra-baixo-item.aqui { color: var(--marca-roxo); }
+  .barra-baixo-item.aqui .lateral-ic { stroke-width: 2.2; }
+  .barra-baixo-item:focus-visible { outline: none; box-shadow: var(--foco); }
+
+  /* nada fica escondido atrás da barra */
+  body.bancada { padding-bottom: var(--barra-baixo); }
+  .barra-acoes, .acoes-formulario.sticky, .ca-barra-salvar { bottom: var(--barra-baixo); }
 
   .pagina { margin-left: 0; padding: var(--esp-4); }
 
@@ -3744,7 +3788,8 @@ body.est-carregando #est-quadro, body.est-carregando #est-topo .est-kpis { opaci
   .ca-cab-acoes form .ca-botao { width: 100%; }
   .ca-barra > .ca-botao[type=submit] { display: none; }
   .ca-filtros { position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 85vh; overflow-y: auto;
-    border-radius: 18px 18px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+    border-radius: 18px 18px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 70; }
+  .ca-fundo { z-index: 69; }
   .ca-tabela-caixa { background: none; box-shadow: none; }
   .ca-tabela tbody tr { position: relative; }
   .ca-tabela tbody td.ca-produto { justify-content: flex-start; padding-bottom: 8px; padding-right: 44px; }

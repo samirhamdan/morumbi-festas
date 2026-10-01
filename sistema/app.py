@@ -88,6 +88,19 @@ def _menu_do_usuario(pode, endpoint: str) -> list:
     return saida
 
 
+# Celular: barra fixa no rodapé com os atalhos mais usados que o perfil pode
+# abrir (o restante fica no botão Menu).
+ATALHOS_CELULAR = ("painel", "lista_pedidos", "agenda", "painel_operacional",
+                   "lista_leads", "lista_clientes", "lista_produtos")
+ROTULO_CURTO = {"Produtos e kits": "Produtos"}
+
+
+def _atalhos_celular(menu: list, limite: int = 4) -> list:
+    itens = {l["ep"]: l for _, links in menu for l in links}
+    return [dict(itens[ep], rotulo=ROTULO_CURTO.get(itens[ep]["rotulo"], itens[ep]["rotulo"]))
+            for ep in ATALHOS_CELULAR if ep in itens][:limite]
+
+
 def _erro(exc):
     campo = getattr(exc, "campo", None)
     return {"erro": str(exc), "campo_erro": campo}
@@ -130,6 +143,7 @@ def criar_app() -> Flask:
     @app.context_processor
     def contexto_global():
         m = auth.membro_atual()
+        menu_usuario = _menu_do_usuario(_pode, request.endpoint or "") if m else []
         return {
             "perfil": m["perfil"] if m else "",
             "rotulo_perfil": dados.ROTULOS_PERFIL.get(m["perfil"], "") if m else "",
@@ -139,7 +153,8 @@ def criar_app() -> Flask:
             "usuario_id": session.get("usuario_id"),
             "com_senha": auth.com_senha(),
             "menu": MENU,
-            "menu_usuario": _menu_do_usuario(_pode, request.endpoint or "") if m else [],
+            "menu_usuario": menu_usuario,
+            "atalhos_celular": _atalhos_celular(menu_usuario),
             "abas_config": ABAS_CONFIG,
             "grupo_ativo": _grupo_de(request.endpoint or ""),
             "css_ver": _css_ver,
