@@ -8,9 +8,10 @@
 {% block conteudo %}
 
 {% include "_topo.html" %}
-{% set abas_item = [('info', 'Informações')] + ([('componentes', 'Componentes')] if eh_kit else []) + [('imagens', 'Imagens'), ('disponibilidade', 'Disponibilidade'), ('seo', 'SEO')] %}
+{% set natureza = atual.get('tipo') if not eh_kit else 'kit' %}
+{% set abas_item = [('info', 'Informações')] + ([('componentes', 'Componentes')] if eh_kit else []) + ([('receita', 'Receita')] if natureza == 'encomenda' else []) + [('imagens', 'Imagens'), ('disponibilidade', 'Disponibilidade'), ('seo', 'SEO')] %}
 {% set aba_ativa = aba if aba in abas_item|map('first')|list else 'info' %}
-{% set aba_ativa = 'info' if campo_erro and campo_erro not in ('slug', 'seo_titulo', 'seo_descricao', 'dias_uso', 'dias_antecedencia') else ('seo' if campo_erro in ('slug', 'seo_titulo', 'seo_descricao') else ('disponibilidade' if campo_erro in ('dias_uso', 'dias_antecedencia') else aba_ativa)) %}
+{% set aba_ativa = 'info' if campo_erro and campo_erro not in ('slug', 'seo_titulo', 'seo_descricao', 'dias_uso', 'dias_antecedencia', 'material_id', 'quantidade') else ('seo' if campo_erro in ('slug', 'seo_titulo', 'seo_descricao') else ('disponibilidade' if campo_erro in ('dias_uso', 'dias_antecedencia') else aba_ativa)) %}
 {% macro recado(campo) %}{% if campo_erro == campo %}<b class="recado-campo">{{ erro }}</b>{% endif %}{% endmacro %}
 
 <main id="conteudo" class="pagina ca ca-item">
@@ -23,6 +24,7 @@
       <h1 class="ca-titulo">{{ ('Editar ' ~ nome_tipo) if atual.get('id') else ('Novo ' ~ nome_tipo) }}</h1>
       {% if atual.get('id') %}
       <p class="ca-sub">
+        <span class="ca-natureza ca-natureza--{{ natureza or 'classificar' }}">{{ 'Kit' if eh_kit else regras.rotulo_tipo(natureza) }}</span>
         {% if atual.get('codigo_sku') %}<span class="mono">{{ atual.codigo_sku }}</span> · {% endif %}
         {% if atual.get('status') in ('disponivel', 'ativo') %}<span class="ca-status ca-status--ativo">Ativo</span>
         {% elif atual.get('status') == 'manutencao' %}<span class="ca-status ca-status--manutencao">Manutenção</span>
@@ -55,10 +57,29 @@
   {# Um só formulário para os dados; os campos das abas apontam para ele com form="ca-form". #}
   <form method="post" id="ca-form" class="formulario" data-avisar action="{{ url_for(rota_editar, id_=atual.get('id')) }}">
     <input type="hidden" name="aba_atual" value="{{ aba_ativa }}" id="ca-aba-atual">
+    <input type="hidden" name="modelo_51" value="1">
   </form>
 
   {# ---------------- Informações ---------------- #}
   <section class="ca-painel" id="painel-info" role="tabpanel" aria-labelledby="aba-info" {{ 'hidden' if aba_ativa != 'info' }}>
+    {% if not eh_kit %}
+    <fieldset class="cartao ca-cartao ca-tipos" id="campo-tipo">
+      <legend class="ca-subtitulo">Tipo do item</legend>
+      {% if atual.get('id') and not atual.get('tipo') %}
+      <p class="ca-dica ca-dica--alerta">Este produto foi cadastrado antes da separação por tipo e ainda funciona como locação. Confirme o tipo e salve.
+        {% set sug = regras.sugerir_tipo(atual.get('nome'), atual.get('descricao')) %}Sugestão: <b>{{ regras.rotulo_tipo(sug[0]) if sug[0] != 'ambiguo' else 'verificar (nome indica mais de um tipo)' }}</b>.</p>
+      {% endif %}
+      <div class="ca-tipos-opcoes">
+        {% for chave, rotulo, ajuda in (('locacao', 'Locação', 'Peça reutilizável com estoque físico'), ('encomenda', 'Sob encomenda', 'Produzido para o pedido (ex.: balões)'), ('servico', 'Serviço', 'Executado pela equipe (ex.: montagem)')) %}
+        <label class="ca-tipo-cartao ca-natureza--{{ chave }}">
+          <input form="ca-form" type="radio" name="tipo" value="{{ chave }}" {{ 'checked' if atual.get('tipo') == chave or (not atual.get('id') and chave == 'locacao' and not atual.get('tipo')) }} required>
+          <b>{{ rotulo }}</b><small>{{ ajuda }}</small>
+        </label>
+        {% endfor %}
+      </div>
+      {{ recado('tipo') }}
+    </fieldset>
+    {% endif %}
     <div class="ca-colunas">
       <div class="cartao ca-cartao">
         <h2 class="ca-subtitulo">Dados do {{ nome_tipo }}</h2>
@@ -113,25 +134,51 @@
 
       <div class="ca-lateral">
         <div class="cartao ca-cartao">
-          <h2 class="ca-subtitulo">Preço{{ ' e estoque' if not eh_kit }}</h2>
+          <h2 class="ca-subtitulo">Preço{% if not eh_kit %}<span data-so="locacao"> e estoque</span>{% endif %}</h2>
           {% if eh_kit %}
-          <label class="campo" id="campo-preco">
+          <label class="campo" id="campo-codigo_sku">
+            <span class="campo-rotulo">Código</span>
+            <input form="ca-form" type="text" name="codigo_sku" value="{{ atual.get('codigo_sku') or '' }}" maxlength="40" placeholder="gerado se vazio" class="mono">
+            {{ recado('codigo_sku') }}
+          </label>
+          <div class="campo" id="campo-modo_preco">
+            <span class="campo-rotulo">Forma de preço</span>
+            <label class="ca-marca"><input form="ca-form" type="radio" name="modo_preco" value="fechado" {{ 'checked' if (atual.get('modo_preco') or 'fechado') == 'fechado' }}><span>Preço fechado do pacote</span></label>
+            <label class="ca-marca"><input form="ca-form" type="radio" name="modo_preco" value="componentes" {{ 'checked' if atual.get('modo_preco') == 'componentes' }}><span>Soma dos componentes obrigatórios</span></label>
+            {{ recado('modo_preco') }}
+          </div>
+          <label class="campo" id="campo-preco" data-so-preco="fechado">
             <span class="campo-rotulo">Preço do kit (R$)</span>
             <input form="ca-form" type="number" name="preco" step="0.01" min="0" inputmode="decimal"
                    value="{{ atual.get('preco', 0) if atual.get('preco') is string else '%.2f'|format(atual.get('preco', 0) or 0) }}">
             {{ recado('preco') }}
           </label>
-          {% if atual.get('soma_produtos') and atual.get('preco') is number and atual.soma_produtos > atual.preco %}
-          <p class="ca-economia-texto">Economia de {{ (atual.soma_produtos - atual.preco)|dinheiro }}
-            ({{ ((atual.soma_produtos - atual.preco) / atual.soma_produtos * 100)|round|int }}% em relação à soma das peças: {{ atual.soma_produtos|dinheiro }})</p>
+          {% if resumo_kit %}
+          <dl class="ca-precos">
+            <dt>Referência dos componentes</dt><dd>{{ resumo_kit.referencia.obrigatorios|dinheiro }}</dd>
+            {% if resumo_kit.referencia.opcionais %}<dt>Opcionais (fora do pacote)</dt><dd>+ {{ resumo_kit.referencia.opcionais|dinheiro }}</dd>{% endif %}
+            <dt>Preço final do pacote</dt><dd><b>{{ resumo_kit.preco_final|dinheiro }}</b></dd>
+            {% if resumo_kit.diferenca %}<dt>{{ 'Desconto' if resumo_kit.diferenca.desconto else 'Acréscimo' }}</dt>
+            <dd class="{{ 'ca-economia' if resumo_kit.diferenca.desconto else '' }}">{{ resumo_kit.diferenca.valor|abs|dinheiro }} ({{ resumo_kit.diferenca.percentual|abs }}%)</dd>{% endif %}
+          </dl>
           {% endif %}
           {% else %}
+          <label class="campo" id="campo-unidade">
+            <span class="campo-rotulo">Unidade de cobrança</span>
+            <select form="ca-form" name="unidade" id="ca-unidade">
+              {% for u, (rot, sig, frac) in regras.UNIDADES.items() %}
+              <option value="{{ u }}" data-tipos="{{ regras.tipos_da_unidade(u) }}" data-sg="{{ sig }}" data-fracao="{{ 1 if frac else 0 }}" {{ 'selected' if (atual.get('unidade') or 'unidade') == u }}>{{ rot }}{{ ' (aceita fração)' if frac }}</option>
+              {% endfor %}
+            </select>
+            {{ recado('unidade') }}
+          </label>
           <label class="campo" id="campo-preco_locacao">
-            <span class="campo-rotulo">Preço de locação (R$)</span>
+            <span class="campo-rotulo"><span data-rotulo-preco>Preço</span> por <span data-sigla>{{ regras.sigla(atual.get('unidade')) }}</span> (R$)</span>
             <input form="ca-form" type="number" name="preco_locacao" step="0.01" min="0" inputmode="decimal"
                    value="{{ atual.get('preco_locacao', 0) if atual.get('preco_locacao') is string else '%.2f'|format(atual.get('preco_locacao', 0) or 0) }}">
             {{ recado('preco_locacao') }}
           </label>
+          <div data-so="locacao">
           <label class="campo" id="campo-valor_referencia">
             <span class="campo-rotulo">Valor de reposição (R$)</span>
             <input form="ca-form" type="number" name="valor_referencia" step="0.01" min="0" inputmode="decimal"
@@ -145,7 +192,72 @@
             {% if not pode_estoque %}<small class="ca-dica">Só o administrador altera o estoque.</small>{% endif %}
             {{ recado('quantidade_total') }}
           </label>
+          </div>
           {% endif %}
+        </div>
+
+        {% if not eh_kit %}
+        <div class="cartao ca-cartao" data-so="encomenda">
+          <h2 class="ca-subtitulo">Produção</h2>
+          <div class="campo-duplo">
+            <label class="campo" id="campo-qtd_minima">
+              <span class="campo-rotulo">Quantidade mínima (<span data-sigla>{{ regras.sigla(atual.get('unidade')) }}</span>)</span>
+              <input form="ca-form" type="number" name="qtd_minima" min="0" step="0.001" inputmode="decimal" value="{{ atual.get('qtd_minima') if atual.get('qtd_minima') is not none else '' }}" placeholder="opcional">
+              {{ recado('qtd_minima') }}
+            </label>
+            <label class="campo" id="campo-prazo_producao_dias">
+              <span class="campo-rotulo">Prazo mínimo de produção (dias)</span>
+              <input form="ca-form" type="number" name="prazo_producao_dias" min="0" max="365" step="1" inputmode="numeric" value="{{ atual.get('prazo_producao_dias', 0) }}" {{ 'disabled' if not pode_estoque }}>
+              {{ recado('prazo_producao_dias') }}
+            </label>
+          </div>
+          <label class="campo" id="campo-tempo_producao_min">
+            <span class="campo-rotulo">Tempo estimado de produção (minutos por <span data-sigla>{{ regras.sigla(atual.get('unidade')) }}</span>)</span>
+            <input form="ca-form" type="number" name="tempo_producao_min" min="0" step="1" inputmode="numeric" value="{{ atual.get('tempo_producao_min') if atual.get('tempo_producao_min') is not none else '' }}" placeholder="opcional">
+            {{ recado('tempo_producao_min') }}
+          </label>
+          <p class="ca-dica">Não tem estoque de peça pronta: os materiais vêm da aba Receita.</p>
+        </div>
+
+        <div class="cartao ca-cartao" data-so="servico">
+          <h2 class="ca-subtitulo">Execução</h2>
+          <div class="campo-duplo">
+            <label class="campo" id="campo-tempo_execucao_min">
+              <span class="campo-rotulo">Tempo estimado (minutos)</span>
+              <input form="ca-form" type="number" name="tempo_execucao_min" min="0" step="1" inputmode="numeric" value="{{ atual.get('tempo_execucao_min') if atual.get('tempo_execucao_min') is not none else '' }}" placeholder="opcional">
+              {{ recado('tempo_execucao_min') }}
+            </label>
+            <label class="campo" id="campo-local_execucao">
+              <span class="campo-rotulo">Local de execução</span>
+              <select form="ca-form" name="local_execucao">
+                {% for k, r in regras.LOCAIS_EXECUCAO.items() %}<option value="{{ k }}" {{ 'selected' if (atual.get('local_execucao') or 'evento') == k }}>{{ r }}</option>{% endfor %}
+              </select>
+            </label>
+          </div>
+          <label class="campo" id="campo-servico_id">
+            <span class="campo-rotulo">Atividade na Esteira e na Agenda</span>
+            <select form="ca-form" name="servico_id">
+              <option value="">— Nenhuma —</option>
+              {% for a in atividades %}<option value="{{ a.id }}" {{ 'selected' if atual.get('servico_id')|string == a.id|string }}>{{ a.nome }}</option>{% endfor %}
+            </select>
+            {{ recado('servico_id') }}
+          </label>
+          <label class="ca-marca"><input form="ca-form" type="checkbox" name="exige_agendamento" value="1" {{ 'checked' if atual.get('exige_agendamento') }}><span>Precisa de agendamento</span></label>
+          <label class="ca-marca"><input form="ca-form" type="checkbox" name="cobra_deslocamento" value="1" {{ 'checked' if atual.get('cobra_deslocamento') }}><span>Pode cobrar deslocamento</span></label>
+          <p class="ca-dica">Agenda e capacidade da equipe entram no Sprint 6.</p>
+        </div>
+        {% endif %}
+
+        <div class="cartao ca-cartao" id="campo-permite_retirada">
+          <h2 class="ca-subtitulo">Modalidades de atendimento</h2>
+          {% for m, rotulo in regras.MODALIDADES.items() %}
+          <label class="ca-marca"><input form="ca-form" type="checkbox" name="permite_{{ m }}" value="1" {{ 'checked' if atual.get('permite_' ~ m, 1) }}><span>{{ rotulo }}</span></label>
+          {% endfor %}
+          {% if not eh_kit %}<p class="ca-dica" data-so="servico">Serviço no local do evento não é oferecido na retirada.</p>{% endif %}
+          {% if resumo_kit and resumo_kit.restricoes %}
+          <ul class="ca-restricoes">{% for r in resumo_kit.restricoes %}<li>{{ r }}</li>{% endfor %}</ul>
+          {% endif %}
+          {{ recado('permite_retirada') }}
         </div>
 
         <div class="cartao ca-cartao">
@@ -183,45 +295,140 @@
     <div class="cartao cartao-vazio"><b>Salve o kit primeiro.</b><span>Depois disso você adiciona as peças que o compõem.</span></div>
     {% else %}
     <div class="cartao ca-cartao">
-      <h2 class="ca-subtitulo">Peças do kit</h2>
-      <p class="ca-dica">O kit não tem estoque próprio: a disponibilidade vem da peça mais escassa.</p>
-      {% if atual.get('itens') %}
+      <h2 class="ca-subtitulo">Componentes do pacote</h2>
+      <p class="ca-dica">O kit não tem estoque próprio: cada componente segue a sua regra — locação usa o estoque físico, sob encomenda usa os materiais e o prazo de produção, e serviço depende da equipe.</p>
+      {% if resumo_kit and resumo_kit.componentes %}
       <div class="rolagem">
-      <table class="tabela ca-tabela ca-tabela--simples">
-        <thead><tr><th>Produto</th><th>SKU</th><th>Qtd no kit</th><th>Estoque</th><th>Preço unit.</th><th>Subtotal</th><th></th></tr></thead>
+      <table class="tabela ca-tabela ca-tabela--simples ca-comp">
+        <thead><tr><th>Componente</th><th>Tipo</th><th>Quantidade</th><th>Preço ref.</th><th>Subtotal</th><th>Ações</th></tr></thead>
         <tbody>
-          {% for item in atual.itens %}
-          <tr>
-            <td data-rotulo="Produto" class="chave">{{ item.produto_nome }}{% if item.produto_status != 'disponivel' %} <span class="ca-status ca-status--{{ 'manutencao' if item.produto_status == 'manutencao' else 'inativo' }}">{{ 'Manutenção' if item.produto_status == 'manutencao' else 'Inativo' }}</span>{% endif %}</td>
-            <td data-rotulo="SKU" class="mono">{{ item.codigo_sku }}</td>
-            <td data-rotulo="Qtd no kit" class="num">{{ item.quantidade }}</td>
-            <td data-rotulo="Estoque" class="num">{{ item.quantidade_total }}</td>
-            <td data-rotulo="Preço unit." class="num">{{ item.preco_locacao|dinheiro }}</td>
-            <td data-rotulo="Subtotal" class="num">{{ (item.preco_locacao * item.quantidade)|dinheiro }}</td>
-            <td class="num acao">
-              <form method="post" action="{{ url_for('remover_item_kit', id_=atual.id, item_id=item.id) }}">
-                <button type="submit" class="ca-botao ca-botao--mini ca-botao--perigo">remover</button>
+          {% for c in resumo_kit.componentes %}
+          <tr class="{{ '' if c.obrigatorio else 'ca-comp--opcional' }}">
+            <td data-rotulo="Componente" class="chave">{{ c.nome }} <small class="mono">{{ c.codigo_sku }}</small>
+              {% if c.status != 'disponivel' %}<span class="ca-status ca-status--inativo">Inativo</span>{% endif %}
+              {% if not c.obrigatorio %}<span class="ca-selo ca-selo--cinza">opcional</span>{% endif %}</td>
+            <td data-rotulo="Tipo"><span class="ca-natureza ca-natureza--{{ c.tipo or 'classificar' }}">{{ c.rotulo_tipo }}</span></td>
+            <td data-rotulo="Quantidade">
+              <form method="post" action="{{ url_for('adicionar_item_kit', id_=atual.id) }}" class="ca-comp-form">
+                <input type="hidden" name="produto_id" value="{{ c.produto_id }}">
+                <input type="number" name="quantidade" value="{{ regras.formatar_qtd(c.quantidade)|replace(',', '.') }}" min="0.001" step="{{ '0.001' if regras.aceita_fracao(c.unidade) else '1' }}" inputmode="decimal" aria-label="Quantidade de {{ c.nome }}"> <span>{{ c.sigla }}</span>
+                <select name="obrigatorio" aria-label="{{ c.nome }} é obrigatório?"><option value="1" {{ 'selected' if c.obrigatorio }}>Obrigatório</option><option value="0" {{ 'selected' if not c.obrigatorio }}>Opcional</option></select>
+                <button type="submit" class="ca-botao ca-botao--mini">Salvar</button>
+              </form>
+            </td>
+            <td data-rotulo="Preço ref." class="num">{{ c.preco|dinheiro }} / {{ c.sigla }}</td>
+            <td data-rotulo="Subtotal" class="num">{{ c.subtotal|dinheiro }}</td>
+            <td data-rotulo="Ações" class="num acao">
+              <form method="post" action="{{ url_for('remover_item_kit', id_=atual.id, item_id=c.item_id) }}" data-confirmar="Remover {{ c.nome }} do kit?">
+                <button type="submit" class="ca-botao ca-botao--mini ca-botao--perigo">Remover</button>
               </form>
             </td>
           </tr>
           {% endfor %}
         </tbody>
-        <tfoot><tr><td colspan="5" class="num"><b>Soma das peças</b></td><td class="num"><b>{{ atual.soma_produtos|dinheiro }}</b></td><td></td></tr></tfoot>
+        <tfoot>
+          <tr><td colspan="4" class="num">Referência (obrigatórios)</td><td class="num"><b>{{ resumo_kit.referencia.obrigatorios|dinheiro }}</b></td><td></td></tr>
+          <tr><td colspan="4" class="num">Preço final do pacote ({{ 'soma dos componentes' if resumo_kit.modo_preco == 'componentes' else 'preço fechado' }})</td><td class="num"><b>{{ resumo_kit.preco_final|dinheiro }}</b></td><td></td></tr>
+          {% if resumo_kit.diferenca and resumo_kit.diferenca.valor %}<tr><td colspan="4" class="num">{{ 'Desconto sobre a referência' if resumo_kit.diferenca.desconto else 'Acréscimo sobre a referência' }}</td><td class="num">{{ resumo_kit.diferenca.valor|abs|dinheiro }} ({{ resumo_kit.diferenca.percentual|abs }}%)</td><td></td></tr>{% endif %}
+        </tfoot>
+      </table>
+      </div>
+      <p class="ca-dica">Atendimento possível: {% for m in resumo_kit.modalidades %}<b>{{ regras.MODALIDADES[m] }}</b>{{ ', ' if not loop.last }}{% else %}<b class="ca-dica--alerta">nenhum</b>{% endfor %}.</p>
+      {% if resumo_kit.restricoes %}<ul class="ca-restricoes">{% for r in resumo_kit.restricoes %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
+      {% else %}
+      <div class="cartao-vazio"><b>Nenhum componente ainda.</b><span>Adicione peças de locação, balões sob encomenda e serviços.</span></div>
+      {% endif %}
+      <form method="post" action="{{ url_for('adicionar_item_kit', id_=atual.id) }}" class="ca-linha-form" id="ca-add-comp">
+        <label class="campo"><span class="campo-rotulo">Componente</span>
+          <select name="produto_id" required id="ca-add-produto">
+            <option value="">— Selecione —</option>
+            {% for chave, rotulo in [('locacao', 'Locação'), ('encomenda', 'Sob encomenda'), ('servico', 'Serviço'), (none, 'A classificar')] %}
+            {% set grupo = produtos|selectattr('tipo', 'equalto', chave)|selectattr('status', 'equalto', 'disponivel')|list %}
+            {% if grupo %}<optgroup label="{{ rotulo }}">
+              {% for p in grupo %}<option value="{{ p.id }}" data-sg="{{ regras.sigla(p.unidade) }}" data-fracao="{{ 1 if regras.aceita_fracao(p.unidade) else 0 }}">{{ p.nome }} — {{ p.preco_locacao|dinheiro }}/{{ regras.sigla(p.unidade) }}</option>{% endfor %}
+            </optgroup>{% endif %}
+            {% endfor %}
+          </select></label>
+        <label class="campo ca-campo-qtd"><span class="campo-rotulo">Quantidade <span data-sigla-add></span></span>
+          <input type="number" name="quantidade" value="1" min="0.001" max="9999" step="1" inputmode="decimal" id="ca-add-qtd"></label>
+        <label class="campo ca-campo-qtd"><span class="campo-rotulo">No pacote</span>
+          <select name="obrigatorio"><option value="1">Obrigatório</option><option value="0">Opcional</option></select></label>
+        <button type="submit" class="ca-botao ca-botao--primario">Adicionar</button>
+      </form>
+      <p class="ca-dica">Itens inativos não podem entrar em um kit novo. Um kit não pode conter outro kit.</p>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {# ---------------- Receita (sob encomenda) ---------------- #}
+  {% if natureza == 'encomenda' %}
+  <section class="ca-painel" id="painel-receita" role="tabpanel" aria-labelledby="aba-receita" {{ 'hidden' if aba_ativa != 'receita' }}>
+    <div class="cartao ca-cartao">
+      <h2 class="ca-subtitulo">Materiais consumidos por {{ regras.UNIDADES[atual.unidade or 'unidade'][0]|lower }} produzido</h2>
+      <p class="ca-dica">O consumo é proporcional à quantidade vendida. Consultar e orçar não baixa nem reserva material (isso entra no fluxo do pedido, no Sprint 6).</p>
+      {% if receita %}
+      <div class="rolagem">
+      <table class="tabela ca-tabela ca-tabela--simples">
+        <thead><tr><th>Material</th><th>Consumo por {{ regras.sigla(atual.unidade) }}</th><th>Arredondamento</th><th>Custo ref.</th><th>Ações</th></tr></thead>
+        <tbody>
+        {% for r in receita %}
+          <tr>
+            <td data-rotulo="Material" class="chave"><a href="{{ url_for('editar_material', id_=r.material_id) }}">{{ r.nome }}</a> {% if r.codigo %}<small class="mono">{{ r.codigo }}</small>{% endif %}{% if not r.ativo %} <span class="ca-status ca-status--inativo">Inativo</span>{% endif %}</td>
+            <td data-rotulo="Consumo por {{ regras.sigla(atual.unidade) }}">
+              <form method="post" action="{{ url_for('salvar_receita', id_=atual.id) }}" class="ca-comp-form">
+                <input type="hidden" name="material_id" value="{{ r.material_id }}">
+                <input type="number" name="quantidade" value="{{ r.quantidade }}" min="0.000001" step="any" inputmode="decimal" aria-label="Consumo de {{ r.nome }}"> <span>{{ r.unidade }}</span>
+                <button type="submit" class="ca-botao ca-botao--mini">Salvar</button>
+              </form></td>
+            <td data-rotulo="Arredondamento">{{ 'Inteiro para cima' if r.arredondamento == 'inteiro_acima' else 'Exato' }}</td>
+            <td data-rotulo="Custo ref.">{{ (r.custo_referencia|dinheiro ~ ' / ' ~ r.unidade) if r.custo_referencia is not none else '—' }}</td>
+            <td data-rotulo="Ações" class="acao"><form method="post" action="{{ url_for('remover_receita', id_=atual.id, linha_id=r.id) }}" data-confirmar="Retirar {{ r.nome }} da receita?"><button type="submit" class="ca-botao ca-botao--mini ca-botao--perigo">Remover</button></form></td>
+          </tr>
+        {% endfor %}
+        </tbody>
       </table>
       </div>
       {% else %}
-      <p class="ca-dica">Nenhum produto adicionado ao kit.</p>
+      <div class="cartao-vazio"><b>Nenhum material na receita.</b><span>Adicione os materiais usados para produzir 1 {{ regras.sigla(atual.unidade) }}.</span></div>
       {% endif %}
-      <form method="post" action="{{ url_for('adicionar_item_kit', id_=atual.id) }}" class="ca-linha-form">
-        <label class="campo"><span class="campo-rotulo">Produto</span>
-          <select name="produto_id" required>
-            <option value="">— Selecione —</option>
-            {% for p in produtos %}<option value="{{ p.id }}">{{ p.nome }} ({{ p.codigo_sku }}){{ ' — inativo' if p.status != 'disponivel' }}</option>{% endfor %}
-          </select></label>
-        <label class="campo ca-campo-qtd"><span class="campo-rotulo">Quantidade</span>
-          <input type="number" name="quantidade" value="1" min="1" max="999" step="1" inputmode="numeric"></label>
+      {% if materiais %}
+      <form method="post" action="{{ url_for('salvar_receita', id_=atual.id) }}" class="ca-linha-form">
+        <label class="campo"><span class="campo-rotulo">Material</span>
+          <select name="material_id" required><option value="">— Selecione —</option>
+            {% for m in materiais %}<option value="{{ m.id }}">{{ m.nome }} ({{ m.unidade }})</option>{% endfor %}
+          </select>{{ recado('material_id') }}</label>
+        <label class="campo ca-campo-qtd"><span class="campo-rotulo">Consumo por {{ regras.sigla(atual.unidade) }}</span>
+          <input type="number" name="quantidade" min="0.000001" step="any" inputmode="decimal" required>{{ recado('quantidade') }}</label>
         <button type="submit" class="ca-botao ca-botao--primario">Adicionar</button>
       </form>
+      {% else %}
+      <p class="ca-dica">Cadastre os materiais em <a href="{{ url_for('lista_materiais') }}">Materiais</a> para montar a receita.</p>
+      {% endif %}
+    </div>
+
+    {% if receita %}
+    <div class="cartao ca-cartao">
+      <form method="get" class="ca-linha-form ca-simular">
+        <input type="hidden" name="aba" value="receita">
+        <label class="campo ca-campo-qtd"><span class="campo-rotulo">Simular consumo para</span>
+          <input type="number" name="simular" min="0.001" step="{{ '0.001' if regras.aceita_fracao(atual.unidade) else '1' }}" inputmode="decimal" value="{{ request.args.get('simular') or atual.qtd_minima or 1 }}"></label>
+        <span>{{ regras.sigla(atual.unidade) }}</span>
+        <button type="submit" class="ca-botao">Calcular</button>
+      </form>
+      {% if consumo and consumo.erro %}<p class="aviso mal">{{ consumo.erro }}</p>
+      {% elif consumo %}
+      <table class="tabela ca-tabela ca-tabela--simples">
+        <thead><tr><th>Material</th><th>Calculado</th><th>Previsto</th><th>Custo</th></tr></thead>
+        <tbody>{% for m in consumo.materiais %}
+          <tr><td data-rotulo="Material" class="chave">{{ m.nome }}</td>
+            <td data-rotulo="Calculado" class="num">{{ regras.formatar_qtd(m.calculado) }} {{ m.unidade }}</td>
+            <td data-rotulo="Previsto" class="num"><b>{{ regras.formatar_qtd(m.previsto) }} {{ m.unidade }}</b></td>
+            <td data-rotulo="Custo" class="num">{{ m.custo|dinheiro if m.custo is not none else '—' }}</td></tr>
+        {% endfor %}</tbody>
+        {% if consumo.custo_total is not none %}<tfoot><tr><td colspan="3" class="num">Custo de materiais{{ ' (parcial)' if consumo.custo_incompleto }}</td><td class="num"><b>{{ consumo.custo_total|dinheiro }}</b></td></tr></tfoot>{% endif %}
+      </table>
+      {% endif %}
     </div>
     {% endif %}
   </section>
@@ -276,6 +483,7 @@
     <div class="ca-colunas">
       <div class="cartao ca-cartao">
         <h2 class="ca-subtitulo">Regras de uso</h2>
+        {% if natureza in ('encomenda', 'servico') %}<p class="ca-dica">{{ 'Sob encomenda: vale o prazo de produção (aba Informações) e, a partir do Sprint 6, os materiais disponíveis.' if natureza == 'encomenda' else 'Serviço: a agenda e a capacidade da equipe entram no Sprint 6.' }}</p>{% endif %}
         <label class="campo" id="campo-dias_uso">
           <span class="campo-rotulo">Dias ocupados por festa</span>
           <input form="ca-form" type="number" name="dias_uso" min="1" max="30" step="1" inputmode="numeric" value="{{ atual.get('dias_uso', 2) }}" {{ 'disabled' if not pode_estoque }}>
@@ -409,6 +617,56 @@
       var u = new URL(location.href); u.searchParams.set('aba', alvo); history.replaceState(null, '', u);
     });
   });
+  // Campos de cada tipo e unidades compatíveis (o servidor valida de novo)
+  var unidade = document.getElementById('ca-unidade');
+  var ROTULO_PRECO = { locacao: 'Preço de locação', encomenda: 'Preço', servico: 'Preço base' };
+  function tipoAtual() { var r = document.querySelector('input[name=tipo]:checked'); return r ? r.value : ''; }
+  function aplicarTipo() {
+    var t = tipoAtual();
+    if (!t) return;
+    document.querySelectorAll('[data-so]').forEach(function(el) { el.hidden = el.dataset.so !== t; });
+    if (unidade) {
+      var valida = false;
+      Array.prototype.forEach.call(unidade.options, function(o) {
+        var ok = o.dataset.tipos.split(' ').indexOf(t) >= 0;
+        o.hidden = !ok; o.disabled = !ok;
+        if (ok && o.selected) valida = true;
+      });
+      if (!valida) { var primeira = Array.prototype.find.call(unidade.options, function(o) { return !o.disabled; }); if (primeira) primeira.selected = true; }
+      aplicarUnidade();
+    }
+    document.querySelectorAll('[data-rotulo-preco]').forEach(function(el) { el.textContent = ROTULO_PRECO[t]; });
+  }
+  function aplicarUnidade() {
+    var o = unidade.options[unidade.selectedIndex];
+    document.querySelectorAll('span[data-sigla]').forEach(function(el) { el.textContent = o.dataset.sg; });
+  }
+  document.querySelectorAll('input[name=tipo]').forEach(function(r) { r.addEventListener('change', aplicarTipo); });
+  if (unidade) unidade.addEventListener('change', aplicarUnidade);
+  aplicarTipo();
+  // Kit: preço fechado só aparece no modo fechado
+  function aplicarModo() {
+    var m = document.querySelector('input[name=modo_preco]:checked');
+    document.querySelectorAll('[data-so-preco]').forEach(function(el) { el.hidden = m && el.dataset.soPreco !== m.value; });
+  }
+  document.querySelectorAll('input[name=modo_preco]').forEach(function(r) { r.addEventListener('change', aplicarModo); });
+  aplicarModo();
+  // Componente novo: passo e unidade conforme o produto escolhido
+  var addProd = document.getElementById('ca-add-produto'), addQtd = document.getElementById('ca-add-qtd');
+  if (addProd) addProd.addEventListener('change', function() {
+    var o = addProd.options[addProd.selectedIndex];
+    addQtd.step = o.dataset.fracao === '1' ? '0.001' : '1';
+    document.querySelector('[data-sigla-add]').textContent = o.dataset.sg ? '(' + o.dataset.sg + ')' : '';
+  });
+  // Inativar algo usado em pedidos ou kits pede confirmação
+  var status = document.querySelector('select[name=status]'), vinculos = {{ ((atual.get('em_pedidos') or 0) + (atual.get('em_kits') or 0))|int }};
+  if (status && vinculos) {
+    var inicial = status.value;
+    document.getElementById('ca-form').addEventListener('submit', function(e) {
+      if (status.value === 'inativo' && inicial !== 'inativo' &&
+          !confirm('Este item está ligado a ' + vinculos + ' pedido(s)/kit(s). Inativar tira da vitrine e de novos kits, sem apagar o histórico. Continuar?')) e.preventDefault();
+    });
+  }
   document.querySelectorAll('form[data-confirmar]').forEach(function(f) {
     f.addEventListener('submit', function(e) { if (!confirm(f.dataset.confirmar)) e.preventDefault(); });
   });

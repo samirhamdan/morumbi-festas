@@ -1,0 +1,36 @@
+{# Escolha de itens do catálogo no orçamento e no pedido: ao escolher pelo nome,
+   liga a linha ao cadastro (tipo, unidade, preço sugerido). O servidor confere
+   tudo de novo; a linha grava o preço do momento. #}
+<datalist id="catalogo-venda">
+  {% for i in catalogo_venda %}<option value="{{ i.nome }}">{{ i.rotulo_tipo }} — {{ i.preco|dinheiro }}/{{ i.sigla }}</option>{% endfor %}
+</datalist>
+<script>
+(function(){
+  var ITENS = {{ catalogo_venda|map(attribute='nome')|list|tojson }}, DADOS = {{ catalogo_venda|tojson }};
+  var porNome = {}; DADOS.forEach(function(i) { porNome[i.nome] = i; });
+  var container = document.getElementById('itens-container');
+  function preparar(linha) {
+    var desc = linha.querySelector('input[name^="item_descricao_"]');
+    if (!desc || desc.dataset.catalogo) return;
+    desc.dataset.catalogo = '1';
+    var tipo = linha.querySelector('select[name^="item_tipo_"]');
+    if (tipo.value !== 'servico' || !desc.getAttribute('list')) desc.setAttribute('list', 'catalogo-venda');
+    desc.addEventListener('change', function() {
+      var i = porNome[desc.value];
+      if (!i) return;
+      var id = linha.querySelector('input[name^="item_item_id_"]');
+      var qtd = linha.querySelector('input[name^="item_quantidade_"]');
+      var preco = linha.querySelector('input[name^="item_preco_"]');
+      tipo.value = i.tipo; id.value = i.id;
+      qtd.step = i.fracao ? '0.001' : '1';
+      if (!parseFloat(preco.value)) preco.value = Number(i.preco).toFixed(2);
+      var sigla = linha.querySelector('.item-sigla');
+      if (!sigla) { sigla = document.createElement('span'); sigla.className = 'item-sigla'; qtd.after(sigla); }
+      sigla.textContent = i.sigla;
+    });
+  }
+  container.querySelectorAll('.item-orcamento').forEach(preparar);
+  new MutationObserver(function() { container.querySelectorAll('.item-orcamento').forEach(preparar); })
+    .observe(container, { childList: true });
+})();
+</script>

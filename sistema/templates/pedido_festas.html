@@ -98,7 +98,7 @@
             {% for i in p.itens %}
             <tr>
               <td data-rotulo="Item" class="ped-item-nome">{{ i.descricao }}{% if i.tipo != 'produto' %} <span class="ped-item-tipo">{{ 'kit' if i.tipo == 'kit' else 'serviço' }}</span>{% endif %}</td>
-              <td data-rotulo="Qtd.">{{ i.quantidade }}</td>
+              <td data-rotulo="Qtd.">{{ regras.formatar_qtd(i.quantidade) if regras else i.quantidade }}{% if i.unidade and i.unidade not in ('unidade', 'pacote') and regras %} {{ regras.sigla(i.unidade) }}{% endif %}</td>
               <td data-rotulo="Período">
                 {% if p.data_retirada and p.data_devolucao %}
                   {% if p.data_retirada[5:7] == p.data_devolucao[5:7] %}{{ p.data_retirada[8:10] }}–{{ p.data_devolucao[8:10] }}/{{ p.data_devolucao[5:7] }}
@@ -121,6 +121,21 @@
           <strong>{{ (p.total if eh_pedido else p.valor)|dinheiro if (p.total if eh_pedido else p.valor) else 'Valor não informado' }}</strong>
         </div>
       </section>
+
+      {% if consumo %}
+      <section class="ped-bloco" aria-labelledby="t-consumo">
+        <h2 id="t-consumo" class="ped-bloco-titulo">Materiais previstos para a produção</h2>
+        <table class="ped-itens">
+          <thead><tr><th scope="col">Material</th><th scope="col">Previsto</th><th scope="col">Custo ref.</th></tr></thead>
+          <tbody>{% for m in consumo %}
+            <tr><td data-rotulo="Material" class="ped-item-nome">{{ m.nome }}</td>
+              <td data-rotulo="Previsto">{{ regras.formatar_qtd(m.previsto) }} {{ m.unidade }}</td>
+              <td data-rotulo="Custo ref.">{{ m.custo|dinheiro if m.custo is not none else '—' }}</td></tr>
+          {% endfor %}</tbody>
+        </table>
+        <p class="ped-nada">Calculado pela receita de cada produto sob encomenda. Ainda não reserva nem baixa materiais (Sprint 6).</p>
+      </section>
+      {% endif %}
 
       <section class="ped-bloco" aria-labelledby="t-tempo">
         <h2 id="t-tempo" class="ped-bloco-titulo">Linha do tempo</h2>
@@ -165,6 +180,7 @@
       <section class="ped-bloco" aria-labelledby="t-log">
         <h2 id="t-log" class="ped-bloco-titulo">Logística</h2>
         <dl class="ped-linhas">
+          {% if p.modalidade and regras %}<div><dt>Atendimento</dt><dd>{{ regras.MODALIDADES.get(p.modalidade, p.modalidade) }}</dd></div>{% endif %}
           <div><dt>Retirada / entrega</dt><dd>{{ data_hora(p.data_retirada, p.hora_retirada) }}</dd></div>
           <div><dt>Local</dt><dd>{{ p.local_evento or '—' }}</dd></div>
           <div><dt>Devolução</dt><dd>{{ data_hora(p.data_devolucao, p.hora_devolucao) }}</dd></div>

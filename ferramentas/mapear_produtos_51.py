@@ -11,33 +11,12 @@ Uso na VPS (o banco é o da variável FESTAS_DADOS do serviço):
     venv/bin/python ferramentas/mapear_produtos_51.py "$BANCO" > mapa51.txt
 """
 
-import re
+import os
 import sqlite3
 import sys
-import unicodedata
 
-PALAVRAS = {
-    "encomenda": ("balao", "baloes", "guirlanda", "arco", "coluna de bal", "desconstruid",
-                  "bubble", "personalizad"),
-    "servico": ("montagem", "instalacao", "desmontagem", "frete", "entrega", "deslocamento",
-                "mao de obra", "servico"),
-}
-
-
-def _norm(texto) -> str:
-    t = unicodedata.normalize("NFKD", str(texto or "").lower())
-    return "".join(c for c in t if not unicodedata.combining(c))
-
-
-def sugerir(nome: str, descricao: str) -> tuple:
-    texto = _norm(f"{nome} {descricao}")
-    achados = {tipo for tipo, palavras in PALAVRAS.items()
-               if any(re.search(r"\b" + re.escape(p), texto) for p in palavras)}
-    if len(achados) > 1:
-        return "ambiguo", "nome indica mais de um tipo: " + ", ".join(sorted(achados))
-    if achados:
-        return achados.pop(), "palavra-chave no nome/descrição"
-    return "locacao", "sem palavra-chave (o cadastro atual é de locação)"
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from sistema.regras_itens import sugerir_tipo as sugerir  # noqa: E402  (mesma regra da tela)
 
 
 def main(caminho: str):

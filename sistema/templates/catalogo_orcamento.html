@@ -16,7 +16,7 @@
     <ul class="vt-orc-itens" id="vt-orc-itens-lista" aria-live="polite"><li class="vt-orc-vazio">Carregando…</li></ul>
     <p class="vt-orc-alerta" id="vt-orc-alerta" role="alert" hidden></p>
     <p class="vt-orc-total"><span>Total estimado</span> <b id="vt-orc-total">R$ 0,00</b></p>
-    <p class="vt-nota">Valores de locação por festa. Frete, montagem e condições são combinados no atendimento.</p>
+    <p class="vt-nota">Locação por festa; produtos sob encomenda e serviços conforme a unidade de cada item. Frete, montagem e condições são combinados no atendimento.</p>
   </section>
 
   <section class="vt-orc-form" aria-labelledby="vt-orc-contato">
@@ -66,15 +66,16 @@
       if (i.capa) { var im = document.createElement('img'); im.src = i.capa; im.alt = ''; im.width = 72; im.height = 72; im.loading = 'lazy'; img.appendChild(im); }
       li.appendChild(img);
       var info = el('div', 'vt-orc-info'), a = el('a', '', i.nome); a.href = i.url; info.appendChild(a);
-      info.appendChild(el('small', '', dinheiro.format(i.preco) + ' cada · ' + (i.tipo === 'kit' ? 'Kit' : 'Peça avulsa')));
+      var fr = i.sigla === 'm' || i.sigla === 'h';
+      info.appendChild(el('small', '', dinheiro.format(i.preco) + (fr ? ' por ' + i.sigla : ' cada') + ' · ' + (i.tipo === 'kit' ? 'Kit' : 'Peça avulsa')));
       if (i.situacao) { var s = el('span', 'vt-badge vt-s-' + i.situacao, i.rotulo); if (i.motivo) s.title = i.motivo; info.appendChild(s); }
       li.appendChild(info);
       var q = el('div', 'vt-qtd');
       [['−', -1], ['', 0], ['+', 1]].forEach(function(p) {
-        if (!p[1]) { var inp = document.createElement('input'); inp.type = 'number'; inp.min = 0; inp.max = 99; inp.value = i.quantidade; inp.setAttribute('aria-label', 'Quantidade de ' + i.nome);
-          inp.addEventListener('change', function() { mudar(i, parseInt(inp.value, 10) || 0); }); q.appendChild(inp); return; }
+        if (!p[1]) { var inp = document.createElement('input'); inp.type = 'number'; inp.min = 0; inp.max = 99; inp.step = fr ? '0.5' : '1'; inp.value = i.quantidade; inp.setAttribute('aria-label', 'Quantidade de ' + i.nome);
+          inp.addEventListener('change', function() { mudar(i, parseFloat(inp.value) || 0); }); q.appendChild(inp); return; }
         var b = el('button', '', p[0]); b.type = 'button'; b.setAttribute('aria-label', (p[1] > 0 ? 'Mais ' : 'Menos ') + i.nome);
-        b.addEventListener('click', function() { mudar(i, Math.min(i.quantidade + p[1], 99)); }); q.appendChild(b);
+        b.addEventListener('click', function() { mudar(i, Math.max(Math.min(i.quantidade + p[1] * (fr ? 0.5 : 1), 99), 0)); }); q.appendChild(b);
       });
       li.appendChild(q);
       li.appendChild(el('b', 'vt-orc-sub', dinheiro.format(i.subtotal)));

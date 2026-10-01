@@ -413,7 +413,7 @@ class TesteEdicao:
         assert ev["usuario_id"] == 1
 
     @pytest.mark.parametrize("extra,mensagem", [
-        ({"item_quantidade_0": "0"}, "deve ser ao menos 1"),
+        ({"item_quantidade_0": "0"}, "deve ser maior que zero"),
         ({"item_preco_0": "-5"}, "não pode ser negativo"),
         ({"item_tipo_0": "brinde"}, "Tipo de item inválido"),
         ({"data_evento": "2026-02-31"}, "Data inválida"),

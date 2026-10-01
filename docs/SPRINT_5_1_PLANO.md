@@ -1,7 +1,9 @@
-# Sprint 5.1 — Diagnóstico e plano do modelo de produtos, serviços e kits
+# Sprint 5.1 — Modelo de produtos, serviços e kits
 
-Etapas A (diagnóstico) e B (modelagem). Nenhuma alteração estrutural foi
-feita ainda: este documento existe para ser validado antes da Etapa C.
+Etapas A (diagnóstico) e B (modelagem) foram validadas antes da implementação,
+com as recomendações aceitas e a decisão de que "entrega sem montagem" fica
+só como atividade da Esteira. A seção **E. Entrega** no fim descreve o que foi
+implementado.
 
 ## A. Diagnóstico da arquitetura atual
 
@@ -156,14 +158,68 @@ Saldo de materiais e reserva/baixa automáticas; capacidade e agenda da
 equipe de montagem; capacidade de produção por dia; manutenção de peças;
 disponibilidade conjunta usando os três controles.
 
-## Decisões a confirmar
+## Decisões tomadas
 
-1. Produtos atuais ficam "A classificar" (comportando-se como locação) até a
-   confirmação na tela. **Recomendado.**
-2. Kit não pode conter outro kit. **Recomendado.**
-3. "Entrega sem montagem" (levar e deixar no local) é uma terceira
-   modalidade, ou continua só como atividade da Esteira?
-4. Componentes opcionais no kit (ex.: montagem opcional) entram já no 5.1.
-   **Recomendado** (é o que permite a regra de disponibilidade 6.4).
-5. Arredondamento definido por material (balão: inteiro para cima; fita em
-   metros: exato). **Recomendado.**
+1. Produtos atuais ficam "A classificar" (funcionando como locação) até a
+   confirmação na tela — individual ou em lote, com sugestão pelo nome.
+2. Kit não contém outro kit (componentes são sempre produtos).
+3. Modalidades: só **retirada** e **montagem no local**. "Entrega" continua
+   como atividade da Esteira.
+4. Componentes obrigatórios e opcionais. Opcional não entra no preço de
+   referência do pacote, não ocupa estoque e é vendido à parte.
+5. Arredondamento definido por material (inteiro para cima ou exato).
+
+## E. Entrega
+
+### O que foi implementado
+
+| Área | Onde |
+|---|---|
+| Regras centrais (tipos, unidades, quantidade, consumo, preço do kit, modalidades, sugestão de tipo) | `sistema/regras_itens.py` |
+| Migração aditiva com backup e conferência antes/depois | `dados._migrar_sprint51`, `dados.backup_antes_sprint51` |
+| Cadastro por tipo, materiais, receita, movimentações manuais | `dados.salvar_produto`, `salvar_material`, `salvar_linha_receita`, `registrar_movimento_material` |
+| Kits mistos, preço por componentes ou fechado, obrigatório/opcional | `dados.adicionar_item_kit`, `resumo_kit`, `_sincronizar_precos_kits` |
+| Composição do kit gravada na venda | `itens_pedido.composicao` / `itens_orcamento.composicao` (`_preparar_linhas`) |
+| Disponibilidade por tipo (locação = estoque; encomenda = prazo; serviço = não bloqueia) | `dados.calendario_item`, `_ocupacoes`, `_necessidades` |
+| Modalidade no pedido e no orçamento, com validação | `pedidos.modalidade`, `orcamentos.modalidade`, `_validar_modalidade_venda` |
+| Telas | `item_catalogo.html` (tipo, produção, execução, modalidades, Receita, Componentes), `catalogo_admin.html` (selo de tipo, filtro, aba "A classificar"), `materiais.html`, `material.html`, `pedido.html`/`orcamento.html` (modalidade, fração, busca no catálogo), `pedido_festas.html` (materiais previstos), vitrine (preço por unidade e metros) |
+| Testes de aceite | `tests/test_sprint51.py` (48 testes) |
+
+### API (JSON, exige login)
+
+| Método e rota | Permissão | Retorno |
+|---|---|---|
+| `GET /api/catalogo/itens?q=&natureza=&aba=` | catalog.view | Lista de produtos e kits (tipo, unidade, preço, status) |
+| `GET /api/catalogo/produto/<id>` | catalog.view | Produto com tipo, modalidades e receita |
+| `GET /api/catalogo/produto/<id>/consumo?quantidade=2.5` | catalog.view | Consumo previsto por material e custo; 422 se a quantidade não serve para a unidade |
+| `GET /api/catalogo/kit/<id>/preco` | catalog.view | Componentes, referência (obrigatórios/opcionais), preço final, diferença, modalidades e restrições |
+| `GET /api/pedido/<id>/consumo` | orders.view | Materiais previstos para o pedido (base da reserva do Sprint 6) |
+
+Rotas de tela novas: `/materiais`, `/material/<id>`, `/material/<id>/movimento`,
+`/produto/<id>/receita`, `/produto/<id>/receita/<linha>/remover`,
+`/catalogo-admin/classificar`. `/kit/<id>/item` passou a aceitar quantidade
+fracionada e `obrigatorio` (1/0). Erros seguem o padrão do sistema: mensagem
+ao lado do campo nas telas e `{"ok": false, "campo", "mensagem"}` na API.
+
+### Permissões
+
+Comercial cadastra e edita itens, kits e receitas; estoque físico, dias de
+uso, antecedência e **prazo de produção** só com `inventory.edit`; ativar e
+inativar com `catalog.status`; materiais são vistos por quem vê o catálogo e
+alterados só com `inventory.edit`.
+
+### Limitações e pendências para o Sprint 6
+
+- Saldo de materiais: só lançamentos manuais (entrada, perda, ajuste). Reserva
+  na confirmação do pedido, baixa na produção e estorno no cancelamento usam a
+  tabela `movimentos_material` (tipos já previstos) e `consumo_previsto_pedido`.
+- Encomenda: a disponibilidade considera só o prazo de produção; falta cruzar
+  com o saldo de materiais e a capacidade diária de produção.
+- Serviço: não bloqueia datas; falta agenda e capacidade da equipe (o vínculo
+  `servico_id` com a atividade da Esteira já existe).
+- Opcionais do kit são vendidos como linha à parte no pedido; escolher
+  opcionais dentro da linha do kit fica para quando houver essa necessidade.
+- O pedido e o orçamento continuam com itens de texto livre; a busca no
+  catálogo liga a linha ao cadastro (tipo, unidade, preço sugerido).
+- Figma QruRvNueNTMCSkE0S5JAS1: o conector estava sem autorização; as telas
+  seguem o padrão visual já usado no sistema.

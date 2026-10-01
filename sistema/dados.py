@@ -3,6 +3,7 @@
 import contextvars
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -259,6 +260,7 @@ def conectar():
 
 
 def inicializar():
+    backup_antes_sprint51()
     with conectar() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS usuarios (
@@ -578,6 +580,7 @@ def inicializar():
         _migrar_empresa(conn)
         _migrar_login(conn)
         _migrar_catalogo(conn)
+        _migrar_sprint51(conn)
     # caches montados durante a migração podem estar incompletos
     _tenant_padrao_cache.pop(CAMINHO_BD, None)
     for cache in (_config_cache, _nome_cache):
@@ -1179,10 +1182,10 @@ def campos_usuario(form) -> dict:
     }
 
 
-class ErroDeCampo(ValueError):
-    def __init__(self, campo: str, mensagem: str):
-        self.campo = campo
-        super().__init__(mensagem)
+# Erro de validação ligado a um campo do formulário (definido junto das regras
+# de itens para que regras e dados levantem a mesma exceção).
+from sistema import regras_itens as regras  # noqa: E402
+ErroDeCampo = regras.ErroDeCampo
 
 
 def _admins_ativos(conn, exceto: int | None = None) -> int:
@@ -1632,6 +1635,11 @@ def buscar_produto(id_: int) -> dict | None:
         p["tags"] = _tags_do_produto(conn, p["id"])
         p["fotos"] = _fotos_do_produto(conn, p["id"])
         p["foto_capa"] = _foto_capa(conn, p["id"])
+        p["em_kits"] = conn.execute("SELECT COUNT(DISTINCT kit_id) FROM itens_kit WHERE produto_id = ?",
+                                    (p["id"],)).fetchone()[0]
+        p["em_pedidos"] = conn.execute(
+            "SELECT COUNT(DISTINCT pedido_id) FROM itens_pedido WHERE tipo = 'produto' AND item_id = ?",
+            (p["id"],)).fetchone()[0]
         return p
 
 
@@ -1751,17 +1759,20 @@ def buscar_kit(id_: int) -> dict | None:
         k["foto_capa"] = _foto_capa_kit(conn, k["id"])
         k["soma_produtos"] = sum(
             (i.get("preco_locacao") or 0) * i["quantidade"]
-            for i in k["itens"])
+            for i in k["itens"] if i.get("obrigatorio", 1))
+        k["em_pedidos"] = conn.execute(
+            "SELECT COUNT(DISTINCT pedido_id) FROM itens_pedido WHERE tipo = 'kit' AND item_id = ?",
+            (k["id"],)).fetchone()[0]
         return k
 
 
 def _itens_do_kit(conn, kit_id: int) -> list:
     return [dict(r) for r in conn.execute(
-        "SELECT ik.*, p.nome AS produto_nome, p.codigo_sku,"
+        "SELECT ik.*, p.nome AS produto_nome, p.codigo_sku, p.tipo AS produto_tipo, p.unidade,"
         " p.preco_locacao, p.quantidade_total, p.status AS produto_status"
         " FROM itens_kit ik"
         " JOIN produtos p ON p.id = ik.produto_id"
-        " WHERE ik.kit_id = ? ORDER BY p.nome",
+        " WHERE ik.kit_id = ? ORDER BY ik.obrigatorio DESC, p.nome",
         (kit_id,)).fetchall()]
 
 
@@ -2296,7 +2307,7 @@ def kit_publico(id_: int) -> dict | None:
         k["foto_capa"] = _foto_capa_kit(conn, k["id"])
         k["soma_produtos"] = sum(
             (i.get("preco_locacao") or 0) * i["quantidade"]
-            for i in k["itens"])
+            for i in k["itens"] if i.get("obrigatorio", 1))
         return k
 
 
@@ -2346,7 +2357,7 @@ def vitrine_itens(tipo: str = "", categoria_id=None, busca: str = "",
                     f" {_capa_sql('fotos_kit', 'kit_id', 'k')} AS capa,"
                     " (SELECT GROUP_CONCAT(tag, ' ') FROM tags_kit t WHERE t.kit_id = k.id) AS tags,"
                     " (SELECT SUM(ik.quantidade * p.preco_locacao) FROM itens_kit ik"
-                    "   JOIN produtos p ON p.id = ik.produto_id WHERE ik.kit_id = k.id) AS soma"
+                    "   JOIN produtos p ON p.id = ik.produto_id WHERE ik.kit_id = k.id AND ik.obrigatorio = 1) AS soma"
                     " FROM kits k LEFT JOIN categorias c ON c.id = k.categoria_id"
                     f" WHERE {_KIT_PUBLICO} AND {_t('k')}" + filtro_cat.format(a="k"), cats):
                 k = dict(r, tipo="kit")
@@ -2402,12 +2413,12 @@ def _item_publico(conn, tipo: str, id_) -> dict | None:
         return None
     if tipo == "produto":
         r = conn.execute(
-            "SELECT p.id, p.nome, p.slug, p.preco_locacao AS preco,"
+            "SELECT p.id, p.nome, p.slug, p.preco_locacao AS preco, p.unidade, p.qtd_minima,"
             f" {_capa_sql('fotos_produto', 'produto_id', 'p')} AS capa"
             f" FROM produtos p WHERE p.id = ? AND {_PRODUTO_PUBLICO} AND {_t('p')}", (id_,)).fetchone()
     elif tipo == "kit":
         r = conn.execute(
-            "SELECT k.id, k.nome, k.slug, k.preco,"
+            "SELECT k.id, k.nome, k.slug, k.preco, 'pacote' AS unidade, NULL AS qtd_minima,"
             f" {_capa_sql('fotos_kit', 'kit_id', 'k')} AS capa"
             f" FROM kits k WHERE k.id = ? AND {_KIT_PUBLICO} AND {_t('k')}", (id_,)).fetchone()
     else:
@@ -2424,13 +2435,13 @@ def _itens_do_carrinho(itens) -> list:
         if not isinstance(i, dict) or i.get("tipo") not in TIPOS_CATALOGO:
             continue
         try:
-            id_, qtd = int(i.get("id")), int(i.get("quantidade") or 1)
+            id_, qtd = int(i.get("id")), round(regras.numero(i.get("quantidade") or 1), regras.CASAS)
         except (TypeError, ValueError):
             continue
-        if id_ <= 0:
+        if id_ <= 0 or qtd <= 0:
             continue
         chave = (i["tipo"], id_)
-        juntos[chave] = min(max(juntos.get(chave, 0) + max(qtd, 1), 1), ORCAMENTO_MAX_QTD)
+        juntos[chave] = min(juntos.get(chave, 0) + qtd, ORCAMENTO_MAX_QTD)
     return [{"tipo": t, "id": id_, "quantidade": q} for (t, id_), q in juntos.items()][:ORCAMENTO_MAX_ITENS]
 
 
@@ -2448,8 +2459,13 @@ def resumo_orcamento_publico(itens, data_festa: str = "", hoje: str | None = Non
             reg = _item_publico(conn, p["tipo"], p["id"])
             if not reg:
                 continue  # saiu da vitrine: some da lista, sem erro
-            linhas.append(dict(reg, quantidade=p["quantidade"],
-                               subtotal=round(reg["preco"] * p["quantidade"], 2)))
+            qtd = p["quantidade"]
+            if not regras.aceita_fracao(reg["unidade"]):
+                qtd = max(1, math.ceil(qtd - 1e-9))  # unidade inteira: arredonda para cima
+            qtd = max(qtd, reg["qtd_minima"] or 0)
+            qtd = int(qtd) if qtd == int(qtd) else round(qtd, regras.CASAS)
+            linhas.append(dict(reg, quantidade=qtd, sigla=regras.sigla(reg["unidade"]),
+                               subtotal=round(reg["preco"] * qtd, 2)))
         if data_festa and linhas:
             janelas = []
             for ln in linhas:
@@ -2549,11 +2565,10 @@ def solicitar_orcamento_catalogo(contato: dict, itens, data_festa: str,
             " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (tenant_atual(), lead_id, cliente_id, 0, texto_obs, "rascunho", data_festa,
              "catalogo", agora_, agora_)).lastrowid
-        for ln in resumo["itens"]:
-            conn.execute(
-                "INSERT INTO itens_orcamento (orcamento_id, tipo, item_id, descricao,"
-                " quantidade, preco_unitario) VALUES (?,?,?,?,?,?)",
-                (orc_id, ln["tipo"], ln["id"], ln["nome"], ln["quantidade"], ln["preco"]))
+        _inserir_linhas(conn, "itens_orcamento", "orcamento_id", orc_id, _preparar_linhas(
+            conn, [{"tipo": ln["tipo"], "item_id": ln["id"], "descricao": ln["nome"],
+                    "quantidade": ln["quantidade"], "preco_unitario": ln["preco"]}
+                   for ln in resumo["itens"]]))
         auditar(conn, "orcamento", orc_id, "criar",
                 f"Orçamento #{orc_id} pedido pela vitrine ({len(resumo['itens'])} itens)", None,
                 tipo="orcamento_catalogo",
@@ -2838,40 +2853,43 @@ def salvar_orcamento(dados_: dict, itens: list,
             raise ErroDeCampo("data_evento", "Data da festa inválida.")
 
     agora_ = formato.agora()
+    itens = _validar_itens(itens)
     with conectar() as conn:
         _validar_referencias(conn, dados_)
         _validar_itens_da_empresa(conn, itens)
+        anterior = None
         if id_:
-            if not _do_tenant(conn, "orcamentos", id_):
+            anterior = conn.execute(f"SELECT * FROM orcamentos WHERE id = ? AND {_t()}",
+                                    (id_,)).fetchone()
+            if not anterior:
                 raise ValueError("Orçamento não encontrado.")
+        linhas_antigas = [dict(r) for r in conn.execute(
+            "SELECT * FROM itens_orcamento WHERE orcamento_id = ?", (id_,))] if id_ else []
+        itens = _preparar_linhas(conn, itens, linhas_antigas)
+        modalidade = dados_.get("modalidade")
+        if modalidade is None:
+            modalidade = (anterior["modalidade"] if anterior else "") or ""
+        _validar_modalidade_venda(conn, modalidade, itens)
+        if id_:
             conn.execute(
                 "UPDATE orcamentos SET lead_id=?, cliente_id=?, desconto=?,"
-                f" observacoes=?, status=?, data_evento=?, atualizado_em=? WHERE id=? AND {_t()}",
+                " observacoes=?, status=?, data_evento=?, modalidade=?, atualizado_em=?"
+                f" WHERE id=? AND {_t()}",
                 (dados_.get("lead_id"), dados_["cliente_id"], desconto,
-                 dados_.get("observacoes", ""), status, data_evento, agora_, id_))
+                 dados_.get("observacoes", ""), status, data_evento, modalidade, agora_, id_))
             conn.execute("DELETE FROM itens_orcamento WHERE orcamento_id=?",
                          (id_,))
             novo_id = id_
         else:
             r = conn.execute(
                 "INSERT INTO orcamentos (tenant_id, lead_id, cliente_id, desconto,"
-                " observacoes, status, data_evento, origem, criado_em, atualizado_em)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " observacoes, status, data_evento, origem, modalidade, criado_em, atualizado_em)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (tenant_atual(), dados_.get("lead_id"), dados_["cliente_id"], desconto,
                  dados_.get("observacoes", ""), status, data_evento,
-                 dados_.get("origem", ""), agora_, agora_))
+                 dados_.get("origem", ""), modalidade, agora_, agora_))
             novo_id = r.lastrowid
-        for item in itens:
-            if not item.get("descricao", "").strip():
-                continue
-            conn.execute(
-                "INSERT INTO itens_orcamento (orcamento_id, tipo, item_id,"
-                " descricao, quantidade, preco_unitario)"
-                " VALUES (?,?,?,?,?,?)",
-                (novo_id, item.get("tipo", "produto"),
-                 item.get("item_id"), item["descricao"].strip(),
-                 int(item.get("quantidade") or 1),
-                 float(item.get("preco_unitario") or 0)))
+        _inserir_linhas(conn, "itens_orcamento", "orcamento_id", novo_id, itens)
         return novo_id
 
 
@@ -2960,18 +2978,13 @@ def converter_orcamento_em_pedido(orcamento_id: int, usuario_id=None) -> int:
                 raise ValueError(faltas[0])
         r = conn.execute(
             "INSERT INTO pedidos (tenant_id, orcamento_id, cliente_id, data_evento,"
-            " observacoes, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?)",
+            " observacoes, modalidade, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?,?)",
             (tenant_atual(), orcamento_id, orc["cliente_id"], data_evento,
-             orc.get("observacoes", ""), agora_, agora_))
+             orc.get("observacoes", ""), orc.get("modalidade") or "", agora_, agora_))
         pedido_id = r.lastrowid
-        for item in orc["itens"]:
-            conn.execute(
-                "INSERT INTO itens_pedido (pedido_id, tipo, item_id,"
-                " descricao, quantidade, preco_unitario)"
-                " VALUES (?,?,?,?,?,?)",
-                (pedido_id, item["tipo"], item.get("item_id"),
-                 item["descricao"], item["quantidade"],
-                 item["preco_unitario"]))
+        # mesmos preços, unidades e composição do orçamento aceito
+        _inserir_linhas(conn, "itens_pedido", "pedido_id", pedido_id,
+                        _preparar_linhas(conn, orc["itens"]))
         conn.execute(
             "UPDATE orcamentos SET status='aceito', atualizado_em=?"
             f" WHERE id=? AND {_t()}", (agora_, orcamento_id))
@@ -3004,6 +3017,7 @@ def campos_pedido_festas(form) -> dict:
     }
     for campo in CAMPOS_TEXTO_PEDIDO:
         d[campo] = (form.get(campo) or "").strip()
+    d["modalidade"] = (form.get("modalidade") or "").strip() if "modalidade" in form else None
     # O responsável vem só da lista de usuários; o texto livre do formulário
     # é ignorado. Formulário sem o campo (aberto antes da atualização) mantém
     # o que já estava no pedido.
@@ -3083,18 +3097,136 @@ def _validar_itens(itens: list) -> list:
         if tipo not in TIPOS_ITEM:
             raise ErroDeCampo(campo, f"Tipo de item inválido: {tipo}.")
         try:
-            qtd = int(item.get("quantidade") or 1)
+            qtd = round(regras.numero(item.get("quantidade") or 1), regras.CASAS)
             preco = float(str(item.get("preco_unitario") or 0).replace(",", "."))
         except ValueError:
             raise ErroDeCampo(campo, f"Quantidade ou valor inválido em '{descricao}'.")
-        if qtd < 1:
-            raise ErroDeCampo(campo, f"Quantidade de '{descricao}' deve ser ao menos 1.")
+        if qtd <= 0:
+            raise ErroDeCampo(campo, f"Quantidade de '{descricao}' deve ser maior que zero.")
+        qtd = int(qtd) if qtd == int(qtd) else qtd
         if preco < 0:
             raise ErroDeCampo(campo, f"Valor de '{descricao}' não pode ser negativo.")
         validos.append({"tipo": tipo, "item_id": item.get("item_id"),
                         "descricao": descricao, "quantidade": qtd,
-                        "preco_unitario": round(preco, 2)})
+                        "preco_unitario": round(preco, 2),
+                        "composicao": item.get("composicao") or ""})
     return validos
+
+
+# --- Linhas de venda (orçamento e pedido) — Sprint 5.1 -------------------------
+
+def _composicao_venda(conn, kit_id) -> list:
+    """Retrato da composição do kit no momento da venda (gravado na linha)."""
+    return [{"produto_id": c["produto_id"], "nome": c["nome"], "quantidade": c["quantidade"],
+             "unidade": c["unidade"], "tipo": c["tipo"], "obrigatorio": c["obrigatorio"],
+             "preco": c["preco"], "estoque": 1 if regras.consome_estoque(c["tipo"]) else 0}
+            for c in _componentes(conn, kit_id)]
+
+
+def _ler_composicao(valor) -> list:
+    if isinstance(valor, list):
+        return valor
+    try:
+        dado = json.loads(valor) if valor else []
+    except (TypeError, ValueError):
+        return []
+    return dado if isinstance(dado, list) else []
+
+
+def _preparar_linhas(conn, itens: list, anteriores: list | None = None) -> list:
+    """Confere a quantidade pela unidade do item e grava unidade e composição.
+
+    Ao editar, uma linha de kit que já existia mantém a composição da venda
+    original: mudar o kit depois não altera pedidos e orçamentos registrados.
+    """
+    antigas = {}
+    for a in anteriores or []:
+        if a.get("tipo") == "kit" and a.get("item_id") and a.get("composicao"):
+            antigas.setdefault(int(a["item_id"]), a["composicao"])
+    saida = []
+    for n, item in enumerate(itens):
+        linha = dict(item)
+        unidade, campo = "", f"item_descricao_{n}"
+        if item.get("tipo") == "produto" and item.get("item_id"):
+            r = conn.execute(f"SELECT nome, unidade, qtd_minima FROM produtos WHERE id = ? AND {_t()}",
+                             (item["item_id"],)).fetchone()
+            if r:
+                unidade = r["unidade"] or "unidade"
+                try:
+                    linha["quantidade"] = regras.quantidade(item["quantidade"], unidade, campo)
+                except ErroDeCampo as e:
+                    raise ErroDeCampo(campo, f"{item.get('descricao') or r['nome']}: {e}")
+        elif item.get("tipo") == "kit" and item.get("item_id"):
+            unidade = "pacote"
+            linha["quantidade"] = regras.quantidade(item["quantidade"], "pacote", campo)
+            comp = item.get("composicao") or antigas.get(int(item["item_id"]))
+            if not comp:
+                comp = json.dumps(_composicao_venda(conn, item["item_id"]), ensure_ascii=False)
+            elif isinstance(comp, list):
+                comp = json.dumps(comp, ensure_ascii=False)
+            linha["composicao"] = comp
+        linha["unidade"] = unidade or item.get("unidade") or ""
+        linha.setdefault("composicao", "")
+        if item.get("tipo") != "kit":
+            linha["composicao"] = ""
+        saida.append(linha)
+    return saida
+
+
+def _inserir_linhas(conn, tabela: str, coluna: str, dono_id: int, linhas: list):
+    for ln in linhas:
+        conn.execute(
+            f"INSERT INTO {tabela} ({coluna}, tipo, item_id, descricao, quantidade,"
+            " preco_unitario, unidade, composicao) VALUES (?,?,?,?,?,?,?,?)",
+            (dono_id, ln.get("tipo", "produto"), ln.get("item_id"), ln["descricao"].strip(),
+             ln["quantidade"], float(ln.get("preco_unitario") or 0), ln.get("unidade") or "",
+             ln.get("composicao") or ""))
+
+
+def modalidades_dos_itens(conn, itens: list) -> tuple:
+    """(modalidades aceitas por todos os itens, [(nome, restrição)])."""
+    possiveis, restricoes = set(regras.MODALIDADES), []
+    for item in itens:
+        if not item.get("item_id"):
+            continue
+        if item.get("tipo") == "produto":
+            r = conn.execute(f"SELECT * FROM produtos WHERE id = ? AND {_t()}",
+                             (item["item_id"],)).fetchone()
+            if r:
+                aceitas = regras.modalidades_do_produto(dict(r))
+                for m in sorted(possiveis - aceitas):
+                    restricoes.append(f"'{r['nome']}' não permite {regras.MODALIDADES[m].lower()}.")
+                possiveis &= aceitas
+        elif item.get("tipo") == "kit":
+            k = conn.execute(f"SELECT * FROM kits WHERE id = ? AND {_t()}",
+                             (item["item_id"],)).fetchone()
+            if k:
+                comps = _ler_composicao(item.get("composicao")) or _componentes(conn, k["id"])
+                for c in comps:  # o retrato não guarda as modalidades: usa o cadastro
+                    p = conn.execute("SELECT * FROM produtos WHERE id = ?", (c["produto_id"],)).fetchone()
+                    if p:
+                        c.update({x: p[x] for x in ("permite_retirada", "permite_montagem",
+                                                    "local_execucao")}, tipo=p["tipo"])
+                aceitas, rest = regras.modalidades_do_kit(dict(k), comps)
+                restricoes += [f"{k['nome']}: {x}" for x in rest]
+                if not k["permite_retirada"] and "retirada" in possiveis:
+                    restricoes.append(f"'{k['nome']}' não permite retirada pelo cliente.")
+                if not k["permite_montagem"] and "montagem" in possiveis:
+                    restricoes.append(f"'{k['nome']}' não permite montagem no local.")
+                possiveis &= aceitas
+    return possiveis, restricoes
+
+
+def _validar_modalidade_venda(conn, modalidade, itens: list):
+    if not modalidade:
+        return
+    if modalidade not in regras.MODALIDADES:
+        raise ErroDeCampo("modalidade", "Modalidade de atendimento inválida.")
+    possiveis, restricoes = modalidades_dos_itens(conn, itens)
+    if modalidade not in possiveis:
+        rotulo = regras.MODALIDADES[modalidade].lower()
+        motivo = " ".join(x for x in restricoes if rotulo in x) or " ".join(restricoes)
+        raise ErroDeCampo("modalidade", f"Não é possível atender com {rotulo}. {motivo}".strip())
 
 
 def _validar_dados_pedido(d: dict):
@@ -3149,7 +3281,7 @@ def _validar_itens_da_empresa(conn, itens: list):
 
 
 def _assinatura_itens(itens: list) -> list:
-    return sorted(f"{i['tipo']}:{i['descricao']} x{int(i['quantidade'])}"
+    return sorted(f"{i['tipo']}:{i['descricao']} x{regras.formatar_qtd(i['quantidade'])}"
                   f" @ {float(i['preco_unitario']):.2f}" for i in itens)
 
 
@@ -3227,6 +3359,12 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
         conn.execute("BEGIN IMMEDIATE")
         ret_estoque = data_ret or dados_.get("data_evento")
         dev_estoque = data_dev or dados_.get("data_evento") or data_ret
+        itens = _preparar_linhas(conn, itens, (atual or {}).get("itens"))
+        modalidade = dados_.get("modalidade")
+        if modalidade is None:  # formulário sem o campo: mantém
+            modalidade = (atual or {}).get("modalidade") or ""
+        if modalidade != (atual or {}).get("modalidade", ""):
+            _validar_modalidade_venda(conn, modalidade, itens)
         if ret_estoque and dev_estoque and sc not in FORA_DA_OPERACAO and not historico:
             _verificar_disponibilidade_itens(conn, itens, ret_estoque, dev_estoque, id_)
 
@@ -3236,10 +3374,10 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
                 " data_retirada=?, data_devolucao=?,"
                 " status_comercial=?, status_operacional=?, observacoes=?,"
                 + "".join(f" {c}=?," for c in CAMPOS_TEXTO_PEDIDO) +
-                f" responsavel_id=?, historico=?, atualizado_em=? WHERE id=? AND {_t()}",
+                f" responsavel_id=?, historico=?, modalidade=?, atualizado_em=? WHERE id=? AND {_t()}",
                 (dados_["cliente_id"], dados_.get("data_evento"), data_ret,
                  data_dev, sc, so, dados_.get("observacoes", ""),
-                 *extras, dados_.get("responsavel_id"), historico, agora_, id_))
+                 *extras, dados_.get("responsavel_id"), historico, modalidade, agora_, id_))
             conn.execute("DELETE FROM itens_pedido WHERE pedido_id=?", (id_,))
             novo_id = id_
         else:
@@ -3248,29 +3386,24 @@ def salvar_pedido_festas(dados_: dict, itens: list, id_: int | None = None,
                 " data_devolucao, status_comercial, status_operacional,"
                 " observacoes, "
                 + "".join(f"{c}, " for c in CAMPOS_TEXTO_PEDIDO) +
-                "responsavel_id, criado_em, atualizado_em) VALUES ("
-                + ",".join("?" * (11 + len(CAMPOS_TEXTO_PEDIDO))) + ")",
+                "responsavel_id, modalidade, criado_em, atualizado_em) VALUES ("
+                + ",".join("?" * (12 + len(CAMPOS_TEXTO_PEDIDO))) + ")",
                 (tenant_atual(), dados_["cliente_id"], dados_.get("data_evento"), data_ret,
                  data_dev, sc, so, dados_.get("observacoes", ""),
-                 *extras, dados_.get("responsavel_id"), agora_, agora_))
+                 *extras, dados_.get("responsavel_id"), modalidade, agora_, agora_))
             novo_id = r.lastrowid
 
-        for item in itens:
-            conn.execute(
-                "INSERT INTO itens_pedido (pedido_id, tipo, item_id,"
-                " descricao, quantidade, preco_unitario) VALUES (?,?,?,?,?,?)",
-                (novo_id, item["tipo"], item.get("item_id"), item["descricao"],
-                 item["quantidade"], item["preco_unitario"]))
+        _inserir_linhas(conn, "itens_pedido", "pedido_id", novo_id, itens)
 
         if atual:
             novos = dict(dados_, status_comercial=sc, status_operacional=so,
                          data_retirada=data_ret, data_devolucao=data_dev,
-                         historico=historico)
+                         historico=historico, modalidade=modalidade)
             mudancas = {}
             for campo in ("cliente_id", "data_evento", "data_retirada",
                           "data_devolucao", "status_comercial",
                           "status_operacional", "observacoes", "historico",
-                          "responsavel_id", *CAMPOS_TEXTO_PEDIDO):
+                          "responsavel_id", "modalidade", *CAMPOS_TEXTO_PEDIDO):
                 antes, depois = atual.get(campo) or "", novos.get(campo) or ""
                 if str(antes) != str(depois):
                     mudancas[campo] = [antes, depois]
@@ -3303,7 +3436,7 @@ ROTULOS_CAMPO_PEDIDO = {
     "status_operacional": "status operacional", "observacoes": "observações",
     "itens": "itens e valores", "local_evento": "local",
     "hora_retirada": "horário da retirada", "hora_devolucao": "horário da devolução",
-    "hora_evento": "horário do evento",
+    "hora_evento": "horário do evento", "modalidade": "modalidade de atendimento",
     "responsavel": "responsável", "responsavel_id": "responsável",
     "forma_pagamento": "forma de pagamento",
     "condicao_pagamento": "condição de pagamento", "canal": "canal",
@@ -5719,6 +5852,152 @@ def _migrar_catalogo(conn):
                      f" ON {tabela} (tenant_id, slug)")
 
 
+# ---------------------------------------------------------------------------
+# Sprint 5.1 — tipos de item, unidades, materiais e kits mistos.
+# Só acrescenta colunas e tabelas: nada é apagado, renomeado ou reclassificado.
+# Produtos já existentes ficam com tipo vazio ("a classificar") e continuam
+# funcionando como locação até alguém confirmar o tipo na administração.
+# ---------------------------------------------------------------------------
+
+_TABELAS_CONFERIDAS_51 = ("produtos", "kits", "itens_kit", "pedidos", "itens_pedido",
+                          "orcamentos", "itens_orcamento")
+
+
+def _retrato_51(conn) -> dict:
+    """Contagem e somas que precisam ser iguais antes e depois da migração."""
+    r = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+         for t in _TABELAS_CONFERIDAS_51}
+    r["soma_precos_produtos"] = conn.execute(
+        "SELECT ROUND(COALESCE(SUM(preco_locacao), 0), 2) FROM produtos").fetchone()[0]
+    r["soma_precos_kits"] = conn.execute(
+        "SELECT ROUND(COALESCE(SUM(preco), 0), 2) FROM kits").fetchone()[0]
+    for t in ("itens_pedido", "itens_orcamento"):
+        r[f"valor_{t}"] = conn.execute(
+            f"SELECT ROUND(COALESCE(SUM(quantidade * preco_unitario), 0), 2) FROM {t}").fetchone()[0]
+    r["qtd_itens_kit"] = conn.execute(
+        "SELECT COALESCE(SUM(quantidade), 0) FROM itens_kit").fetchone()[0]
+    return r
+
+
+def _precisa_migrar_51(conn) -> bool:
+    return "tipo" not in _colunas(conn, "produtos")
+
+
+def backup_antes_sprint51():
+    """Cópia do banco antes da migração 5.1 (só uma vez e só se houver dados)."""
+    if not os.path.exists(CAMINHO_BD):
+        return None
+    with conectar() as conn:
+        tabelas = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "produtos" not in tabelas or not _precisa_migrar_51(conn):
+            return None
+        if not any(conn.execute(f"SELECT 1 FROM {t} LIMIT 1").fetchone()
+                   for t in ("produtos", "kits", "pedidos", "orcamentos")):
+            return None
+        destino = f"{CAMINHO_BD}.backup-antes-sprint51-{time.strftime('%Y%m%d-%H%M%S')}"
+        n = 1
+        while os.path.exists(destino):
+            n += 1
+            destino = f"{CAMINHO_BD}.backup-antes-sprint51-{time.strftime('%Y%m%d-%H%M%S')}-{n}"
+        copia = sqlite3.connect(destino)
+        try:
+            conn.backup(copia)  # cópia consistente mesmo com o modo WAL
+            copia.execute("PRAGMA journal_mode=DELETE")  # arquivo único, fácil de copiar
+        finally:
+            copia.close()
+    return destino
+
+
+def _migrar_sprint51(conn):
+    def colunas(tabela, novas):
+        existentes = _colunas(conn, tabela)
+        for coluna, tipo in novas:
+            if coluna not in existentes:
+                conn.execute(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}")
+    primeira_vez = _precisa_migrar_51(conn)
+    antes = _retrato_51(conn) if primeira_vez else None
+    colunas("produtos", (
+        ("tipo", "TEXT"),                       # NULL = a classificar
+        ("unidade", "TEXT NOT NULL DEFAULT 'unidade'"),
+        ("qtd_minima", "REAL"),
+        ("prazo_producao_dias", "INTEGER NOT NULL DEFAULT 0"),
+        ("tempo_producao_min", "INTEGER"),
+        ("tempo_execucao_min", "INTEGER"),
+        ("permite_retirada", "INTEGER NOT NULL DEFAULT 1"),
+        ("permite_montagem", "INTEGER NOT NULL DEFAULT 1"),
+        ("exige_agendamento", "INTEGER NOT NULL DEFAULT 0"),
+        ("cobra_deslocamento", "INTEGER NOT NULL DEFAULT 0"),
+        ("local_execucao", "TEXT NOT NULL DEFAULT ''"),
+        ("servico_id", "INTEGER REFERENCES servicos(id)"),
+    ))
+    colunas("kits", (
+        ("codigo_sku", "TEXT"),
+        ("modo_preco", "TEXT NOT NULL DEFAULT 'fechado'"),
+        ("permite_retirada", "INTEGER NOT NULL DEFAULT 1"),
+        ("permite_montagem", "INTEGER NOT NULL DEFAULT 1"),
+    ))
+    colunas("itens_kit", (("obrigatorio", "INTEGER NOT NULL DEFAULT 1"),))
+    for t in ("pedidos", "orcamentos"):
+        colunas(t, (("modalidade", "TEXT NOT NULL DEFAULT ''"),))
+    for t in ("itens_pedido", "itens_orcamento"):
+        colunas(t, (("unidade", "TEXT NOT NULL DEFAULT ''"),
+                    ("composicao", "TEXT NOT NULL DEFAULT ''")))
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS materiais (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES organizacoes(id),
+            codigo TEXT NOT NULL DEFAULT '',
+            nome TEXT NOT NULL,
+            unidade TEXT NOT NULL DEFAULT 'un',
+            custo_referencia REAL,
+            arredondamento TEXT NOT NULL DEFAULT 'exato',
+            ativo INTEGER NOT NULL DEFAULT 1,
+            observacoes TEXT NOT NULL DEFAULT '',
+            criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+            atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_materiais_nome ON materiais (tenant_id, nome);
+        CREATE TABLE IF NOT EXISTS receitas_produto (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            produto_id INTEGER NOT NULL REFERENCES produtos(id),
+            material_id INTEGER NOT NULL REFERENCES materiais(id),
+            quantidade REAL NOT NULL,
+            observacao TEXT NOT NULL DEFAULT '',
+            UNIQUE (produto_id, material_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_receitas_material ON receitas_produto (material_id);
+        CREATE TABLE IF NOT EXISTS movimentos_material (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES organizacoes(id),
+            material_id INTEGER NOT NULL REFERENCES materiais(id),
+            tipo TEXT NOT NULL,
+            quantidade REAL NOT NULL,
+            pedido_id INTEGER REFERENCES pedidos(id),
+            item_pedido_id INTEGER REFERENCES itens_pedido(id),
+            usuario_id INTEGER REFERENCES usuarios(id),
+            observacao TEXT NOT NULL DEFAULT '',
+            criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS ix_mov_material ON movimentos_material (tenant_id, material_id);
+        CREATE INDEX IF NOT EXISTS ix_mov_pedido ON movimentos_material (pedido_id);
+        CREATE INDEX IF NOT EXISTS ix_produtos_tipo ON produtos (tenant_id, tipo);
+    """)
+    if primeira_vez:
+        depois = _retrato_51(conn)
+        if depois != antes:  # para a inicialização; o backup feito antes fica para restaurar
+            raise RuntimeError(f"Migração 5.1 interrompida: dados mudaram {antes} -> {depois}")
+        if antes["produtos"] or antes["pedidos"]:
+            conn.execute(
+                "INSERT INTO audit_log (tenant_id, usuario_id, tipo, entidade, entidade_id,"
+                " descricao, dados, criado_em) VALUES (?, NULL, 'migracao_51', 'sistema', NULL,"
+                " ?, ?, ?)",
+                (conn.execute("SELECT MIN(id) FROM organizacoes").fetchone()[0] or 1,
+                 "Migração Sprint 5.1: tipos de item, unidades e materiais",
+                 json.dumps({"antes": antes, "depois": depois,
+                             "a_classificar": antes["produtos"]}, ensure_ascii=False),
+                 formato.agora()))
+
+
 def slugificar(texto: str) -> str:
     t = normalizar_texto(texto)
     t = re.sub(r"[^a-z0-9]+", "-", t).strip("-")
@@ -5772,6 +6051,9 @@ def _ocupacoes(conn, produto_ids, inicio: str, fim: str, excluir_pedido=None) ->
               f" AND {_R_PEDIDO} IS NOT NULL AND {_R_PEDIDO} <= ? AND {_D_PEDIDO} >= ?"
               + (" AND p.id != ?" if excluir_pedido else ""))
     extra = [fim, inicio] + ([excluir_pedido] if excluir_pedido else [])
+    # Kits: a composição gravada na venda (Sprint 5.1); pedidos anteriores,
+    # sem retrato, usam a composição atual. Só peças obrigatórias de locação.
+    j = "json_extract(j.value, '$.{}')"
     sql = (f"SELECT ip.item_id AS produto_id, ip.quantidade AS qtd, {_R_PEDIDO} AS r,"
            f" {_D_PEDIDO} AS d, p.id AS pedido_id"
            " FROM itens_pedido ip JOIN pedidos p ON p.id = ip.pedido_id"
@@ -5780,8 +6062,16 @@ def _ocupacoes(conn, produto_ids, inicio: str, fim: str, excluir_pedido=None) ->
            f" {_D_PEDIDO}, p.id"
            " FROM itens_pedido ip JOIN itens_kit ik ON ik.kit_id = ip.item_id"
            " JOIN pedidos p ON p.id = ip.pedido_id"
-           f" WHERE ip.tipo = 'kit' AND ik.produto_id IN ({marcas}){filtro}")
-    return [dict(r) for r in conn.execute(sql, [*ids, *extra, *ids, *extra]).fetchall()]
+           f" WHERE ip.tipo = 'kit' AND COALESCE(ip.composicao, '') = ''"
+           f" AND ik.obrigatorio = 1 AND ik.produto_id IN ({marcas}){filtro}"
+           f" UNION ALL SELECT {j.format('produto_id')}, ip.quantidade * {j.format('quantidade')},"
+           f" {_R_PEDIDO}, {_D_PEDIDO}, p.id"
+           " FROM itens_pedido ip JOIN pedidos p ON p.id = ip.pedido_id,"
+           " json_each(ip.composicao) j"
+           f" WHERE ip.tipo = 'kit' AND COALESCE(ip.composicao, '') != ''"
+           f" AND {j.format('estoque')} = 1 AND {j.format('obrigatorio')} = 1"
+           f" AND {j.format('produto_id')} IN ({marcas}){filtro}")
+    return [dict(r) for r in conn.execute(sql, [*ids, *extra, *ids, *extra, *ids, *extra]).fetchall()]
 
 
 def _dias(inicio: str, fim: str):
@@ -5837,30 +6127,45 @@ def livres_no_periodo(conn, produto_ids, inicio: str, fim: str, excluir_pedido=N
 
 
 def _necessidades(conn, itens: list) -> dict:
-    """Unidades físicas pedidas por produto (kits abertos em componentes)."""
+    """Unidades físicas de locação pedidas por produto (kits abertos nas peças
+    obrigatórias). Encomenda e serviço não ocupam estoque físico."""
     precisa: dict = {}
     for item in itens:
         if not item.get("item_id"):
             continue
-        qtd = int(item.get("quantidade") or 1)
+        qtd = regras.numero(item.get("quantidade") or 1)
         if item.get("tipo") == "produto":
             precisa[int(item["item_id"])] = precisa.get(int(item["item_id"]), 0) + qtd
         elif item.get("tipo") == "kit":
-            for c in conn.execute("SELECT produto_id, quantidade FROM itens_kit WHERE kit_id = ?",
-                                  (item["item_id"],)):
-                precisa[c["produto_id"]] = precisa.get(c["produto_id"], 0) + qtd * c["quantidade"]
-    return precisa
+            comps = _ler_composicao(item.get("composicao")) or _composicao_venda(conn, item["item_id"])
+            for c in comps:
+                if c.get("obrigatorio", 1) and c.get("estoque", 1):
+                    pid = int(c["produto_id"])
+                    precisa[pid] = precisa.get(pid, 0) + qtd * float(c["quantidade"])
+    if precisa:
+        marcas = ",".join("?" * len(precisa))
+        tipos = {r["id"]: r["tipo"] for r in conn.execute(
+            f"SELECT id, tipo FROM produtos WHERE id IN ({marcas})", list(precisa))}
+        precisa = {pid: q for pid, q in precisa.items()
+                   if pid not in tipos or regras.consome_estoque(tipos[pid])}
+    return {pid: int(q) if q == int(q) else q for pid, q in precisa.items()}
 
 
 def _faltas_de_estoque(conn, itens: list, data_retirada: str, data_devolucao: str,
                        pedido_id: int | None = None) -> list:
     """Produtos (inclusive dentro de kits) sem quantidade livre no período."""
+    faltas = []
+    for item in itens:  # encomenda e serviço: só precisam estar ativos
+        if item.get("tipo") == "produto" and item.get("item_id"):
+            r = conn.execute(f"SELECT nome, tipo, status FROM produtos WHERE id = ? AND {_t()}",
+                             (item["item_id"],)).fetchone()
+            if r and not regras.consome_estoque(r["tipo"]) and r["status"] == "inativo":
+                faltas.append(f"Produto '{r['nome']}' está inativo e não pode ser vendido.")
     precisa = _necessidades(conn, itens)
     if not precisa:
-        return []
+        return faltas
     info = _produtos_info(conn, precisa)
     livres = livres_no_periodo(conn, precisa, data_retirada, data_devolucao, pedido_id)
-    faltas = []
     for pid, qtd in precisa.items():
         p = info.get(pid)
         if not p:
@@ -5889,9 +6194,12 @@ def disponibilidade(produto_id: int, data_inicio: str | None = None,
 
 def _componentes(conn, kit_id: int) -> list:
     return [dict(r) for r in conn.execute(
-        "SELECT ik.produto_id, ik.quantidade, p.nome, p.quantidade_total, p.status"
+        "SELECT ik.id AS item_id, ik.produto_id, ik.quantidade, ik.obrigatorio, p.nome,"
+        " p.codigo_sku, p.quantidade_total, p.status, p.tipo, p.unidade,"
+        " p.preco_locacao AS preco, p.permite_retirada, p.permite_montagem,"
+        " p.local_execucao, p.prazo_producao_dias, p.dias_antecedencia"
         f" FROM itens_kit ik JOIN produtos p ON p.id = ik.produto_id AND {_t('p')}"
-        " WHERE ik.kit_id = ? ORDER BY p.nome", (kit_id,)).fetchall()]
+        " WHERE ik.kit_id = ? ORDER BY ik.obrigatorio DESC, p.nome", (kit_id,)).fetchall()]
 
 
 def disponibilidade_kit(kit_id: int, data_inicio: str | None = None,
@@ -5900,15 +6208,18 @@ def disponibilidade_kit(kit_id: int, data_inicio: str | None = None,
     with conectar() as conn:
         if not _do_tenant(conn, "kits", kit_id):
             return 0
-        comps = _componentes(conn, kit_id)
+        comps = [c for c in _componentes(conn, kit_id) if c["obrigatorio"]]
         if not comps or any(c["status"] != "disponivel" for c in comps):
             return 0
+        comps = [c for c in comps if regras.consome_estoque(c["tipo"])]
+        if not comps:
+            return None  # sem peça de locação: estoque físico não limita
         if data_inicio and data_fim:
             livres = livres_no_periodo(conn, [c["produto_id"] for c in comps],
                                        data_inicio, data_fim)
         else:
             livres = {c["produto_id"]: c["quantidade_total"] for c in comps}
-        return min(livres[c["produto_id"]] // max(c["quantidade"], 1) for c in comps)
+        return min(int(livres[c["produto_id"]] // max(c["quantidade"], 1)) for c in comps)
 
 
 def _situacao(livres: int, capacidade: int, quantidade: int = 1) -> str:
@@ -5924,16 +6235,20 @@ def _regras_item(conn, tipo: str, id_: int) -> dict | None:
     return dict(r) if r else None
 
 
-def calendario_item(tipo: str, id_: int, inicio: str, fim: str, quantidade: int = 1,
+def calendario_item(tipo: str, id_: int, inicio: str, fim: str, quantidade=1,
                     hoje: str | None = None) -> list:
     """Situação de cada data de festa entre inicio e fim (uma consulta ao banco).
 
-    Considera a janela da festa (dias de uso), a antecedência mínima, o estoque
-    físico e os pedidos em andamento. Kits: componente limitante.
+    Locação: estoque físico menos pedidos em andamento na janela da festa.
+    Encomenda: prazo mínimo de produção (materiais e capacidade: Sprint 6).
+    Serviço: só ativo e antecedência (agenda da equipe: Sprint 6).
+    Kit: peças obrigatórias — a de locação mais escassa limita, e vale o maior
+    prazo entre o kit e suas encomendas.
     """
     if tipo not in TIPOS_CATALOGO:
         raise ValueError("Tipo inválido.")
     hoje = hoje or _hoje_iso()
+    quantidade = regras.numero(quantidade or 1)
     with conectar() as conn:
         item = _regras_item(conn, tipo, id_)
         if not item:
@@ -5942,44 +6257,60 @@ def calendario_item(tipo: str, id_: int, inicio: str, fim: str, quantidade: int 
         margem = timedelta(days=max(dias_uso, 1) + 1)
         janela_ini = (date.fromisoformat(inicio) - margem).isoformat()
         janela_fim = (date.fromisoformat(fim) + margem).isoformat()
+        prazo = int(item.get("dias_antecedencia") or 0)
         if tipo == "produto":
             comps = [{"produto_id": id_, "quantidade": 1, "status": item["status"],
-                      "quantidade_total": item["quantidade_total"],
-                      "reuso": item.get("reuso_mesmo_dia")}]
+                      "quantidade_total": item["quantidade_total"], "tipo": item.get("tipo"),
+                      "reuso": item.get("reuso_mesmo_dia"), "obrigatorio": 1}]
+            prazo = max(prazo, int(item.get("prazo_producao_dias") or 0))
             ativo = item["status"] == "disponivel"
         else:
-            comps = _componentes(conn, id_)
+            comps = [c for c in _componentes(conn, id_) if c["obrigatorio"]]
             info = _produtos_info(conn, [c["produto_id"] for c in comps])
             for c in comps:
                 c["reuso"] = info.get(c["produto_id"], {}).get("reuso_mesmo_dia")
+                if c["tipo"] == "encomenda":
+                    prazo = max(prazo, int(c["prazo_producao_dias"] or 0))
             ativo = item["status"] == "ativo" and bool(comps) and all(
                 c["status"] == "disponivel" for c in comps)
-        ocup = _ocupacoes(conn, [c["produto_id"] for c in comps], janela_ini, janela_fim)
-    limite_antecedencia = (date.fromisoformat(hoje)
-                           + timedelta(days=int(item.get("dias_antecedencia") or 0))).isoformat()
-    capacidade = min((c["quantidade_total"] // max(c["quantidade"], 1) for c in comps),
-                     default=0) if ativo else 0
+        estoque = [c for c in comps if regras.consome_estoque(c.get("tipo"))]
+        ocup = _ocupacoes(conn, [c["produto_id"] for c in estoque], janela_ini, janela_fim)
+    limite_antecedencia = (date.fromisoformat(hoje) + timedelta(days=prazo)).isoformat()
+    if not ativo:
+        capacidade = 0
+    elif estoque:
+        capacidade = min(int(c["quantidade_total"] // max(c["quantidade"], 1)) for c in estoque)
+    else:
+        capacidade = None  # sem peça de locação: o estoque físico não limita
+    sem_estoque = ("Produzido sob encomenda." if any(c.get("tipo") == "encomenda" for c in comps)
+                   else "Sujeito à agenda da equipe." if comps else "")
     dias = []
     for dia in _dias(inicio, fim):
         ini_j, fim_j = janela_da_festa(dia, dias_uso)
-        motivo = ""
+        motivo, livres = "", None
         if not ativo:
             livres, motivo = 0, "Item indisponível no momento."
         elif dia < hoje:
             livres, motivo = 0, "Data já passou."
         elif dia < limite_antecedencia:
             livres = 0
-            motivo = (f"Reserve com pelo menos {item['dias_antecedencia']} dia"
-                      f"{'s' if item['dias_antecedencia'] != 1 else ''} de antecedência.")
+            motivo = (f"Reserve com pelo menos {prazo} dia{'s' if prazo != 1 else ''}"
+                      " de antecedência.")
+        elif estoque:
+            livres = max(min(
+                int((c["quantidade_total"] - _pico([o for o in ocup
+                                                    if o["produto_id"] == c["produto_id"]],
+                                                   ini_j, fim_j, bool(c["reuso"])))
+                    // max(c["quantidade"], 1)) for c in estoque), 0)
+        if motivo:
+            situacao = "indisponivel"
+        elif livres is None:
+            situacao = "disponivel"
         else:
-            livres = min(
-                (c["quantidade_total"] - _pico([o for o in ocup if o["produto_id"] == c["produto_id"]],
-                                               ini_j, fim_j, bool(c["reuso"])))
-                // max(c["quantidade"], 1) for c in comps)
-            livres = max(livres, 0)
-        situacao = "indisponivel" if motivo else _situacao(livres, capacidade, quantidade)
+            situacao = _situacao(livres, capacidade, quantidade)
         dias.append({"data": dia, "situacao": situacao, "rotulo": ROTULO_SITUACAO[situacao],
                      "livres": livres, "capacidade": capacidade, "motivo": motivo,
+                     "observacao": "" if motivo or estoque else sem_estoque,
                      "retirada": ini_j, "devolucao": fim_j})
     return dias
 
@@ -6012,11 +6343,21 @@ def disponibilidade_calendario(produto_id: int, ano: int, mes: int) -> list:
 # --- Cadastro de produtos e kits (validação e auditoria) ------------------------
 
 # Campos que mexem no estoque e nas regras de reserva: só quem tem inventory.edit.
-CAMPOS_ESTOQUE = ("quantidade_total", "dias_uso", "dias_antecedencia", "reuso_mesmo_dia")
+CAMPOS_ESTOQUE = ("quantidade_total", "dias_uso", "dias_antecedencia", "reuso_mesmo_dia",
+                  "prazo_producao_dias")
 _AUDITADOS_ITEM = ("nome", "categoria_id", "descricao", "preco_locacao", "valor_referencia",
                    "preco", "quantidade_total", "status", "publicado", "selo", "destaque",
                    "dias_uso", "dias_antecedencia", "reuso_mesmo_dia", "slug", "seo_titulo",
-                   "seo_descricao", "localizacao", "observacoes")
+                   "seo_descricao", "localizacao", "observacoes", "tipo", "unidade",
+                   "qtd_minima", "prazo_producao_dias", "tempo_producao_min",
+                   "tempo_execucao_min", "permite_retirada", "permite_montagem",
+                   "exige_agendamento", "cobra_deslocamento", "local_execucao", "servico_id",
+                   "codigo_sku", "modo_preco")
+# Campos do Sprint 5.1 que só existem no formulário novo (ausentes = mantém)
+_CAMPOS_51_PRODUTO = ("tipo", "unidade", "qtd_minima", "prazo_producao_dias",
+                      "tempo_producao_min", "tempo_execucao_min", "permite_retirada",
+                      "permite_montagem", "exige_agendamento", "cobra_deslocamento",
+                      "local_execucao", "servico_id")
 
 
 def _texto_form(form, campo, padrao=""):
@@ -6045,6 +6386,28 @@ def campos_produto(form) -> dict:
         "slug": _texto_form(form, "slug"),
         "seo_titulo": _texto_form(form, "seo_titulo"),
         "seo_descricao": _texto_form(form, "seo_descricao"),
+        **_campos_51_form(form),
+    }
+
+
+def _campos_51_form(form) -> dict:
+    """Campos do 5.1. O formulário novo envia 'modelo_51'; sem ele (clientes
+    antigos), nada disso é alterado."""
+    if not form.get("modelo_51"):
+        return {}
+    return {
+        "tipo": form.get("tipo") or "",
+        "unidade": form.get("unidade") or "",
+        "qtd_minima": _texto_form(form, "qtd_minima"),
+        "prazo_producao_dias": _texto_form(form, "prazo_producao_dias", "0") or "0",
+        "tempo_producao_min": _texto_form(form, "tempo_producao_min"),
+        "tempo_execucao_min": _texto_form(form, "tempo_execucao_min"),
+        "permite_retirada": 1 if form.get("permite_retirada") else 0,
+        "permite_montagem": 1 if form.get("permite_montagem") else 0,
+        "exige_agendamento": 1 if form.get("exige_agendamento") else 0,
+        "cobra_deslocamento": 1 if form.get("cobra_deslocamento") else 0,
+        "local_execucao": form.get("local_execucao") or "",
+        "servico_id": _texto_form(form, "servico_id") or None,
     }
 
 
@@ -6053,8 +6416,13 @@ def campos_kit(form) -> dict:
     d["preco"] = _texto_form(form, "preco", "0") or "0"
     d["status"] = form.get("status", "ativo")
     for c in ("preco_locacao", "valor_referencia", "quantidade_total", "localizacao",
-              "observacoes", "reuso_mesmo_dia"):
+              "observacoes", "reuso_mesmo_dia", *_CAMPOS_51_PRODUTO):
         d.pop(c, None)
+    if form.get("modelo_51"):
+        d.update(codigo_sku=_texto_form(form, "codigo_sku"),
+                 modo_preco=form.get("modo_preco") or "fechado",
+                 permite_retirada=1 if form.get("permite_retirada") else 0,
+                 permite_montagem=1 if form.get("permite_montagem") else 0)
     return d
 
 
@@ -6131,6 +6499,128 @@ def _gravar_tags(conn, tabela: str, coluna: str, item_id: int, tags):
                      (item_id, tag))
 
 
+def _inteiro_opcional(valor, campo, rotulo, maximo):
+    if valor in (None, ""):
+        return None
+    return _numero(valor, campo, rotulo, inteiro=True, maximo=maximo)
+
+
+def _validar_51_produto(conn, d: dict, atual: dict | None) -> dict:
+    """Tipo, unidade e campos de cada tipo. Campo ausente = mantém o atual
+    (ou o padrão, em item novo); 'tipo' presente e vazio é recusado."""
+    base = dict(atual or {})
+
+    def valor(c, padrao=None):
+        return d[c] if c in d else base.get(c, padrao)
+
+    if d.get("tipo") == "":  # formulário enviado sem escolher
+        raise ErroDeCampo("tipo", "Escolha o tipo do item.")
+    if "tipo" in d:
+        tipo = d["tipo"]  # None só por código (cópia de item ainda a classificar)
+    else:
+        tipo = base.get("tipo") if atual else "locacao"
+    if tipo not in (None, *regras.TIPOS_ITEM):
+        raise ErroDeCampo("tipo", "Tipo de item inválido.")
+    unidade = d.get("unidade") if d.get("unidade") else (
+        base.get("unidade") if atual and base.get("unidade") in regras.UNIDADES_POR_TIPO[tipo]
+        else regras.UNIDADE_PADRAO[tipo])
+    unidade = regras.validar_tipo_unidade(tipo, unidade)
+    v = {"tipo": tipo, "unidade": unidade}
+    qtd_min = valor("qtd_minima")
+    v["qtd_minima"] = (regras.quantidade(qtd_min, unidade, "qtd_minima")
+                       if qtd_min not in (None, "") else None)
+    v["prazo_producao_dias"] = _numero(valor("prazo_producao_dias", 0) or 0, "prazo_producao_dias",
+                                       "Prazo de produção", inteiro=True, maximo=365)
+    v["tempo_producao_min"] = _inteiro_opcional(valor("tempo_producao_min"), "tempo_producao_min",
+                                                "Tempo de produção", 100000)
+    v["tempo_execucao_min"] = _inteiro_opcional(valor("tempo_execucao_min"), "tempo_execucao_min",
+                                                "Tempo de execução", 100000)
+    for c in ("permite_retirada", "permite_montagem"):
+        v[c] = 1 if valor(c, 1) else 0
+    for c in ("exige_agendamento", "cobra_deslocamento"):
+        v[c] = 1 if valor(c, 0) else 0
+    local = valor("local_execucao", "") or ""
+    if local and local not in regras.LOCAIS_EXECUCAO:
+        raise ErroDeCampo("local_execucao", "Local de execução inválido.")
+    servico_id = valor("servico_id")
+    if servico_id not in (None, "", 0):
+        try:
+            servico_id = int(servico_id)
+        except (TypeError, ValueError):
+            raise ErroDeCampo("servico_id", "Atividade não encontrada.")
+        if not conn.execute(f"SELECT 1 FROM servicos WHERE id = ? AND {_t()}",
+                            (servico_id,)).fetchone():
+            raise ErroDeCampo("servico_id", "Atividade não encontrada.")
+    else:
+        servico_id = None
+    if tipo == "servico":
+        local = local or "evento"
+        if local == "evento":
+            v["permite_retirada"] = 0  # serviço no evento não acontece na retirada
+    else:
+        local, servico_id, v["exige_agendamento"], v["cobra_deslocamento"] = "", None, 0, 0
+        v["tempo_execucao_min"] = None
+    if tipo != "encomenda":
+        v["prazo_producao_dias"], v["tempo_producao_min"] = 0, None
+    v.update(local_execucao=local, servico_id=servico_id)
+    if not (v["permite_retirada"] or v["permite_montagem"]):
+        raise ErroDeCampo("permite_retirada", "Escolha ao menos uma modalidade de atendimento.")
+    return v
+
+
+def _validar_51_kit(conn, d: dict, atual: dict | None, id_) -> dict:
+    base = dict(atual or {})
+    modo = d.get("modo_preco", base.get("modo_preco") or "fechado")
+    if modo not in ("fechado", "componentes"):
+        raise ErroDeCampo("modo_preco", "Forma de preço inválida.")
+    v = {"modo_preco": modo}
+    for c in ("permite_retirada", "permite_montagem"):
+        v[c] = 1 if d.get(c, base.get(c, 1)) else 0
+    if not (v["permite_retirada"] or v["permite_montagem"]):
+        raise ErroDeCampo("permite_retirada", "Escolha ao menos uma modalidade de atendimento.")
+    if id_:
+        possiveis, restricoes = regras.modalidades_do_kit(v, _componentes(conn, id_))
+        if _componentes(conn, id_) and not possiveis:
+            raise ErroDeCampo("permite_retirada", "Os componentes não permitem as modalidades"
+                                                  " marcadas. " + " ".join(restricoes))
+    sku = " ".join(str(d.get("codigo_sku", base.get("codigo_sku")) or "").split()).upper()[:40]
+    if not sku:
+        sku = base.get("codigo_sku") or _proximo_sku_kit(conn)
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9._-]*", sku):
+        raise ErroDeCampo("codigo_sku", "Código: use letras, números, ponto, hífen ou sublinhado.")
+    if conn.execute(f"SELECT 1 FROM kits WHERE codigo_sku = ? AND id != ? AND {_t()}",
+                    (sku, id_ or 0)).fetchone() or conn.execute(
+            "SELECT 1 FROM produtos WHERE codigo_sku = ?", (sku,)).fetchone():
+        raise ErroDeCampo("codigo_sku", "Já existe um item com este código.")
+    v["codigo_sku"] = sku
+    return v
+
+
+def _proximo_sku_kit(conn) -> str:
+    n = conn.execute(f"SELECT COUNT(*) FROM kits WHERE {_t()}").fetchone()[0] + 1
+    while True:
+        sku = f"KIT-{n:04d}"
+        if not conn.execute(f"SELECT 1 FROM kits WHERE codigo_sku = ? AND {_t()}", (sku,)).fetchone():
+            return sku
+        n += 1
+
+
+def _sincronizar_precos_kits(conn, kit_ids=None, produto_id=None):
+    """Kits com preço pelos componentes acompanham os preços atuais das peças.
+    Pedidos e orçamentos já gravados não mudam: cada linha guarda o próprio preço."""
+    if produto_id:
+        kit_ids = [r[0] for r in conn.execute(
+            "SELECT DISTINCT kit_id FROM itens_kit WHERE produto_id = ?", (produto_id,))]
+    for kid in kit_ids or []:
+        k = conn.execute("SELECT modo_preco, preco FROM kits WHERE id = ?", (kid,)).fetchone()
+        if not k or k["modo_preco"] != "componentes":
+            continue
+        novo = regras.preco_final_kit("componentes", k["preco"], _componentes(conn, kid))
+        if round(k["preco"] or 0, 2) != novo:
+            conn.execute("UPDATE kits SET preco = ?, atualizado_em = ? WHERE id = ?",
+                         (novo, formato.agora(), kid))
+
+
 def salvar_produto(dados_: dict, id_: int | None = None,
                    tags: list | None = None, usuario_id=None) -> int:
     """Cria ou edita um produto físico (peça) com validação e auditoria."""
@@ -6146,13 +6636,16 @@ def salvar_produto(dados_: dict, id_: int | None = None,
                 raise ValueError("Produto não encontrado.")
             atual = dict(r)
         v = _validar_comuns(conn, dados_, "produtos", id_)
+        v.update(_validar_51_produto(conn, dados_, atual))
         v.update(
             status=status,
             preco_locacao=_numero(dados_.get("preco_locacao", 0), "preco_locacao", "Preço"),
             valor_referencia=_numero(dados_.get("valor_referencia", 0), "valor_referencia",
                                      "Valor de referência"),
             quantidade_total=_numero(dados_.get("quantidade_total", 1), "quantidade_total",
-                                     "Quantidade", inteiro=True, maximo=100000),
+                                     "Quantidade", inteiro=True, maximo=100000)
+            if regras.consome_estoque(v["tipo"])
+            else (atual or {}).get("quantidade_total", 0),
             reuso_mesmo_dia=1 if dados_.get("reuso_mesmo_dia") else 0,
             localizacao=(dados_.get("localizacao") or "").strip()[:200],
             observacoes=(dados_.get("observacoes") or "").strip()[:2000])
@@ -6170,6 +6663,7 @@ def salvar_produto(dados_: dict, id_: int | None = None,
                 (tenant_atual(), gerar_sku(v["categoria_id"]), agora_, agora_, *v.values()))
             novo_id = r.lastrowid
         _gravar_tags(conn, "tags_produto", "produto_id", novo_id, tags)
+        _sincronizar_precos_kits(conn, produto_id=novo_id)
         mudancas = _mudancas(atual, v)
         if mudancas or not atual:
             auditar(conn, "produto", novo_id, "alterar" if atual else "criar",
@@ -6197,6 +6691,7 @@ def salvar_kit(dados_: dict, id_: int | None = None, tags: list | None = None,
             atual = dict(r)
         v = _validar_comuns(conn, dados_, "kits", id_)
         v.update(status=status, preco=_numero(dados_.get("preco", 0), "preco", "Preço"))
+        v.update(_validar_51_kit(conn, dados_, atual, id_))
         colunas = list(v)
         if atual:
             conn.execute("UPDATE kits SET " + ", ".join(f"{c} = ?" for c in colunas)
@@ -6210,6 +6705,8 @@ def salvar_kit(dados_: dict, id_: int | None = None, tags: list | None = None,
                 (tenant_atual(), agora_, agora_, *v.values()))
             novo_id = r.lastrowid
         _gravar_tags(conn, "tags_kit", "kit_id", novo_id, tags)
+        _sincronizar_precos_kits(conn, kit_ids=[novo_id])
+        v["preco"] = conn.execute("SELECT preco FROM kits WHERE id = ?", (novo_id,)).fetchone()[0]
         mudancas = _mudancas(atual, v)
         if mudancas or not atual:
             auditar(conn, "kit", novo_id, "alterar" if atual else "criar",
@@ -6224,28 +6721,52 @@ def _composicao(conn, kit_id: int) -> dict:
         "SELECT produto_id, quantidade FROM itens_kit WHERE kit_id = ?", (kit_id,))}
 
 
-def adicionar_item_kit(kit_id: int, produto_id: int, quantidade: int = 1,
-                       usuario_id=None) -> int:
-    quantidade = _numero(quantidade, "quantidade", "Quantidade", inteiro=True, minimo=1,
-                         maximo=10000)
+def adicionar_item_kit(kit_id: int, produto_id: int, quantidade=1,
+                       usuario_id=None, obrigatorio: bool = True) -> int:
+    """Inclui (ou atualiza) um componente. Componentes são sempre produtos —
+    locação, encomenda ou serviço —, então um kit nunca contém outro kit e não
+    há composição circular."""
     with conectar() as conn:
-        if not _do_tenant(conn, "kits", kit_id):
+        kit = conn.execute(f"SELECT * FROM kits WHERE id = ? AND {_t()}", (kit_id,)).fetchone()
+        if not kit:
             raise ErroDeCampo("kit_id", "Kit não encontrado.")
-        if not _do_tenant(conn, "produtos", produto_id):
+        try:
+            produto_id = int(produto_id)
+        except (TypeError, ValueError):
             raise ErroDeCampo("produto_id", "Produto não encontrado.")
+        prod = conn.execute(f"SELECT * FROM produtos WHERE id = ? AND {_t()}",
+                            (produto_id,)).fetchone()
+        if not prod:
+            raise ErroDeCampo("produto_id", "Produto não encontrado.")
+        quantidade = regras.quantidade(quantidade, prod["unidade"])
         antes = _composicao(conn, kit_id)
-        existente = conn.execute("SELECT id FROM itens_kit WHERE kit_id = ? AND produto_id = ?",
+        existente = conn.execute("SELECT * FROM itens_kit WHERE kit_id = ? AND produto_id = ?",
                                  (kit_id, produto_id)).fetchone()
+        if not existente and prod["status"] != "disponivel":
+            raise ErroDeCampo("produto_id", f"'{prod['nome']}' está inativo e não pode entrar"
+                                            " em um kit.")
+        obrigatorio = 1 if obrigatorio else 0
         if existente:
-            conn.execute("UPDATE itens_kit SET quantidade = ? WHERE id = ?",
-                         (quantidade, existente["id"]))
+            conn.execute("UPDATE itens_kit SET quantidade = ?, obrigatorio = ? WHERE id = ?",
+                         (quantidade, obrigatorio, existente["id"]))
             item_id = existente["id"]
         else:
-            item_id = conn.execute("INSERT INTO itens_kit (kit_id, produto_id, quantidade)"
-                                   " VALUES (?, ?, ?)", (kit_id, produto_id, quantidade)).lastrowid
+            item_id = conn.execute("INSERT INTO itens_kit (kit_id, produto_id, quantidade,"
+                                   " obrigatorio) VALUES (?, ?, ?, ?)",
+                                   (kit_id, produto_id, quantidade, obrigatorio)).lastrowid
+        possiveis, restricoes = regras.modalidades_do_kit(dict(kit), _componentes(conn, kit_id))
+        if not possiveis:
+            raise ErroDeCampo("produto_id", "Com este componente o kit não teria nenhuma"
+                                            " modalidade de atendimento. " + " ".join(restricoes))
+        _sincronizar_precos_kits(conn, kit_ids=[kit_id])
+        mudou = {}
         if antes.get(produto_id) != quantidade:
+            mudou[f"produto {produto_id}"] = [antes.get(produto_id, 0), quantidade]
+        if existente and existente["obrigatorio"] != obrigatorio:
+            mudou[f"produto {produto_id} obrigatório"] = [existente["obrigatorio"], obrigatorio]
+        if mudou:
             auditar(conn, "kit", kit_id, "componentes", "Componentes do kit alterados",
-                    usuario_id, {f"produto {produto_id}": [antes.get(produto_id, 0), quantidade]})
+                    usuario_id, mudou)
         return item_id
 
 
@@ -6258,6 +6779,7 @@ def remover_item_kit(item_id: int, kit_id: int | None = None, usuario_id=None):
         if not r:
             return
         conn.execute("DELETE FROM itens_kit WHERE id = ?", (item_id,))
+        _sincronizar_precos_kits(conn, kit_ids=[r["kit_id"]])
         auditar(conn, "kit", r["kit_id"], "componentes", "Componente removido do kit",
                 usuario_id, {f"produto {r['produto_id']}": [r["quantidade"], 0]})
 
@@ -6299,13 +6821,22 @@ def duplicar_item(tipo: str, id_: int, usuario_id=None, copiar_arquivo=None) -> 
     if tipo == "produto":
         base.update({k: item.get(k) for k in ("preco_locacao", "valor_referencia",
                                               "quantidade_total", "reuso_mesmo_dia",
-                                              "localizacao", "observacoes")}, status="inativo")
+                                              "localizacao", "observacoes",
+                                              *_CAMPOS_51_PRODUTO)}, status="inativo")
+        base["tipo"] = base.get("tipo") or None
         novo = salvar_produto(base, tags=item.get("tags") or [], usuario_id=usuario_id)
     else:
-        base.update(preco=item.get("preco"), status="inativo")
+        base.update(preco=item.get("preco"), status="inativo", codigo_sku="",
+                    **{k: item.get(k) for k in ("modo_preco", "permite_retirada",
+                                                "permite_montagem")})
         novo = salvar_kit(base, tags=item.get("tags") or [], usuario_id=usuario_id)
         for c in item["itens"]:
-            adicionar_item_kit(novo, c["produto_id"], c["quantidade"], usuario_id)
+            with conectar() as conn:  # a cópia mantém peças já inativas
+                conn.execute("INSERT INTO itens_kit (kit_id, produto_id, quantidade, obrigatorio)"
+                             " VALUES (?, ?, ?, ?)", (novo, c["produto_id"], c["quantidade"],
+                                                      c.get("obrigatorio", 1)))
+        with conectar() as conn:
+            _sincronizar_precos_kits(conn, kit_ids=[novo])
     for f in item.get("fotos") or []:
         if copiar_arquivo:
             arquivo = copiar_arquivo(f["arquivo"], novo)
@@ -6343,7 +6874,11 @@ def mover_foto(tipo: str, item_id: int, foto_id: int, passo: int):
 # --- Lista administrativa (produtos e kits juntos) -------------------------------
 
 ABAS_CATALOGO = (("todos", "Todos"), ("kits", "Kits"), ("pecas", "Peças avulsas"),
-                 ("ativos", "Ativos"), ("inativos", "Inativos"))
+                 ("ativos", "Ativos"), ("inativos", "Inativos"),
+                 ("classificar", "A classificar"))
+# Natureza para filtro e selo: kit ou o tipo do produto ("classificar" = vazio)
+NATUREZAS = (("kit", "Kit"), ("locacao", "Locação"), ("encomenda", "Sob encomenda"),
+             ("servico", "Serviço"), ("classificar", "A classificar"))
 
 
 def _capa_sql(tabela_fotos: str, coluna: str, alias: str) -> str:
@@ -6358,24 +6893,33 @@ def itens_catalogo_admin() -> list:
         produtos = [dict(r, tipo="produto") for r in conn.execute(
             "SELECT p.id, p.nome, p.codigo_sku, p.categoria_id, c.nome AS categoria_nome,"
             " p.descricao, p.preco_locacao AS preco, p.quantidade_total, p.status, p.publicado,"
-            " p.destaque, p.selo, p.slug, p.localizacao,"
+            " p.destaque, p.selo, p.slug, p.localizacao, p.tipo AS natureza, p.unidade,"
             f" {_capa_sql('fotos_produto', 'produto_id', 'p')} AS capa,"
-            " (SELECT GROUP_CONCAT(tag, '|') FROM tags_produto t WHERE t.produto_id = p.id) AS tags"
+            " (SELECT GROUP_CONCAT(tag, '|') FROM tags_produto t WHERE t.produto_id = p.id) AS tags,"
+            " (SELECT COUNT(DISTINCT kit_id) FROM itens_kit ik WHERE ik.produto_id = p.id) AS em_kits,"
+            " (SELECT COUNT(DISTINCT pedido_id) FROM itens_pedido ip WHERE ip.tipo = 'produto'"
+            "   AND ip.item_id = p.id) AS em_pedidos"
             " FROM produtos p LEFT JOIN categorias c ON c.id = p.categoria_id"
             f" WHERE {_t('p')}")]
         kits = [dict(r, tipo="kit") for r in conn.execute(
-            "SELECT k.id, k.nome, '' AS codigo_sku, k.categoria_id, c.nome AS categoria_nome,"
-            " k.descricao, k.preco, k.status, k.publicado, k.destaque, k.selo, k.slug,"
+            "SELECT k.id, k.nome, COALESCE(k.codigo_sku, '') AS codigo_sku, k.categoria_id,"
+            " c.nome AS categoria_nome, k.modo_preco, 'kit' AS natureza, 'pacote' AS unidade,"
+            " k.descricao, k.preco, k.status, k.publicado, k.destaque, k.selo, k.slug, 0 AS em_kits,"
+            " (SELECT COUNT(DISTINCT pedido_id) FROM itens_pedido ip WHERE ip.tipo = 'kit'"
+            "   AND ip.item_id = k.id) AS em_pedidos,"
             f" {_capa_sql('fotos_kit', 'kit_id', 'k')} AS capa,"
             " (SELECT GROUP_CONCAT(tag, '|') FROM tags_kit t WHERE t.kit_id = k.id) AS tags,"
             " (SELECT COUNT(*) FROM itens_kit ik WHERE ik.kit_id = k.id) AS componentes,"
             " (SELECT SUM(ik.quantidade * p.preco_locacao) FROM itens_kit ik"
-            "   JOIN produtos p ON p.id = ik.produto_id WHERE ik.kit_id = k.id) AS soma_produtos"
+            "   JOIN produtos p ON p.id = ik.produto_id WHERE ik.kit_id = k.id AND ik.obrigatorio = 1) AS soma_produtos"
             " FROM kits k LEFT JOIN categorias c ON c.id = k.categoria_id"
             f" WHERE {_t('k')}")]
     for i in produtos + kits:
         i["tags"] = [t for t in (i.get("tags") or "").split("|") if t]
         i["ativo"] = i["status"] in ("disponivel", "ativo")
+        i["natureza"] = i.get("natureza") or "classificar"
+        if i["natureza"] == "classificar":
+            i["sugestao"] = regras.sugerir_tipo(i["nome"], i.get("descricao"))[0]
         if i["tipo"] == "kit":
             soma = i.get("soma_produtos") or 0
             i["economia"] = round((1 - i["preco"] / soma) * 100) if soma and i["preco"] < soma else 0
@@ -6385,17 +6929,20 @@ def itens_catalogo_admin() -> list:
 def filtrar_catalogo_admin(itens: list, aba: str = "todos", busca: str = "",
                            categoria_id=None, tipo: str = "", status: str = "",
                            preco_min=None, preco_max=None, estoque: str = "",
-                           tag: str = "") -> list:
+                           tag: str = "", natureza: str = "") -> list:
     def na_aba(i):
         return {"todos": True, "kits": i["tipo"] == "kit" and i["ativo"],
                 "pecas": i["tipo"] == "produto" and i["ativo"],
-                "ativos": i["ativo"], "inativos": i["status"] == "inativo"}.get(aba, True)
+                "ativos": i["ativo"], "inativos": i["status"] == "inativo",
+                "classificar": i.get("natureza") == "classificar"}.get(aba, True)
     termo = normalizar_texto(busca).strip()
     saida = []
     for i in itens:
         if not na_aba(i):
             continue
         if tipo and i["tipo"] != tipo:
+            continue
+        if natureza and i.get("natureza") != natureza:
             continue
         if status and i["status"] != status:
             continue
@@ -6421,8 +6968,35 @@ def filtrar_catalogo_admin(itens: list, aba: str = "todos", busca: str = "",
 
 def _tem_estoque(i: dict) -> bool:
     if i["tipo"] == "produto":
+        if not regras.consome_estoque(None if i.get("natureza") == "classificar"
+                                      else i.get("natureza")):
+            return i["status"] == "disponivel"
         return i["status"] == "disponivel" and (i["quantidade_total"] or 0) > 0
-    return disponibilidade_kit(i["id"]) > 0
+    d = disponibilidade_kit(i["id"])
+    return i["status"] == "ativo" if d is None else d > 0
+
+
+def classificar_produtos(ids: list, tipo: str, usuario_id=None) -> int:
+    """Confirma o tipo de produtos ainda a classificar (em lote, com auditoria).
+    Só mexe em quem está sem tipo; a unidade vai para a padrão do tipo."""
+    if tipo not in regras.TIPOS_ITEM:
+        raise ErroDeCampo("tipo", "Escolha o tipo.")
+    feitos = 0
+    with conectar() as conn:
+        for pid in ids:
+            r = conn.execute(f"SELECT id, nome, tipo, unidade FROM produtos WHERE id = ? AND {_t()}",
+                             (pid,)).fetchone()
+            if not r or r["tipo"]:
+                continue
+            unidade = r["unidade"] if r["unidade"] in regras.UNIDADES_POR_TIPO[tipo] \
+                else regras.UNIDADE_PADRAO[tipo]
+            extra = ", permite_retirada = 0, local_execucao = 'evento'" if tipo == "servico" else ""
+            conn.execute(f"UPDATE produtos SET tipo = ?, unidade = ?, atualizado_em = ?{extra}"
+                         " WHERE id = ?", (tipo, unidade, formato.agora(), pid))
+            auditar(conn, "produto", pid, "classificar", f"{r['nome']}: tipo confirmado",
+                    usuario_id, {"tipo": [None, tipo], "unidade": [r["unidade"], unidade]})
+            feitos += 1
+    return feitos
 
 
 def contagem_abas_catalogo(itens: list) -> dict:
@@ -6507,3 +7081,282 @@ def contagem_por_categoria() -> dict:
         for c in conn.execute(f"SELECT id, pai_id FROM categorias WHERE {_t()} AND pai_id IS NOT NULL"):
             contagem[c["pai_id"]] = contagem.get(c["pai_id"], 0) + contagem.get(c["id"], 0)
     return contagem
+
+
+# ---------------------------------------------------------------------------
+# Sprint 5.1 — Materiais e receitas de produção (produtos sob encomenda)
+#
+# O consumo previsto é sempre calculado (receita × quantidade vendida) e nunca
+# gravado. Consultar, orçar ou montar a lista da vitrine não movimenta nada.
+# A tabela de movimentos fica pronta para o Sprint 6 (reserva na confirmação,
+# baixa na produção); por enquanto só aceita lançamentos manuais auditados.
+# ---------------------------------------------------------------------------
+
+TIPOS_MOVIMENTO = {"entrada": 1, "estorno": 1, "baixa": -1, "perda": -1, "ajuste": 1,
+                   "reserva": 0}
+MOVIMENTOS_MANUAIS = {"entrada": "Entrada (compra)", "perda": "Perda ou quebra",
+                      "ajuste": "Ajuste de inventário (+/-)"}
+
+
+def _saldo_sql(alias="m") -> str:
+    return ("(SELECT COALESCE(SUM(CASE mv.tipo WHEN 'entrada' THEN mv.quantidade"
+            " WHEN 'estorno' THEN mv.quantidade WHEN 'ajuste' THEN mv.quantidade"
+            " WHEN 'baixa' THEN -mv.quantidade WHEN 'perda' THEN -mv.quantidade ELSE 0 END), 0)"
+            f" FROM movimentos_material mv WHERE mv.material_id = {alias}.id)")
+
+
+def listar_materiais(somente_ativos: bool = False, busca: str = "") -> list:
+    with conectar() as conn:
+        linhas = [dict(r) for r in conn.execute(
+            f"SELECT m.*, {_saldo_sql()} AS saldo,"
+            " (SELECT COUNT(*) FROM receitas_produto rp WHERE rp.material_id = m.id) AS em_receitas"
+            f" FROM materiais m WHERE {_t('m')}" + (" AND m.ativo = 1" if somente_ativos else "")
+            + " ORDER BY m.ativo DESC, m.nome")]
+    termo = normalizar_texto(busca).strip()
+    if termo:
+        linhas = [m for m in linhas if termo in normalizar_texto(f"{m['nome']} {m['codigo']}")]
+    for m in linhas:
+        m["saldo"] = round(m["saldo"] or 0, regras.CASAS)
+    return linhas
+
+
+def buscar_material(id_: int) -> dict | None:
+    with conectar() as conn:
+        r = conn.execute(f"SELECT m.*, {_saldo_sql()} AS saldo FROM materiais m"
+                         f" WHERE m.id = ? AND {_t('m')}", (id_,)).fetchone()
+        if not r:
+            return None
+        m = dict(r)
+        m["movimentos"] = [dict(x) for x in conn.execute(
+            "SELECT mv.*, u.nome AS usuario_nome FROM movimentos_material mv"
+            " LEFT JOIN usuarios u ON u.id = mv.usuario_id WHERE mv.material_id = ?"
+            " ORDER BY mv.id DESC LIMIT 30", (id_,))]
+        m["produtos"] = [dict(x) for x in conn.execute(
+            "SELECT p.id, p.nome, p.unidade, rp.quantidade FROM receitas_produto rp"
+            f" JOIN produtos p ON p.id = rp.produto_id WHERE rp.material_id = ? AND {_t('p')}"
+            " ORDER BY p.nome", (id_,))]
+        return m
+
+
+def salvar_material(d: dict, id_: int | None = None, usuario_id=None) -> int:
+    nome = " ".join(str(d.get("nome") or "").split())[:120]
+    if not nome:
+        raise ErroDeCampo("nome", "Nome do material é obrigatório.")
+    codigo = " ".join(str(d.get("codigo") or "").split()).upper()[:40]
+    unidade = d.get("unidade") or "un"
+    if unidade not in regras.UNIDADES_MATERIAL:
+        raise ErroDeCampo("unidade", "Unidade de medida inválida.")
+    arred = d.get("arredondamento") or "exato"
+    if arred not in regras.ARREDONDAMENTOS:
+        raise ErroDeCampo("arredondamento", "Regra de arredondamento inválida.")
+    custo = d.get("custo_referencia")
+    custo = None if custo in (None, "") else _numero(custo, "custo_referencia", "Custo")
+    v = {"nome": nome, "codigo": codigo, "unidade": unidade, "arredondamento": arred,
+         "custo_referencia": custo, "ativo": 1 if d.get("ativo", 1) else 0,
+         "observacoes": str(d.get("observacoes") or "").strip()[:500]}
+    agora_ = formato.agora()
+    with conectar() as conn:
+        atual = None
+        if id_:
+            r = conn.execute(f"SELECT * FROM materiais WHERE id = ? AND {_t()}", (id_,)).fetchone()
+            if not r:
+                raise ValueError("Material não encontrado.")
+            atual = dict(r)
+        if conn.execute(f"SELECT 1 FROM materiais WHERE nome = ? AND id != ? AND {_t()}",
+                        (nome, id_ or 0)).fetchone():
+            raise ErroDeCampo("nome", "Já existe um material com este nome.")
+        if codigo and conn.execute(f"SELECT 1 FROM materiais WHERE codigo = ? AND id != ? AND {_t()}",
+                                   (codigo, id_ or 0)).fetchone():
+            raise ErroDeCampo("codigo", "Já existe um material com este código.")
+        if atual:
+            conn.execute("UPDATE materiais SET " + ", ".join(f"{c} = ?" for c in v)
+                         + f", atualizado_em = ? WHERE id = ? AND {_t()}", (*v.values(), agora_, id_))
+            novo = id_
+        else:
+            novo = conn.execute(
+                "INSERT INTO materiais (tenant_id, criado_em, atualizado_em, " + ", ".join(v)
+                + ") VALUES (?, ?, ?, " + ", ".join("?" * len(v)) + ")",
+                (tenant_atual(), agora_, agora_, *v.values())).lastrowid
+        mud = {c: [(atual or {}).get(c), v[c]] for c in v
+               if str((atual or {}).get(c) if (atual or {}).get(c) is not None else "")
+               != str(v[c] if v[c] is not None else "")}
+        if mud:
+            auditar(conn, "material", novo, "alterar" if atual else "criar",
+                    f"Material {nome} {'alterado' if atual else 'criado'}", usuario_id,
+                    mud if atual else None)
+        return novo
+
+
+def registrar_movimento_material(material_id: int, tipo: str, quantidade, observacao: str = "",
+                                 usuario_id=None, pedido_id=None, manual: bool = True) -> int:
+    """Lançamento rastreável. Manual: entrada, perda e ajuste (com sinal).
+    Reserva, baixa e estorno ficam para o fluxo de pedidos do Sprint 6."""
+    if tipo not in TIPOS_MOVIMENTO or (manual and tipo not in MOVIMENTOS_MANUAIS):
+        raise ErroDeCampo("tipo", "Tipo de movimentação inválido.")
+    qtd = round(regras.numero(quantidade, "quantidade"), regras.CASAS)
+    if qtd == 0 or (tipo != "ajuste" and qtd < 0):
+        raise ErroDeCampo("quantidade", "Informe uma quantidade maior que zero"
+                          + (" (no ajuste, use negativo para diminuir)." if tipo == "ajuste" else "."))
+    observacao = str(observacao or "").strip()[:300]
+    if tipo in ("perda", "ajuste") and not observacao:
+        raise ErroDeCampo("observacao", "Explique o motivo da perda ou do ajuste.")
+    with conectar() as conn:
+        m = conn.execute(f"SELECT * FROM materiais WHERE id = ? AND {_t()}", (material_id,)).fetchone()
+        if not m:
+            raise ValueError("Material não encontrado.")
+        if m["arredondamento"] == "inteiro_acima" and qtd != int(qtd):
+            raise ErroDeCampo("quantidade", f"{m['nome']} é contado em unidades inteiras.")
+        if pedido_id and not _do_tenant(conn, "pedidos", pedido_id):
+            raise ErroDeCampo("pedido_id", "Pedido não encontrado.")
+        mov = conn.execute(
+            "INSERT INTO movimentos_material (tenant_id, material_id, tipo, quantidade, pedido_id,"
+            " usuario_id, observacao, criado_em) VALUES (?,?,?,?,?,?,?,?)",
+            (tenant_atual(), material_id, tipo, qtd, pedido_id, usuario_id, observacao,
+             formato.agora())).lastrowid
+        auditar(conn, "material", material_id, f"movimento_{tipo}",
+                f"{m['nome']}: {tipo} de {regras.formatar_qtd(qtd)} {m['unidade']}", usuario_id,
+                tipo="material_movimento",
+                dados={"movimento_id": mov, "tipo": tipo, "quantidade": qtd, "pedido_id": pedido_id})
+        return mov
+
+
+def receita_do_produto(produto_id: int) -> list:
+    with conectar() as conn:
+        return _receita(conn, produto_id)
+
+
+def _receita(conn, produto_id: int) -> list:
+    return [dict(r) for r in conn.execute(
+        "SELECT rp.id, rp.material_id, rp.quantidade, rp.observacao, m.nome, m.codigo,"
+        " m.unidade, m.arredondamento, m.custo_referencia, m.ativo"
+        f" FROM receitas_produto rp JOIN materiais m ON m.id = rp.material_id AND {_t('m')}"
+        " WHERE rp.produto_id = ? ORDER BY m.nome", (produto_id,))]
+
+
+def salvar_linha_receita(produto_id: int, material_id, quantidade, observacao: str = "",
+                         usuario_id=None) -> int:
+    """Material consumido por 1 unidade de cobrança do produto (ex.: por metro)."""
+    with conectar() as conn:
+        p = conn.execute(f"SELECT * FROM produtos WHERE id = ? AND {_t()}", (produto_id,)).fetchone()
+        if not p:
+            raise ValueError("Produto não encontrado.")
+        if p["tipo"] != "encomenda":
+            raise ErroDeCampo("material_id", "Receita de materiais é só para produtos sob encomenda.")
+        try:
+            material_id = int(material_id)
+        except (TypeError, ValueError):
+            raise ErroDeCampo("material_id", "Escolha o material.")
+        m = conn.execute(f"SELECT * FROM materiais WHERE id = ? AND {_t()}", (material_id,)).fetchone()
+        if not m:
+            raise ErroDeCampo("material_id", "Material não encontrado.")
+        qtd = round(regras.numero(quantidade, "quantidade"), 6)
+        if qtd <= 0:
+            raise ErroDeCampo("quantidade", "A quantidade consumida precisa ser maior que zero.")
+        existente = conn.execute("SELECT * FROM receitas_produto WHERE produto_id = ? AND material_id = ?",
+                                 (produto_id, material_id)).fetchone()
+        if not existente and not m["ativo"]:
+            raise ErroDeCampo("material_id", f"'{m['nome']}' está inativo.")
+        observacao = str(observacao or "").strip()[:200]
+        if existente:
+            conn.execute("UPDATE receitas_produto SET quantidade = ?, observacao = ? WHERE id = ?",
+                         (qtd, observacao, existente["id"]))
+            linha = existente["id"]
+        else:
+            linha = conn.execute("INSERT INTO receitas_produto (produto_id, material_id, quantidade,"
+                                 " observacao) VALUES (?,?,?,?)",
+                                 (produto_id, material_id, qtd, observacao)).lastrowid
+        antes = existente["quantidade"] if existente else 0
+        if antes != qtd:
+            auditar(conn, "produto", produto_id, "receita", f"Receita de {p['nome']} alterada",
+                    usuario_id, {f"material {m['nome']}": [antes, qtd]})
+        return linha
+
+
+def remover_linha_receita(linha_id: int, produto_id: int, usuario_id=None):
+    with conectar() as conn:
+        r = conn.execute(
+            "SELECT rp.*, m.nome FROM receitas_produto rp JOIN produtos p ON p.id = rp.produto_id"
+            f" JOIN materiais m ON m.id = rp.material_id WHERE rp.id = ? AND rp.produto_id = ? AND {_t('p')}",
+            (linha_id, produto_id)).fetchone()
+        if not r:
+            return
+        conn.execute("DELETE FROM receitas_produto WHERE id = ?", (linha_id,))
+        auditar(conn, "produto", produto_id, "receita", "Material retirado da receita", usuario_id,
+                {f"material {r['nome']}": [r["quantidade"], 0]})
+
+
+def consumo_previsto_produto(produto_id: int, quantidade) -> dict:
+    """Materiais previstos para produzir 'quantidade' (na unidade de cobrança).
+    Só calcula: não reserva nem baixa nada."""
+    with conectar() as conn:
+        p = conn.execute(f"SELECT * FROM produtos WHERE id = ? AND {_t()}", (produto_id,)).fetchone()
+        if not p:
+            raise ValueError("Produto não encontrado.")
+        qtd = regras.quantidade(quantidade, p["unidade"])
+        linhas = regras.consumo_previsto(_receita(conn, produto_id), qtd)
+    custos = [ln["custo"] for ln in linhas if ln["custo"] is not None]
+    return {"produto_id": produto_id, "nome": p["nome"], "quantidade": qtd, "unidade": p["unidade"],
+            "materiais": linhas, "custo_total": round(sum(custos), 2) if custos else None,
+            "custo_incompleto": len(custos) < len(linhas)}
+
+
+def consumo_previsto_pedido(pedido_id: int) -> list:
+    """Materiais previstos para o pedido (encomendas avulsas e dentro de kits),
+    somados por material. Base para a reserva do Sprint 6."""
+    with conectar() as conn:
+        if not _do_tenant(conn, "pedidos", pedido_id):
+            return []
+        total: dict = {}
+        for ip in conn.execute("SELECT * FROM itens_pedido WHERE pedido_id = ?", (pedido_id,)).fetchall():
+            pares = []
+            if ip["tipo"] == "produto" and ip["item_id"]:
+                pares.append((ip["item_id"], ip["quantidade"]))
+            elif ip["tipo"] == "kit" and ip["item_id"]:
+                comps = _ler_composicao(ip["composicao"]) or _composicao_venda(conn, ip["item_id"])
+                pares += [(c["produto_id"], ip["quantidade"] * float(c["quantidade"]))
+                          for c in comps if c.get("obrigatorio", 1) and c.get("tipo") == "encomenda"]
+            for pid, qtd in pares:
+                for ln in regras.consumo_previsto(_receita(conn, pid), qtd):
+                    t = total.setdefault(ln["material_id"], dict(ln, previsto=0, calculado=0))
+                    t["previsto"] += ln["previsto"]
+                    t["calculado"] = round(t["calculado"] + ln["calculado"], regras.CASAS)
+        return sorted(total.values(), key=lambda m: normalizar_texto(m["nome"]))
+
+
+def resumo_kit(kit_id: int) -> dict | None:
+    """Composição e preço oficiais do kit (usados pela tela e pela API)."""
+    with conectar() as conn:
+        k = conn.execute(f"SELECT * FROM kits WHERE id = ? AND {_t()}", (kit_id,)).fetchone()
+        if not k:
+            return None
+        comps = _componentes(conn, kit_id)
+    ref = regras.preco_referencia(comps)
+    final = regras.preco_final_kit(k["modo_preco"], k["preco"], comps)
+    possiveis, restricoes = regras.modalidades_do_kit(dict(k), comps)
+    for c in comps:
+        c["subtotal"] = round(float(c["preco"] or 0) * float(c["quantidade"]), 2)
+        c["rotulo_tipo"] = regras.rotulo_tipo(c["tipo"])
+        c["sigla"] = regras.sigla(c["unidade"])
+    return {"kit_id": kit_id, "modo_preco": k["modo_preco"], "componentes": comps,
+            "referencia": ref, "preco_final": final,
+            "diferenca": regras.diferenca(ref["obrigatorios"], final),
+            "modalidades": sorted(possiveis), "restricoes": restricoes,
+            "inativos": [c["nome"] for c in comps if c["status"] != "disponivel"]}
+
+
+def itens_para_venda() -> list:
+    """Produtos e kits ativos para escolher no orçamento e no pedido
+    (preço atual sugerido; a linha grava o preço do momento)."""
+    with conectar() as conn:
+        prods = [dict(r, tipo="produto") for r in conn.execute(
+            "SELECT id, nome, codigo_sku, preco_locacao AS preco, unidade, tipo AS natureza"
+            f" FROM produtos WHERE status = 'disponivel' AND {_t()} ORDER BY nome")]
+        kits = [dict(r, tipo="kit", unidade="pacote", natureza="kit") for r in conn.execute(
+            "SELECT k.id, k.nome, k.codigo_sku, k.preco FROM kits k"
+            f" WHERE k.status = 'ativo' AND {_t('k')}"
+            " AND EXISTS (SELECT 1 FROM itens_kit ik WHERE ik.kit_id = k.id) ORDER BY k.nome")]
+    for i in prods + kits:
+        i["sigla"] = regras.sigla(i["unidade"])
+        i["fracao"] = regras.aceita_fracao(i["unidade"])
+        i["rotulo_tipo"] = "Kit" if i["tipo"] == "kit" else regras.rotulo_tipo(i["natureza"])
+    return prods + kits

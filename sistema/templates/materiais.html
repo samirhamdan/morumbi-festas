@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block titulo %}Materiais — {{ empresa.nome_exibicao }}{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+{% include "_topo.html" %}
+{% macro recado(campo) %}{% if campo_erro == campo %}<b class="recado-campo">{{ erro }}</b>{% endif %}{% endmacro %}
+<main id="conteudo" class="pagina ca">
+  <div class="ca-cab">
+    <div class="ca-cab-textos">
+      <nav class="ca-trilha" aria-label="Caminho"><span>Catálogo</span> › <span>Materiais</span></nav>
+      <h1 class="ca-titulo">Materiais</h1>
+      <p class="ca-sub">Insumos usados na produção sob encomenda (balões, fitas, estruturas). As receitas dos produtos usam esta lista.</p>
+    </div>
+  </div>
+  {% include "_erro.html" %}
+
+  {% if pode_editar %}
+  <details class="ca-bloco ca-nova" {{ 'open' if not materiais or erro }}>
+    <summary class="ca-bloco-titulo">+ Novo material</summary>
+    <form method="post" class="ca-cat-form">
+      <label class="ca-campo" id="campo-nome"><span>Nome</span><input type="text" name="nome" required maxlength="120" value="{{ (novo or {}).get('nome', '') }}" placeholder="Balão 9 pol. lilás">{{ recado('nome') }}</label>
+      <label class="ca-campo" id="campo-codigo"><span>Código (opcional)</span><input type="text" name="codigo" maxlength="40" value="{{ (novo or {}).get('codigo', '') }}" class="mono">{{ recado('codigo') }}</label>
+      <label class="ca-campo" id="campo-unidade"><span>Unidade de medida</span>
+        <select name="unidade">{% for u in regras.UNIDADES_MATERIAL %}<option value="{{ u }}" {{ 'selected' if (novo or {}).get('unidade') == u }}>{{ u }}</option>{% endfor %}</select></label>
+      <label class="ca-campo" id="campo-arredondamento"><span>No consumo</span>
+        <select name="arredondamento">{% for k, r in regras.ARREDONDAMENTOS.items() %}<option value="{{ k }}" {{ 'selected' if (novo or {}).get('arredondamento') == k }}>{{ r }}</option>{% endfor %}</select></label>
+      <label class="ca-campo" id="campo-custo_referencia"><span>Custo de referência (R$ por unidade)</span><input type="number" name="custo_referencia" min="0" step="0.0001" inputmode="decimal" value="{{ (novo or {}).get('custo_referencia', '') }}" placeholder="opcional">{{ recado('custo_referencia') }}</label>
+      <input type="hidden" name="ativo" value="1">
+      <button type="submit" class="ca-botao ca-botao--primario">Cadastrar material</button>
+    </form>
+  </details>
+  {% endif %}
+
+  <form class="ca-barra" method="get" role="search">
+    <label class="ca-busca"><span aria-hidden="true">⌕</span><span class="sr">Buscar</span>
+      <input type="search" name="q" value="{{ busca }}" placeholder="Buscar por nome ou código…"></label>
+    <button type="submit" class="ca-botao">Buscar</button>
+  </form>
+
+  {% if materiais %}
+  <div class="ca-tabela-caixa">
+    <table class="tabela ca-tabela">
+      <thead><tr><th>Material</th><th>Unidade</th><th>Consumo</th><th>Custo ref.</th><th>Saldo</th><th>Receitas</th></tr></thead>
+      <tbody>
+        {% for m in materiais %}
+        <tr class="{{ 'inativo' if not m.ativo }}">
+          <td data-rotulo="Material" class="chave"><a href="{{ url_for('editar_material', id_=m.id) }}" class="ca-produto-nome">{{ m.nome }}</a>
+            {% if m.codigo %}<small class="mono">{{ m.codigo }}</small>{% endif %}{% if not m.ativo %} <span class="ca-status ca-status--inativo">Inativo</span>{% endif %}</td>
+          <td data-rotulo="Unidade">{{ m.unidade }}</td>
+          <td data-rotulo="Consumo">{{ 'Inteiro para cima' if m.arredondamento == 'inteiro_acima' else 'Exato' }}</td>
+          <td data-rotulo="Custo ref." class="num">{{ m.custo_referencia|dinheiro if m.custo_referencia is not none else '—' }}</td>
+          <td data-rotulo="Saldo" class="num">{{ regras.formatar_qtd(m.saldo) }} {{ m.unidade }}</td>
+          <td data-rotulo="Receitas" class="num">{{ m.em_receitas }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="ca-aviso-sutil">O saldo soma as entradas, perdas e ajustes lançados. Reserva e baixa automática pelos pedidos entram no Sprint 6.</p>
+  {% elif busca %}
+  <div class="cartao cartao-vazio"><b>Nenhum resultado para "{{ busca }}".</b></div>
+  {% else %}
+  <div class="cartao cartao-vazio"><b>Nenhum material cadastrado.</b><span>Cadastre os insumos para montar as receitas dos produtos sob encomenda.</span></div>
+  {% endif %}
+</main>
+{% endblock %}

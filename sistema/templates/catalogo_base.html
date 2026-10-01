@@ -87,12 +87,12 @@ window.Orcamento = (function(){
   }
   function gravar(v) { try { localStorage.setItem(CHAVE, JSON.stringify(v)); } catch (e) {} contar(); }
   function contar() {
-    var n = ler().itens.reduce(function(s, i) { return s + (i.quantidade || 1); }, 0);
+    var n = ler().itens.length;  // itens diferentes (metros e horas não viram contagem)
     document.querySelectorAll('[data-contador]').forEach(function(el) { el.textContent = n > 99 ? '99+' : n; el.hidden = !n; });
   }
   function adicionar(item, qtd) {
     var v = ler(), achado = v.itens.find(function(i) { return i.tipo === item.tipo && i.id === item.id; });
-    if (achado) achado.quantidade = Math.min((achado.quantidade || 1) + qtd, 99);
+    if (achado) achado.quantidade = Math.round(Math.min((achado.quantidade || 1) + qtd, 99) * 1000) / 1000;
     else v.itens.push({ tipo: item.tipo, id: item.id, nome: item.nome, quantidade: Math.min(qtd, 99) });
     v.itens = v.itens.slice(0, 30); gravar(v);
   }

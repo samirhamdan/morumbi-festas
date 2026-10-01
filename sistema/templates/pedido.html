@@ -116,6 +116,16 @@
           <small>Os status mudam pelas ações do pedido.</small></p>
         {% endif %}
 
+        <label class="campo" id="campo-modalidade">
+          <span>Modalidade de atendimento</span>
+          <select name="modalidade">
+            <option value="">Não definida</option>
+            {% for m, r in regras.MODALIDADES.items() %}<option value="{{ m }}" {{ 'selected' if atual.get('modalidade') == m }}>{{ r }}</option>{% endfor %}
+          </select>
+          {% if campo_erro == 'modalidade' %}<b class="recado-campo">{{ erro }}</b>{% endif %}
+          <small>Montagem no local usa o endereço, a data e o horário do evento.</small>
+        </label>
+
         <label class="campo" id="campo-canal">
           <span>Canal (como o cliente chegou)</span>
           <select name="canal">
@@ -170,7 +180,7 @@
         <input type="text" name="item_descricao_{{ loop.index0 }}" value="{{ item.descricao }}"
                placeholder="Descrição" required style="flex:2"{% if item.tipo == 'servico' %} list="servicos-empresa"{% endif %}>
         <input type="number" name="item_quantidade_{{ loop.index0 }}" value="{{ item.quantidade }}"
-               min="1" step="1" style="width:70px" inputmode="numeric" placeholder="Qtd">
+               min="0.001" step="{{ '0.001' if regras.aceita_fracao(item.unidade) or not item.item_id else '1' }}" style="width:80px" inputmode="decimal" placeholder="Qtd">{% if item.unidade and item.unidade not in ('unidade', 'pacote') %}<span class="item-sigla">{{ regras.sigla(item.unidade) }}</span>{% endif %}
         <input type="number" name="item_preco_{{ loop.index0 }}" value="{{ '%.2f'|format(item.preco_unitario) }}"
                min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preço">
         <button type="button" class="botao mini perigoso" onclick="this.parentElement.remove()">✕</button>
@@ -223,7 +233,7 @@
       '</select>' +
       '<input type="hidden" name="item_item_id_'+i+'" value="">' +
       '<input type="text" name="item_descricao_'+i+'" placeholder="Descrição" required style="flex:2">' +
-      '<input type="number" name="item_quantidade_'+i+'" value="1" min="1" step="1" style="width:70px" inputmode="numeric" placeholder="Qtd">' +
+      '<input type="number" name="item_quantidade_'+i+'" value="1" min="0.001" step="0.001" style="width:80px" inputmode="decimal" placeholder="Qtd">' +
       '<input type="number" name="item_preco_'+i+'" value="0.00" min="0" step="0.01" style="width:100px" inputmode="decimal" placeholder="Preço">' +
       '<button type="button" class="botao mini perigoso" onclick="this.parentElement.remove()">✕</button>';
     container.appendChild(div);
@@ -237,4 +247,5 @@
   });
 })();
 </script>
+{% include "_itens_venda.html" %}
 {% endblock %}

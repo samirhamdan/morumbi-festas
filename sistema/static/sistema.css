@@ -4100,3 +4100,52 @@ body.vt {
   .vt-hero h1 { font-size: 42px; }
 }
 @media (prefers-reduced-motion: reduce) { .vt-nav, .vt-card-img img { transition: none; } }
+
+/* === Sprint 5.1 — tipos de item, receita, materiais === */
+.ca-natureza { display: inline-block; padding: 2px 9px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap;
+  background: #eef1f6; color: #4a5568; }
+.ca-natureza--locacao { background: #e6f0ff; color: #1f5fbf; }
+.ca-natureza--encomenda { background: #fde9f2; color: #b0306b; }
+.ca-natureza--servico { background: #e5f6ee; color: #16794a; }
+.ca-natureza--kit { background: var(--lilas-fundo); color: var(--marca-roxo); }
+.ca-natureza--classificar { background: #fff1d6; color: #9a5a00; }
+.ca-sugestao, .ca-unidade { display: block; font-size: 11px; color: var(--texto-apoio); }
+.ca-unidade { display: inline; }
+.ca-tipos { border: 0; margin: 0 0 16px; }
+.ca-tipos legend { float: left; width: 100%; padding: 0; }
+.ca-tipos-opcoes { clear: both; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ca-tipo-cartao { position: relative; display: grid; gap: 2px; padding: 12px 14px 12px 46px; border: 2px solid var(--borda);
+  border-radius: 12px; cursor: pointer; background: var(--superficie); color: var(--texto-titulo); }
+.ca-tipo-cartao input { position: absolute; left: 14px; top: 15px; width: 18px; height: 18px; accent-color: var(--marca-roxo); }
+.ca-tipo-cartao small { color: var(--texto-apoio); font-size: 12px; font-weight: 400; }
+.ca-tipo-cartao:has(input:checked) { border-color: currentColor; }
+.ca-tipo-cartao.ca-natureza--locacao:has(input:checked) { color: #1f5fbf; background: #f3f8ff; }
+.ca-tipo-cartao.ca-natureza--encomenda:has(input:checked) { color: #b0306b; background: #fff6fa; }
+.ca-tipo-cartao.ca-natureza--servico:has(input:checked) { color: #16794a; background: #f3fbf7; }
+.ca-tipo-cartao:focus-within { box-shadow: var(--foco); }
+[data-so][hidden], [data-so-preco][hidden] { display: none !important; }
+.ca-precos { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--linha-lista); font-size: 13px; }
+.ca-precos dt { color: var(--texto-apoio); }
+.ca-precos dd { margin: 0; text-align: right; }
+.ca-restricoes { margin: 8px 0 0; padding: 10px 12px 10px 28px; background: #fff4e5; border-radius: 10px; color: #8a4b00; font-size: 13px; }
+.ca-comp-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
+.ca-comp-form input[type=number] { width: 84px; min-height: 34px; border: 1px solid var(--borda); border-radius: 8px; padding: 0 8px; font: inherit; }
+.ca-comp-form select { min-height: 34px; border: 1px solid var(--borda); border-radius: 8px; padding: 0 6px; font: inherit; font-size: 13px; }
+.ca-comp--opcional td { color: var(--texto-apoio); }
+.ca-tabela tfoot td { padding: 8px 12px; font-size: 13px; border-top: 1px solid var(--linha-lista); }
+.ca-classificar { padding: 14px 16px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; background: #fff8eb; }
+.ca-classificar p { margin: 0; font-size: 13px; flex: 1 1 320px; }
+.ca-classificar-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.ca-classificar select { min-height: 40px; border: 1px solid var(--borda); border-radius: 8px; padding: 0 10px; font: inherit; }
+.ca-check-linha { width: 18px; height: 18px; accent-color: var(--marca-roxo); flex: none; }
+.ca-simular { margin-top: 0; align-items: center; }
+.ca-sem-borda { border: 0; margin: 0; padding: 0; min-width: 0; }
+.item-sigla { font-size: 12px; color: var(--suave); align-self: center; }
+@media (max-width: 760px) {
+  .ca-tipos-opcoes { grid-template-columns: 1fr; }
+}
+.ca-comp td[data-rotulo="Quantidade"] { min-width: 300px; }
+.ca-comp-form { flex-wrap: nowrap; }
+.ca-comp-form input[type=number] { width: 76px; }
+@media (max-width: 760px) { .ca-comp td[data-rotulo="Quantidade"] { min-width: 0; } .ca-comp-form { flex-wrap: wrap; } }
+.vt-qtd-un { align-self: center; padding-right: 8px; font-size: 13px; color: var(--vt-apoio); }

@@ -1,6 +1,9 @@
 {% extends "catalogo_base.html" %}
 {% set eh_kit = tipo == 'kit' %}
 {% set preco = item.preco if eh_kit else item.preco_locacao %}
+{% set natureza = 'kit' if eh_kit else (item.tipo or 'locacao') %}
+{% set fracao = not eh_kit and regras.aceita_fracao(item.unidade) %}
+{% set minimo = (item.qtd_minima if not eh_kit and item.qtd_minima else 1) %}
 {% set fotos = item.fotos or [] %}
 {% set capa = fotos[0] if fotos else None %}
 {% set resumo = (item.seo_descricao or (item.descricao or '')[:160]) %}
@@ -52,13 +55,23 @@
     </div>
 
     <div class="vt-compra">
-      <p class="vt-preco">{{ preco|dinheiro }} <small>por festa</small></p>
+      <p class="vt-preco">{{ preco|dinheiro }} <small>{{ 'por festa' if natureza in ('kit', 'locacao') else 'por ' ~ regras.UNIDADES[item.unidade or 'unidade'][0]|lower }}</small></p>
       {% if eh_kit and item.soma_produtos and preco and item.soma_produtos > preco %}
       <p class="vt-economia">{{ ((item.soma_produtos - preco) / item.soma_produtos * 100)|round|int }}% de economia em relação às peças avulsas ({{ item.soma_produtos|dinheiro }})</p>
       {% endif %}
       <ul class="vt-caracteristicas">
         {% if eh_kit %}<li>Kit completo com {{ item.itens|length }} tipo{{ 's' if item.itens|length != 1 }} de peça</li>{% endif %}
+        {% if natureza == 'encomenda' %}
+        <li>Produzido sob encomenda para a sua festa</li>
+        {% if item.prazo_producao_dias %}<li>Peça com {{ item.prazo_producao_dias }} dia{{ 's' if item.prazo_producao_dias != 1 }} de antecedência</li>{% endif %}
+        {% if item.qtd_minima %}<li>Mínimo de {{ regras.formatar_qtd(item.qtd_minima) }} {{ regras.sigla(item.unidade) }}</li>{% endif %}
+        {% elif natureza == 'servico' %}
+        <li>Serviço feito pela nossa equipe{{ ' no local do evento' if item.local_execucao == 'evento' }}</li>
+        {% if item.tempo_execucao_min %}<li>Duração estimada: {{ (item.tempo_execucao_min / 60)|round(1)|string|replace('.0', '')|replace('.', ',') }} h</li>{% endif %}
+        {% else %}
         <li>{% if (item.dias_uso or 2) <= 1 %}Retirada e devolução no dia da festa{% else %}Retirada na véspera, devolução {{ 'no dia da festa' if item.dias_uso == 2 else 'em até ' ~ (item.dias_uso - 1) ~ ' dias após' }}{% endif %}</li>
+        {% endif %}
+        {% if not eh_kit %}{% set ms = regras.modalidades_do_produto(item) %}{% if ms|length == 1 %}<li>Somente {{ regras.MODALIDADES[ms|first]|lower }}</li>{% endif %}{% endif %}
         {% if item.dias_antecedencia %}<li>Reserve com {{ item.dias_antecedencia }} dia{{ 's' if item.dias_antecedencia != 1 }} de antecedência</li>{% endif %}
         {% if item.categoria_nome %}<li>Tema: {{ item.categoria_nome }}</li>{% endif %}
       </ul>
@@ -69,7 +82,8 @@
           <input type="date" id="vt-data" min="{{ hoje }}" value="{{ data_escolhida if data_escolhida >= hoje else '' }}">
           <label class="vt-qtd"><span class="sr">Quantidade</span>
             <button type="button" data-qtd="-1" aria-label="Diminuir">−</button>
-            <input type="number" id="vt-qtd" value="1" min="1" max="99" inputmode="numeric" aria-label="Quantidade">
+            <input type="number" id="vt-qtd" value="{{ regras.formatar_qtd(minimo)|replace(',', '.') }}" min="{{ minimo }}" max="99" step="{{ '0.5' if fracao else '1' }}" inputmode="decimal" aria-label="Quantidade em {{ regras.UNIDADES[item.unidade or 'unidade'][0]|lower if not eh_kit else 'unidades' }}" data-fracao="{{ 1 if fracao else 0 }}" data-minimo="{{ minimo }}">
+            {% if fracao %}<span class="vt-qtd-un">{{ regras.sigla(item.unidade) }}</span>{% endif %}
             <button type="button" data-qtd="1" aria-label="Aumentar">+</button>
           </label>
         </div>
@@ -106,7 +120,7 @@
     {% if eh_kit %}
     <div class="vt-aba" role="tabpanel" id="vt-aba-itens" aria-labelledby="vt-tab-itens" hidden>
       <h2 class="sr">O que inclui</h2>
-      <ul class="vt-inclui">{% for c in item.itens %}<li><b>{{ c.quantidade }}x</b> {{ c.produto_nome }}</li>{% endfor %}</ul>
+      <ul class="vt-inclui">{% for c in item.itens %}<li><b>{{ regras.formatar_qtd(c.quantidade) }}{{ ' ' ~ regras.sigla(c.unidade) if regras.aceita_fracao(c.unidade) else 'x' }}</b> {{ c.produto_nome }}{% if not c.obrigatorio %} <small>(opcional, à parte)</small>{% endif %}</li>{% endfor %}</ul>
     </div>
     {% endif %}
     <div class="vt-aba" role="tabpanel" id="vt-aba-info" aria-labelledby="vt-tab-info" hidden>
@@ -161,7 +175,13 @@
                 indisponivel: ['Indisponível nesta data', 'Veja outras datas próximas.'] };
   function fmt(d) { var p = d.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
   function somar(d, n) { var x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); }
-  function qtd() { var n = parseInt(campoQtd.value, 10); return isNaN(n) ? 1 : Math.min(Math.max(n, 1), 99); }
+  var FRACAO = campoQtd.dataset.fracao === '1', MINIMO = parseFloat(campoQtd.dataset.minimo) || 1, PASSO = FRACAO ? 0.5 : 1;
+  function qtd() {
+    var n = parseFloat(String(campoQtd.value).replace(',', '.'));
+    if (isNaN(n)) n = MINIMO;
+    n = FRACAO ? Math.round(n * 1000) / 1000 : Math.round(n);
+    return Math.min(Math.max(n, MINIMO), 99);
+  }
   function consultar(inicio, fim) {
     return fetch(API + '?tipo=' + tipo + '&id=' + id + '&inicio=' + inicio + '&fim=' + fim + '&qtd=' + qtd(), { credentials: 'same-origin' })
       .then(function(r) { if (!r.ok) throw r; return r.json(); }).then(function(j) { return j.dias || []; });
@@ -183,7 +203,7 @@
   }
   if (!campoData.value && Orcamento.data() >= hoje) campoData.value = Orcamento.data();
   campoData.addEventListener('change', atualizar);
-  document.querySelectorAll('[data-qtd]').forEach(function(b) { b.addEventListener('click', function() { campoQtd.value = Math.min(Math.max(qtd() + (+b.dataset.qtd), 1), 99); atualizar(); }); });
+  document.querySelectorAll('[data-qtd]').forEach(function(b) { b.addEventListener('click', function() { campoQtd.value = Math.min(Math.max(qtd() + PASSO * (+b.dataset.qtd), MINIMO), 99); atualizar(); }); });
   campoQtd.addEventListener('change', function() { campoQtd.value = qtd(); atualizar(); });
   atualizar();
 

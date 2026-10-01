@@ -161,6 +161,21 @@ Depois de atualizar, confira:
   nao reserva estoque: a reserva continua acontecendo so no pedido.
 
 
+Produtos, serviços e kits (Sprint 5.1)
+--------------------------------------
+Ao reiniciar, o sistema faz sozinho uma cópia do banco ao lado dele
+(arquivo terminado em .backup-antes-sprint51-DATA) e só então acrescenta
+as colunas e tabelas novas. Nada é apagado, e os totais de produtos, kits,
+pedidos e orçamentos são conferidos antes e depois (se não baterem, o
+sistema não sobe e mostra o erro no log; aí é só restaurar o backup).
+
+Os produtos que já existiam ficam "A classificar" e continuam funcionando
+como locação. Para confirmar o tipo: Produtos e kits -> aba "A classificar".
+
+Para voltar atrás: pare o serviço e copie o arquivo de backup por cima do
+banco (o caminho do banco está em FESTAS_DADOS).
+
+
 Para ver os logs
 ----------------
 

@@ -66,7 +66,8 @@ def _semear(marca: str) -> dict:
     return {"cliente": cli, "categoria": cat, "produto": prod, "kit": kit,
             "origem": origem, "lead": lead, "orcamento": orc, "pedido": ped,
             "finalizado": fin, "historico": hist, "foto": foto, "item_kit": item_kit,
-            "slug": dados.buscar_produto(prod)["slug"]}
+            "slug": dados.buscar_produto(prod)["slug"],
+            "material": dados.salvar_material({"nome": f"Material {marca}", "unidade": "un"})}
 
 
 @pytest.fixture()
@@ -90,7 +91,8 @@ def _instantaneo():
                 for t in ("clientes", "categorias", "produtos", "fotos_produto", "kits",
                           "itens_kit", "origens_lead", "leads", "orcamentos",
                           "itens_orcamento", "pedidos", "itens_pedido",
-                          "eventos_historico", "configuracoes", "servicos", "membros")}
+                          "eventos_historico", "configuracoes", "servicos", "membros",
+                          "materiais", "receitas_produto", "movimentos_material")}
 
 
 # Rotas com id: qual registro da outra empresa usar em cada uma.
@@ -101,6 +103,8 @@ _ID_DA_ROTA = {
     "ver_pedido": "pedido", "editar_pedido": "pedido",
     "ver_pedido_historico": "historico", "editar_produto": "produto",
     "editar_usuario": "usuario", "catalogo_item": "slug",
+    "editar_material": "material", "api_produto": "produto", "api_consumo_produto": "produto",
+    "api_preco_kit": "kit", "api_consumo_pedido": "pedido",
 }
 _MARCAS = ("Alfa", "Beta")
 
@@ -137,6 +141,7 @@ class TesteIsolamento:
                 assert f"Produto {outra}" not in texto, (login, url)
                 assert f"Pedido {outra}" not in texto, (login, url)
                 assert f"Importado {outra}" not in texto, (login, url)
+                assert f"Material {outra}" not in texto, (login, url)
                 if re.search(r"/\d+", url) and not url.startswith("/api"):
                     assert r.status_code in (404, 302, 403), (login, url, r.status_code)
 
@@ -176,6 +181,10 @@ class TesteIsolamento:
             (f"/operacao/pedido/{a['pedido']}/avancar", {}),
             (f"/pedido/historico/{a['historico']}/converter", {}),
             (f"/faturamento/historico/{a['historico']}", {"valor": "999"}),
+            (f"/material/{a['material']}", {"nome": "Invadido", "unidade": "un"}),
+            (f"/material/{a['material']}/movimento", {"tipo": "entrada", "quantidade": "5"}),
+            (f"/produto/{a['produto']}/receita", {"material_id": a["material"], "quantidade": "1"}),
+            ("/catalogo-admin/classificar", {"ids": a["produto"], "tipo": "servico"}),
         ]
         for url, form in tentativas:
             c.post(url, data=form)

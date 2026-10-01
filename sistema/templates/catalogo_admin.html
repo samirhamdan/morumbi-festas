@@ -10,7 +10,7 @@
 {%- set base = {'aba': aba, 'q': filtros.busca, 'categoria': filtros.categoria_id,
                 'tipo': filtros.tipo if not tipo_pagina else None, 'status': filtros.status,
                 'preco_min': filtros.preco_min, 'preco_max': filtros.preco_max,
-                'estoque': filtros.estoque, 'tag': filtros.tag} -%}
+                'estoque': filtros.estoque, 'tag': filtros.tag, 'natureza': filtros.natureza} -%}
 {{ url_for(rota_lista, **dict(base|dictsort|selectattr('1')|list)) }}
 {%- endmacro %}
 
@@ -50,9 +50,8 @@
         </select></label>
       {% if not tipo_pagina %}
       <label class="ca-campo"><span>Tipo</span>
-        <select name="tipo"><option value="">Todos</option>
-          <option value="kit" {{ 'selected' if filtros.tipo == 'kit' }}>Kit</option>
-          <option value="produto" {{ 'selected' if filtros.tipo == 'produto' }}>Peça avulsa</option>
+        <select name="natureza"><option value="">Todos</option>
+          {% for v, r in naturezas %}<option value="{{ v }}" {{ 'selected' if filtros.natureza == v }}>{{ r }}</option>{% endfor %}
         </select></label>
       {% endif %}
       <label class="ca-campo"><span>Status</span>
@@ -84,10 +83,23 @@
 
   <nav class="ca-abas" aria-label="Situação">
     {% for chave, rotulo in abas %}
+    {% if chave != 'classificar' or contagens[chave] %}
     <a href="{{ url_lista(aba=chave) }}" class="ca-aba{{ ' ativo' if filtros.aba == chave }}" {% if filtros.aba == chave %}aria-current="page"{% endif %}>{{ rotulo }} <span>({{ contagens[chave] }})</span></a>
+    {% endif %}
     {% endfor %}
   </nav>
 
+  {% set classificando = filtros.aba == 'classificar' and tem('catalog.edit') %}
+  {% if classificando and itens %}
+  <form method="post" action="{{ url_for('classificar_produtos') }}" id="ca-classificar" class="cartao ca-classificar">
+    <p><b>Produtos cadastrados antes da separação por tipo.</b> Enquanto não forem confirmados, funcionam como locação. Marque os itens, escolha o tipo e confirme — a sugestão vem do nome.</p>
+    <div class="ca-classificar-acoes">
+      <select name="tipo" required aria-label="Tipo"><option value="">Tipo…</option>
+        {% for v, r in tipos_item.items() %}<option value="{{ v }}">{{ r }}</option>{% endfor %}</select>
+      <button type="submit" class="ca-botao ca-botao--primario">Confirmar tipo dos marcados</button>
+    </div>
+  </form>
+  {% endif %}
   {% if itens %}
   <div class="ca-tabela-caixa">
     <table class="tabela ca-tabela">
@@ -105,6 +117,7 @@
         {% set editar = url_for('editar_produto' if i.tipo == 'produto' else 'editar_kit', id_=i.id) %}
         <tr class="{{ 'inativo' if not i.ativo }}" data-item="{{ i.tipo }}-{{ i.id }}">
           <td data-rotulo="Produto" class="ca-produto">
+            {% if classificando %}<input type="checkbox" name="ids" value="{{ i.id }}" form="ca-classificar" aria-label="Marcar {{ i.nome }}" class="ca-check-linha">{% endif %}
             <span class="ca-thumb">{% if i.capa %}<img src="{{ url_for('static', filename=i.capa) }}" alt="" loading="lazy" width="44" height="44">{% else %}<span aria-hidden="true">{{ i.nome[:1] }}</span>{% endif %}</span>
             <span class="ca-produto-textos">
               <a href="{{ editar }}" class="ca-produto-nome">{{ i.nome }}</a>
@@ -112,8 +125,9 @@
             </span>
           </td>
           <td data-rotulo="Categoria">{{ i.categoria_nome or '—' }}</td>
-          <td data-rotulo="Tipo">{% if i.tipo == 'kit' %}<span class="ca-tipo ca-tipo--kit">Kit</span>{% else %}<span class="ca-tipo">Peça</span>{% endif %}</td>
-          <td data-rotulo="Preço" class="num">{{ i.preco|dinheiro }}{% if i.economia %} <small class="ca-economia">-{{ i.economia }}%</small>{% endif %}</td>
+          <td data-rotulo="Tipo"><span class="ca-natureza ca-natureza--{{ i.natureza }}">{{ 'Kit' if i.tipo == 'kit' else regras.rotulo_tipo(None if i.natureza == 'classificar' else i.natureza) }}</span>
+            {% if i.natureza == 'classificar' and i.sugestao %}<small class="ca-sugestao">sugestão: {{ regras.rotulo_tipo(i.sugestao) if i.sugestao != 'ambiguo' else 'verificar' }}</small>{% endif %}</td>
+          <td data-rotulo="Preço" class="num">{{ i.preco|dinheiro }}{% if i.tipo == 'produto' and i.unidade != 'unidade' %}<small class="ca-unidade"> / {{ regras.sigla(i.unidade) }}</small>{% endif %}{% if i.economia %} <small class="ca-economia">-{{ i.economia }}%</small>{% endif %}</td>
           <td data-rotulo="Status">
             {% if i.status in ('disponivel', 'ativo') %}<span class="ca-status ca-status--ativo">Ativo</span>
             {% elif i.status == 'manutencao' %}<span class="ca-status ca-status--manutencao">Manutenção</span>
@@ -121,7 +135,7 @@
             {% if i.publicado and i.ativo %}<small class="ca-vitrine">na vitrine</small>{% endif %}
           </td>
           <td data-rotulo="Ativo">
-            <form method="post" action="{{ url_for('ativar_item', tipo=i.tipo, id_=i.id) }}" class="ca-alternar" data-alternar>
+            <form method="post" action="{{ url_for('ativar_item', tipo=i.tipo, id_=i.id) }}" class="ca-alternar" data-alternar data-vinculos="{{ (i.em_pedidos or 0) + (i.em_kits or 0) }}" data-nome="{{ i.nome }}">
               <input type="hidden" name="ativo" value="{{ '0' if i.ativo else '1' }}">
               <button type="submit" class="ca-chave{{ ' ca-chave--on' if i.ativo }}" role="switch" aria-checked="{{ 'true' if i.ativo else 'false' }}"
                       aria-label="{{ 'Inativar' if i.ativo else 'Ativar' }} {{ i.nome }}" {{ 'disabled' if not tem('catalog.status') }}
@@ -138,7 +152,7 @@
                 <form method="post" action="{{ url_for('duplicar_item', tipo=i.tipo, id_=i.id) }}"><button type="submit">Duplicar</button></form>
                 {% endif %}
                 {% if tem('catalog.status') %}
-                <form method="post" action="{{ url_for('ativar_item', tipo=i.tipo, id_=i.id) }}"><input type="hidden" name="ativo" value="{{ '0' if i.ativo else '1' }}"><button type="submit">{{ 'Inativar' if i.ativo else 'Ativar' }}</button></form>
+                <form method="post" action="{{ url_for('ativar_item', tipo=i.tipo, id_=i.id) }}" data-vinculos="{{ (i.em_pedidos or 0) + (i.em_kits or 0) }}" data-nome="{{ i.nome }}" data-inativar="{{ 1 if i.ativo else 0 }}"><input type="hidden" name="ativo" value="{{ '0' if i.ativo else '1' }}"><button type="submit">{{ 'Inativar' if i.ativo else 'Ativar' }}</button></form>
                 {% endif %}
               </div>
             </details>
@@ -173,9 +187,19 @@
   fechar.addEventListener('click', function() { mostrar(false); abrir.focus(); });
   fundo.addEventListener('click', function() { mostrar(false); });
   document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && !painel.hidden) mostrar(false); });
+  // Inativar algo ligado a pedidos ou kits pede confirmação (nada é apagado)
+  function confirmarInativar(f) {
+    var n = +(f.dataset.vinculos || 0), inativando = f.querySelector('input[name=ativo]').value === '0';
+    if (!inativando || !n) return true;
+    return confirm('"' + f.dataset.nome + '" está em ' + n + ' pedido(s) ou kit(s). Inativar tira da vitrine e de novos kits; pedidos e histórico continuam iguais. Continuar?');
+  }
+  document.querySelectorAll('form[data-inativar]').forEach(function(f) {
+    f.addEventListener('submit', function(e) { if (!confirmarInativar(f)) e.preventDefault(); });
+  });
   // Ativar/inativar na hora (o servidor confere a permissão)
   document.querySelectorAll('form[data-alternar]').forEach(function(f) {
     f.addEventListener('submit', function(e) {
+      if (!confirmarInativar(f)) { e.preventDefault(); return; }
       if (!window.fetch) return;
       e.preventDefault();
       var botao = f.querySelector('button'), campo = f.querySelector('input[name=ativo]');

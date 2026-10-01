@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block titulo %}{{ material.nome }} — {{ empresa.nome_exibicao }}{% endblock %}
+{% block corpo %}bancada{% endblock %}
+{% block conteudo %}
+{% include "_topo.html" %}
+{% macro recado(campo) %}{% if campo_erro == campo %}<b class="recado-campo">{{ erro }}</b>{% endif %}{% endmacro %}
+<main id="conteudo" class="pagina ca ca-item">
+  <nav class="ca-trilha" aria-label="Caminho"><a href="{{ url_for('lista_materiais') }}">Materiais</a> › <span>{{ material.nome }}</span></nav>
+  <div class="ca-cab"><div class="ca-cab-textos">
+    <h1 class="ca-titulo">{{ material.nome }}</h1>
+    <p class="ca-sub">Saldo: <b>{{ regras.formatar_qtd(material.saldo) }} {{ material.unidade }}</b>{% if not material.ativo %} · <span class="ca-status ca-status--inativo">Inativo</span>{% endif %}</p>
+  </div></div>
+  {% include "_erro.html" %}
+  <div class="ca-colunas">
+    <form method="post" class="cartao ca-cartao">
+      <h2 class="ca-subtitulo">Cadastro</h2>
+      <fieldset {{ 'disabled' if not pode_editar }} class="ca-sem-borda">
+      <label class="campo" id="campo-nome"><span class="campo-rotulo">Nome</span><input type="text" name="nome" required maxlength="120" value="{{ material.nome }}">{{ recado('nome') }}</label>
+      <div class="campo-duplo">
+        <label class="campo" id="campo-codigo"><span class="campo-rotulo">Código</span><input type="text" name="codigo" maxlength="40" value="{{ material.codigo or '' }}" class="mono">{{ recado('codigo') }}</label>
+        <label class="campo" id="campo-unidade"><span class="campo-rotulo">Unidade de medida</span>
+          <select name="unidade">{% for u in regras.UNIDADES_MATERIAL %}<option value="{{ u }}" {{ 'selected' if material.unidade == u }}>{{ u }}</option>{% endfor %}</select>{{ recado('unidade') }}</label>
+      </div>
+      <div class="campo-duplo">
+        <label class="campo" id="campo-arredondamento"><span class="campo-rotulo">No consumo</span>
+          <select name="arredondamento">{% for k, r in regras.ARREDONDAMENTOS.items() %}<option value="{{ k }}" {{ 'selected' if material.arredondamento == k }}>{{ r }}</option>{% endfor %}</select></label>
+        <label class="campo" id="campo-custo_referencia"><span class="campo-rotulo">Custo de referência (R$/{{ material.unidade }})</span>
+          <input type="number" name="custo_referencia" min="0" step="0.0001" inputmode="decimal" value="{{ material.custo_referencia if material.custo_referencia is not none else '' }}">{{ recado('custo_referencia') }}</label>
+      </div>
+      <label class="campo"><span class="campo-rotulo">Observações</span><textarea name="observacoes" rows="2" maxlength="500">{{ material.observacoes or '' }}</textarea></label>
+      <label class="ca-marca"><input type="checkbox" name="ativo" value="1" {{ 'checked' if material.ativo }}><span>Ativo (pode entrar em receitas novas)</span></label>
+      {% if pode_editar %}<div class="barra-acoes"><button type="submit" class="botao primario">Salvar</button><a class="botao vazado" href="{{ url_for('lista_materiais') }}">Voltar</a></div>{% endif %}
+      </fieldset>
+    </form>
+
+    <div class="ca-lateral">
+      {% if pode_editar %}
+      <form method="post" action="{{ url_for('movimentar_material', id_=material.id) }}" class="cartao ca-cartao">
+        <h2 class="ca-subtitulo">Lançar movimentação</h2>
+        <label class="campo"><span class="campo-rotulo">Tipo</span>
+          <select name="tipo">{% for k, r in movimentos_manuais.items() %}<option value="{{ k }}">{{ r }}</option>{% endfor %}</select></label>
+        <label class="campo"><span class="campo-rotulo">Quantidade ({{ material.unidade }})</span>
+          <input type="number" name="quantidade" step="{{ '1' if material.arredondamento == 'inteiro_acima' else '0.001' }}" inputmode="decimal" required></label>
+        <label class="campo"><span class="campo-rotulo">Motivo / observação</span><input type="text" name="observacao" maxlength="300" placeholder="obrigatório em perda e ajuste"></label>
+        <button type="submit" class="ca-botao ca-botao--primario">Registrar</button>
+        <p class="ca-dica">Reserva e baixa pelos pedidos entram no Sprint 6. Nada aqui é apagado depois.</p>
+      </form>
+      {% endif %}
+      <div class="cartao ca-cartao">
+        <h2 class="ca-subtitulo">Usado nas receitas</h2>
+        {% for p in material.produtos %}
+        <p class="ca-dica"><a href="{{ url_for('editar_produto', id_=p.id, aba='receita') }}">{{ p.nome }}</a> — {{ regras.formatar_qtd(p.quantidade) }} {{ material.unidade }} por {{ regras.sigla(p.unidade) }}</p>
+        {% else %}<p class="ca-dica">Nenhuma receita usa este material.</p>{% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="cartao ca-cartao">
+    <h2 class="ca-subtitulo">Últimas movimentações</h2>
+    {% if material.movimentos %}
+    <table class="tabela ca-tabela ca-tabela--simples">
+      <thead><tr><th>Data</th><th>Tipo</th><th>Quantidade</th><th>Pedido</th><th>Por</th><th>Observação</th></tr></thead>
+      <tbody>{% for mv in material.movimentos %}
+        <tr><td data-rotulo="Data">{{ mv.criado_em|datahora }}</td><td data-rotulo="Tipo">{{ mv.tipo|capitalize }}</td>
+          <td data-rotulo="Quantidade" class="num">{{ regras.formatar_qtd(mv.quantidade) }} {{ material.unidade }}</td>
+          <td data-rotulo="Pedido">{% if mv.pedido_id %}<a href="{{ url_for('ver_pedido', id_=mv.pedido_id) }}">#{{ mv.pedido_id }}</a>{% else %}—{% endif %}</td>
+          <td data-rotulo="Por">{{ mv.usuario_nome or '—' }}</td><td data-rotulo="Observação">{{ mv.observacao or '—' }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    {% else %}<p class="ca-dica">Nenhuma movimentação ainda.</p>{% endif %}
+  </div>
+</main>
+{% endblock %}

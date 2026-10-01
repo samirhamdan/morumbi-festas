@@ -15,6 +15,7 @@ from werkzeug.security import generate_password_hash
 from werkzeug.utils import secure_filename
 
 from sistema import auth, correio, dados, formato, imagens, listas, permissoes
+from sistema import regras_itens as regras
 
 UPLOAD_EXTENSOES = {".jpg", ".jpeg", ".png", ".webp"}
 UPLOAD_MAX_MB = 10
@@ -45,6 +46,7 @@ MENU = (
         ("lista_produtos", "Produtos e kits", "produto", ("lista_kits", "editar_produto",
                                                           "editar_kit", "disponibilidade_produto")),
         ("lista_categorias", "Categorias", "categoria", ()),
+        ("lista_materiais", "Materiais", "material", ("editar_material",)),
         ("catalogo_interno", "Vitrine", "vitrine", ()),
     )),
     ("Gestão", (
@@ -846,7 +848,9 @@ def criar_app() -> Flask:
                        tipo=tipo, status=status, preco_min=preco("preco_min"),
                        preco_max=preco("preco_max"),
                        estoque=a.get("estoque", "") if a.get("estoque") in ("com", "sem") else "",
-                       tag=a.get("tag", "").strip())
+                       tag=a.get("tag", "").strip(),
+                       natureza=a.get("natureza", "") if a.get("natureza") in dict(dados.NATUREZAS)
+                       else "")
         todos = dados.itens_catalogo_admin()
         base = [i for i in todos if not tipo or i["tipo"] == tipo]
         itens = dados.filtrar_catalogo_admin(base, **filtros)
@@ -854,8 +858,9 @@ def criar_app() -> Flask:
             "catalogo_admin.html", itens=itens, filtros=filtros, abas=dados.ABAS_CATALOGO,
             contagens=dados.contagem_abas_catalogo(base), categorias=dados.listar_categorias(),
             todas_tags=sorted({t for i in todos for t in i["tags"]}, key=dados.normalizar_texto),
+            naturezas=dados.NATUREZAS, tipos_item=regras.TIPOS_ITEM, regras=regras,
             tipo_pagina=tipo_padrao or "", filtros_ativos=sum(1 for c in (
-                "categoria_id", "status", "preco_min", "preco_max", "estoque", "tag")
+                "categoria_id", "status", "preco_min", "preco_max", "estoque", "tag", "natureza")
                 if filtros[c] not in (None, "")) + (1 if tipo and not tipo_padrao else 0))
 
     @app.route("/produtos")
@@ -910,7 +915,21 @@ def criar_app() -> Flask:
                           "seguinte": (ref.replace(day=ultimo) + timedelta(days=1)).strftime("%Y-%m"),
                           "hoje": formato.agora()[:10]}
             pedidos_mes = dados.pedidos_do_item(tipo, atual["id"], ini, fim)
+        produto_id = atual.get("id") if tipo == "produto" else None
+        receita = dados.receita_do_produto(produto_id) if produto_id else []
+        exemplo = None
+        if produto_id and receita and atual.get("tipo") == "encomenda":
+            q = request.args.get("simular") or atual.get("qtd_minima") or 1
+            try:
+                exemplo = dados.consumo_previsto_produto(produto_id, q)
+            except (dados.ErroDeCampo, ValueError) as e:
+                exemplo = {"erro": str(e)}
         return dict(tipo=tipo, atual=atual, categorias=dados.listar_categorias(),
+                    regras=regras, receita=receita, consumo=exemplo,
+                    materiais=dados.listar_materiais(somente_ativos=True) if produto_id else [],
+                    atividades=dados.listar_servicos(),
+                    resumo_kit=dados.resumo_kit(atual["id"]) if tipo == "kit" and atual.get("id")
+                    else None,
                     status_opcoes=dados.STATUS_PRODUTO if tipo == "produto" else dados.STATUS_KIT,
                     selos=dados.SELOS, calendario=calendario, pedidos_mes=pedidos_mes,
                     produtos=dados.listar_produtos() if tipo == "kit" else [],
@@ -1105,7 +1124,8 @@ def criar_app() -> Flask:
         try:
             produto_id = int(request.form.get("produto_id") or 0)
             dados.adicionar_item_kit(id_, produto_id, request.form.get("quantidade", "1"),
-                                     usuario_id=session.get("usuario_id"))
+                                     usuario_id=session.get("usuario_id"),
+                                     obrigatorio=request.form.get("obrigatorio", "1") != "0")
             flash("Componente salvo no kit.", "ok")
         except (dados.ErroDeCampo, ValueError) as e:
             flash(str(e) if isinstance(e, dados.ErroDeCampo) else "Produto e quantidade inválidos.",
@@ -1118,6 +1138,148 @@ def criar_app() -> Flask:
         dados.remover_item_kit(item_id, id_, usuario_id=session.get("usuario_id"))
         flash("Componente removido do kit.", "ok")
         return redirect(url_for("editar_kit", id_=id_, aba="componentes"))
+
+    # --- Sprint 5.1: classificação, receita, materiais e API ----------------
+
+    @app.route("/catalogo-admin/classificar", methods=["POST"])
+    @auth.exige_permissao("catalog.edit")
+    def classificar_produtos():
+        ids = [int(x) for x in request.form.getlist("ids") if x.isdigit()]
+        try:
+            n = dados.classificar_produtos(ids, request.form.get("tipo", ""),
+                                           session.get("usuario_id"))
+            flash(f"{n} produto{'s' if n != 1 else ''} classificado{'s' if n != 1 else ''}"
+                  f" como {regras.rotulo_tipo(request.form.get('tipo')).lower()}.", "ok")
+        except dados.ErroDeCampo as e:
+            flash(str(e), "erro")
+        return redirect(url_for("lista_produtos", aba="classificar"))
+
+    @app.route("/produto/<int:id_>/receita", methods=["POST"])
+    @auth.exige_permissao("catalog.edit")
+    def salvar_receita(id_):
+        if not dados.buscar_produto(id_):
+            abort(404)
+        try:
+            dados.salvar_linha_receita(id_, request.form.get("material_id"),
+                                       request.form.get("quantidade"),
+                                       request.form.get("observacao", ""), session.get("usuario_id"))
+            flash("Receita atualizada.", "ok")
+        except (dados.ErroDeCampo, ValueError) as e:
+            flash(str(e), "erro")
+        return redirect(url_for("editar_produto", id_=id_, aba="receita"))
+
+    @app.route("/produto/<int:id_>/receita/<int:linha_id>/remover", methods=["POST"])
+    @auth.exige_permissao("catalog.edit")
+    def remover_receita(id_, linha_id):
+        dados.remover_linha_receita(linha_id, id_, session.get("usuario_id"))
+        flash("Material retirado da receita.", "ok")
+        return redirect(url_for("editar_produto", id_=id_, aba="receita"))
+
+    def _campos_material(form):
+        return {c: form.get(c, "") for c in ("nome", "codigo", "unidade", "custo_referencia",
+                                             "arredondamento", "observacoes")} | {
+            "ativo": 1 if form.get("ativo") else 0}
+
+    @app.route("/materiais", methods=["GET", "POST"])
+    @auth.exige_permissao("catalog.view", post="inventory.edit")
+    def lista_materiais():
+        ctx = {}
+        if request.method == "POST":
+            try:
+                novo = dados.salvar_material(_campos_material(request.form),
+                                             usuario_id=session.get("usuario_id"))
+                flash("Material cadastrado.", "ok")
+                return redirect(url_for("editar_material", id_=novo))
+            except (dados.ErroDeCampo, ValueError) as e:
+                ctx = dict(_erro(e), novo=request.form)
+        busca = request.args.get("q", "").strip()
+        return render_template("materiais.html", materiais=dados.listar_materiais(busca=busca),
+                               busca=busca, regras=regras, pode_editar=auth.tem("inventory.edit"),
+                               **ctx)
+
+    @app.route("/material/<int:id_>", methods=["GET", "POST"])
+    @auth.exige_permissao("catalog.view", post="inventory.edit")
+    def editar_material(id_):
+        material = dados.buscar_material(id_)
+        if not material:
+            abort(404)
+        ctx = {}
+        if request.method == "POST":
+            try:
+                dados.salvar_material(_campos_material(request.form), id_, session.get("usuario_id"))
+                flash("Material salvo.", "ok")
+                return redirect(url_for("editar_material", id_=id_))
+            except (dados.ErroDeCampo, ValueError) as e:
+                ctx = _erro(e)
+                material.update(_campos_material(request.form))
+        return render_template("material.html", material=material, regras=regras,
+                               movimentos_manuais=dados.MOVIMENTOS_MANUAIS,
+                               pode_editar=auth.tem("inventory.edit"), **ctx)
+
+    @app.route("/material/<int:id_>/movimento", methods=["POST"])
+    @auth.exige_permissao("inventory.edit")
+    def movimentar_material(id_):
+        try:
+            dados.registrar_movimento_material(
+                id_, request.form.get("tipo", ""), request.form.get("quantidade"),
+                request.form.get("observacao", ""), session.get("usuario_id"))
+            flash("Movimentação registrada.", "ok")
+        except (dados.ErroDeCampo, ValueError) as e:
+            flash(str(e), "erro")
+        return redirect(url_for("editar_material", id_=id_))
+
+    # API JSON (cálculos oficiais ficam no servidor; telas só exibem)
+    def _erro_json(e, status=422):
+        return jsonify({"ok": False, "campo": getattr(e, "campo", None), "mensagem": str(e)}), status
+
+    @app.route("/api/catalogo/itens")
+    @auth.exige_permissao("catalog.view")
+    def api_catalogo_itens():
+        a = request.args
+        itens = dados.filtrar_catalogo_admin(
+            dados.itens_catalogo_admin(), a.get("aba", "todos"), a.get("q", ""),
+            natureza=a.get("natureza", ""))
+        campos = ("tipo", "id", "nome", "codigo_sku", "natureza", "unidade", "preco", "status",
+                  "ativo", "publicado", "categoria_nome", "slug")
+        return jsonify({"ok": True, "itens": [{c: i.get(c) for c in campos} for i in itens]})
+
+    @app.route("/api/catalogo/produto/<int:id_>")
+    @auth.exige_permissao("catalog.view")
+    def api_produto(id_):
+        p = dados.buscar_produto(id_)
+        if not p:
+            return jsonify({"ok": False, "mensagem": "Produto não encontrado."}), 404
+        p.pop("fotos", None)
+        p["rotulo_tipo"] = regras.rotulo_tipo(p.get("tipo"))
+        p["modalidades"] = sorted(regras.modalidades_do_produto(p))
+        p["receita"] = dados.receita_do_produto(id_)
+        return jsonify({"ok": True, "produto": p})
+
+    @app.route("/api/catalogo/produto/<int:id_>/consumo")
+    @auth.exige_permissao("catalog.view")
+    def api_consumo_produto(id_):
+        try:
+            return jsonify(dict(dados.consumo_previsto_produto(id_, request.args.get("quantidade", 1)),
+                                ok=True))
+        except dados.ErroDeCampo as e:
+            return _erro_json(e)
+        except ValueError as e:
+            return _erro_json(e, 404)
+
+    @app.route("/api/catalogo/kit/<int:id_>/preco")
+    @auth.exige_permissao("catalog.view")
+    def api_preco_kit(id_):
+        r = dados.resumo_kit(id_)
+        if not r:
+            return jsonify({"ok": False, "mensagem": "Kit não encontrado."}), 404
+        return jsonify(dict(r, ok=True))
+
+    @app.route("/api/pedido/<int:id_>/consumo")
+    @auth.exige_permissao("orders.view")
+    def api_consumo_pedido(id_):
+        if not dados.buscar_pedido_festas(id_):
+            return jsonify({"ok": False, "mensagem": "Pedido não encontrado."}), 404
+        return jsonify({"ok": True, "materiais": dados.consumo_previsto_pedido(id_)})
 
     # ------------------------------------------------------------------
     # Catalogo publico
@@ -1193,7 +1355,7 @@ def criar_app() -> Flask:
         relacionados = [i for i in dados.vitrine_itens(categoria_id=item.get("categoria_id"))
                         if not (i["tipo"] == tipo and i["id"] == item["id"])][:4] \
             if item.get("categoria_id") else []
-        return render_template("catalogo_detalhe.html", tipo=tipo, item=item,
+        return render_template("catalogo_detalhe.html", tipo=tipo, item=item, regras=regras,
                                org=dados.organizacao(), relacionados=relacionados,
                                hoje=formato.agora()[:10],
                                data_escolhida=request.args.get("data", ""))
@@ -1467,6 +1629,8 @@ def criar_app() -> Flask:
                     "observacoes": request.form.get("observacoes", ""),
                     "status": request.form.get("status", "rascunho"),
                     "data_evento": (request.form.get("data_evento") or "").strip() or None,
+                    "modalidade": (request.form.get("modalidade") or "").strip()
+                    if "modalidade" in request.form else None,
                 }
                 itens = []
                 i = 0
@@ -1498,6 +1662,7 @@ def criar_app() -> Flask:
                                leads=dados.listar_leads(),
                                produtos=dados.listar_produtos("disponivel"),
                                kits=dados.listar_kits("ativo"),
+                               catalogo_venda=dados.itens_para_venda(), regras=regras,
                                status_opcoes=dados.STATUS_ORCAMENTO)
 
     @app.route("/orcamento/<int:id_>/converter", methods=["POST"])
@@ -1578,7 +1743,8 @@ def criar_app() -> Flask:
         ped = dados.buscar_pedido_detalhe(id_)
         if not ped:
             abort(404)
-        return render_template("pedido_festas.html", pedido=ped,
+        return render_template("pedido_festas.html", pedido=ped, regras=regras,
+                               consumo=dados.consumo_previsto_pedido(ped["id"]),
                                rot_com=dados.ROTULOS_COMERCIAL,
                                rot_op=dados.ROTULOS_OPERACIONAL)
 
@@ -1592,7 +1758,7 @@ def criar_app() -> Flask:
         ped = dados.buscar_historico_detalhe(id_)
         if not ped:
             abort(404)
-        return render_template("pedido_festas.html", pedido=ped,
+        return render_template("pedido_festas.html", pedido=ped, regras=regras, consumo=[],
                                rot_com=dados.ROTULOS_COMERCIAL,
                                rot_op=dados.ROTULOS_OPERACIONAL)
 
@@ -1659,7 +1825,8 @@ def criar_app() -> Flask:
                                canais=dados.CANAIS,
                                responsaveis=dados.opcoes_responsavel(atual),
                                servicos=dados.listar_servicos(somente_ativos=True),
-                               formas_pagamento=dados.lista_config("formas_pagamento"))
+                               formas_pagamento=dados.lista_config("formas_pagamento"),
+                               catalogo_venda=dados.itens_para_venda(), regras=regras)
 
     @app.route("/pedido/<int:id_>/cancelar", methods=["POST"])
     @auth.exige_permissao("orders.cancel")
