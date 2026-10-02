@@ -2,7 +2,7 @@
 <article class="vt-card">
   <a href="{{ url_for('catalogo_item', slug=i.slug) }}" class="vt-card-link">
     <span class="vt-card-img{{ ' vt-moldura' if i.capa }}"{% if i.capa %} style="--foto: url('{{ url_for('static', filename=i.capa) }}')"{% endif %}>
-      {% if i.capa %}<img src="{{ url_for('static', filename=i.capa) }}" alt="" loading="lazy" decoding="async" width="480" height="270">
+      {% if i.capa %}<img src="{{ url_for('static', filename=i.capa) }}" alt="" loading="lazy" decoding="async" width="384" height="480">
       {% else %}<span class="vt-card-sem" aria-hidden="true">{{ i.nome }}</span>{% endif %}
       {% if i.selo %}<span class="vt-selo">{{ i.selo }}</span>{% endif %}
     </span>

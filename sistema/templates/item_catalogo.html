@@ -469,7 +469,7 @@
       <form method="post" action="{{ url_for('upload_foto_kit' if eh_kit else 'upload_foto', id_=atual.id) }}" enctype="multipart/form-data" class="ca-envio" id="ca-envio">
         <label class="ca-soltar" id="ca-soltar">
           <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple required id="ca-fotos">
-          <span><b>Escolher fotos</b> ou arraste aqui<small>Formato ideal: 16:9 (horizontal), como as fotos para redes sociais. A foto aparece inteira, sem cortes.</small></span>
+          <span><b>Escolher fotos</b> ou arraste aqui<small>Formato ideal: 4:5 (vertical), o mesmo do feed do Instagram — ex.: 1080 × 1350 px. A foto aparece inteira, sem cortes.</small></span>
         </label>
         <ul class="ca-previas" id="ca-previas" hidden aria-live="polite"></ul>
         <p class="ca-dica ca-dica--alerta" id="ca-envio-erro" hidden></p>
@@ -607,6 +607,17 @@
 </main>
 
 <script>
+/* Mesmo encaixe da vitrine: proporção próxima de 4:5 preenche a moldura. */
+(function(){
+  function encaixar(img) {
+    if (!img.naturalWidth || !img.parentNode || !img.parentNode.classList.contains('vt-moldura')) return;
+    img.classList.toggle('vt-encaixe', Math.abs(img.naturalWidth / img.naturalHeight - 0.8) / 0.8 <= 0.1);
+  }
+  document.addEventListener('load', function(e) { if (e.target.tagName === 'IMG') encaixar(e.target); }, true);
+  document.querySelectorAll('.vt-moldura > img').forEach(function(img) { if (img.complete) encaixar(img); });
+})();
+</script>
+<script>
 (function(){
   var abas = document.querySelectorAll('.ca-abas--item .ca-aba'), campo = document.getElementById('ca-aba-atual');
   abas.forEach(function(a) {
@@ -688,7 +699,7 @@
         li.appendChild(info);
         img.onload = function() {
           var r = img.naturalWidth / img.naturalHeight;
-          if (Math.abs(r - 16 / 9) > 0.08) { var a = document.createElement('em'); a.textContent = r < 1 ? 'vertical: terá faixas nas laterais' : 'fora de 16:9: terá faixas'; li.appendChild(a); }
+          if (Math.abs(r - 4 / 5) > 0.08) { var a = document.createElement('em'); a.textContent = r > 1 ? 'horizontal: terá faixas em cima e embaixo' : r > 4 / 5 ? 'quase quadrada: terá faixas nas laterais' : 'mais alta que 4:5: terá faixas nas laterais'; li.appendChild(a); }
         };
         if (f.size > MAX) { li.classList.add('ca-previa--erro'); grandes.push(f.name); }
         previas.appendChild(li);

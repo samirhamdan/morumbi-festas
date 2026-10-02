@@ -28,7 +28,7 @@
   </div>
   {% set vitrine_capa = (destaques + pag.itens)|selectattr('capa')|first %}
   <div class="vt-hero-visual" aria-hidden="true">
-    {% if vitrine_capa %}<span class="vt-hero-foto vt-moldura" style="--foto: url('{{ url_for('static', filename=vitrine_capa.capa) }}')"><img src="{{ url_for('static', filename=vitrine_capa.capa) }}" alt="" width="480" height="270" fetchpriority="high"></span>
+    {% if vitrine_capa %}<span class="vt-hero-foto vt-moldura" style="--foto: url('{{ url_for('static', filename=vitrine_capa.capa) }}')"><img src="{{ url_for('static', filename=vitrine_capa.capa) }}" alt="" width="384" height="480" fetchpriority="high"></span>
     {% else %}<span>{{ (categorias|map(attribute='nome')|list)[:3]|join(' • ') or 'Festas temáticas' }}</span>{% endif %}
   </div>
 </section>
@@ -66,7 +66,7 @@
   <ul class="vt-cats">
     {% for c in categorias %}
     <li><a href="{{ url_for('catalogo_item', slug=c.slug) }}" class="vt-cat">
-      <span class="vt-cat-img vt-tom-{{ loop.index0 % 6 }}">{% if c.imagem %}<img src="{{ url_for('static', filename=c.imagem) }}" alt="" loading="lazy" width="380" height="220">{% else %}<span>{{ c.nome }}</span>{% endif %}</span>
+      <span class="vt-cat-img vt-tom-{{ loop.index0 % 6 }}">{% if c.imagem %}<img src="{{ url_for('static', filename=c.imagem) }}" alt="" loading="lazy" width="384" height="480">{% else %}<span>{{ c.nome }}</span>{% endif %}</span>
       <b>{{ c.nome }}</b><small>Ver temas</small>
     </a></li>
     {% endfor %}

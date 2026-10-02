@@ -41,14 +41,14 @@
   <div class="vt-produto-grade">
     <div class="vt-galeria">
       <div class="vt-galeria-principal{{ ' vt-moldura' if capa }}" id="vt-moldura"{% if capa %} style="--foto: url('{{ url_for('static', filename=capa.miniatura or capa.arquivo) }}')"{% endif %}>
-        {% if capa %}<img id="vt-foto" src="{{ url_for('static', filename=capa.arquivo) }}" alt="{{ item.nome }}" width="1600" height="900" fetchpriority="high">
+        {% if capa %}<img id="vt-foto" src="{{ url_for('static', filename=capa.arquivo) }}" alt="{{ item.nome }}" width="1280" height="1600" fetchpriority="high">
         {% else %}<span class="vt-card-sem vt-tom-0">{{ item.nome }}</span>{% endif %}
       </div>
       {% if fotos|length > 1 %}
       <ul class="vt-miniaturas" aria-label="Fotos">
         {% for f in fotos %}
         <li><button type="button" class="{{ 'ativo' if loop.first }}" data-foto="{{ url_for('static', filename=f.arquivo) }}" data-fundo="{{ url_for('static', filename=f.miniatura or f.arquivo) }}" aria-label="Ver foto {{ loop.index }}" {% if loop.first %}aria-current="true"{% endif %}>
-          <img src="{{ url_for('static', filename=f.miniatura or f.arquivo) }}" alt="" loading="lazy" width="112" height="63"></button></li>
+          <img src="{{ url_for('static', filename=f.miniatura or f.arquivo) }}" alt="" loading="lazy" width="64" height="80"></button></li>
         {% endfor %}
       </ul>
       {% endif %}
@@ -148,7 +148,7 @@
     <button type="button" class="vt-fechar" data-fechar aria-label="Fechar">×</button>
   </div>
   <div class="vt-gaveta-item">
-    <span class="vt-gaveta-img">{% if capa %}<img src="{{ url_for('static', filename=capa.miniatura or capa.arquivo) }}" alt="" width="120" height="90">{% else %}<span class="vt-card-sem vt-tom-0">{{ item.nome[:12] }}</span>{% endif %}</span>
+    <span class="vt-gaveta-img">{% if capa %}<img src="{{ url_for('static', filename=capa.miniatura or capa.arquivo) }}" alt="" width="72" height="90">{% else %}<span class="vt-card-sem vt-tom-0">{{ item.nome[:12] }}</span>{% endif %}</span>
     <div><b>{{ item.nome }}</b><small id="vt-gaveta-data">Escolha uma data</small></div>
   </div>
   <div class="vt-gaveta-nav">

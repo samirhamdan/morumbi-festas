@@ -77,6 +77,20 @@
 <div class="vt-aviso" role="status" aria-live="polite" id="vt-aviso" hidden></div>
 
 <script>
+/* Molduras 4:5: foto com proporção próxima (ex.: 3:4 do celular) preenche a
+   moldura com corte mínimo; as demais aparecem inteiras com fundo desfocado. */
+(function(){
+  function encaixar(img) {
+    if (!img.naturalWidth || !img.parentNode || !img.parentNode.classList.contains('vt-moldura')) return;
+    var r = img.naturalWidth / img.naturalHeight;
+    img.classList.toggle('vt-encaixe', Math.abs(r - 0.8) / 0.8 <= 0.1);
+  }
+  document.addEventListener('load', function(e) { if (e.target.tagName === 'IMG') encaixar(e.target); }, true);
+  document.querySelectorAll('.vt-moldura > img').forEach(function(img) { if (img.complete) encaixar(img); });
+})();
+</script>
+
+<script>
 /* Lista de orçamento: fica só no navegador do visitante e não reserva nada.
    Preço e disponibilidade são sempre conferidos de novo no servidor. */
 window.Orcamento = (function(){
