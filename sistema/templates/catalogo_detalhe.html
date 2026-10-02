@@ -40,15 +40,15 @@
 
   <div class="vt-produto-grade">
     <div class="vt-galeria">
-      <div class="vt-galeria-principal">
-        {% if capa %}<img id="vt-foto" src="{{ url_for('static', filename=capa.arquivo) }}" alt="{{ item.nome }}" width="1000" height="860" fetchpriority="high">
+      <div class="vt-galeria-principal{{ ' vt-moldura' if capa }}" id="vt-moldura"{% if capa %} style="--foto: url('{{ url_for('static', filename=capa.miniatura or capa.arquivo) }}')"{% endif %}>
+        {% if capa %}<img id="vt-foto" src="{{ url_for('static', filename=capa.arquivo) }}" alt="{{ item.nome }}" width="1600" height="900" fetchpriority="high">
         {% else %}<span class="vt-card-sem vt-tom-0">{{ item.nome }}</span>{% endif %}
       </div>
       {% if fotos|length > 1 %}
       <ul class="vt-miniaturas" aria-label="Fotos">
         {% for f in fotos %}
-        <li><button type="button" class="{{ 'ativo' if loop.first }}" data-foto="{{ url_for('static', filename=f.arquivo) }}" aria-label="Ver foto {{ loop.index }}" {% if loop.first %}aria-current="true"{% endif %}>
-          <img src="{{ url_for('static', filename=f.miniatura or f.arquivo) }}" alt="" loading="lazy" width="100" height="70"></button></li>
+        <li><button type="button" class="{{ 'ativo' if loop.first }}" data-foto="{{ url_for('static', filename=f.arquivo) }}" data-fundo="{{ url_for('static', filename=f.miniatura or f.arquivo) }}" aria-label="Ver foto {{ loop.index }}" {% if loop.first %}aria-current="true"{% endif %}>
+          <img src="{{ url_for('static', filename=f.miniatura or f.arquivo) }}" alt="" loading="lazy" width="112" height="63"></button></li>
         {% endfor %}
       </ul>
       {% endif %}
@@ -215,6 +215,7 @@
   document.querySelectorAll('.vt-miniaturas button').forEach(function(b) {
     b.addEventListener('click', function() {
       document.getElementById('vt-foto').src = b.dataset.foto;
+      document.getElementById('vt-moldura').style.setProperty('--foto', "url('" + b.dataset.fundo + "')");
       document.querySelectorAll('.vt-miniaturas button').forEach(function(o) { o.classList.toggle('ativo', o === b); o.removeAttribute('aria-current'); });
       b.setAttribute('aria-current', 'true');
     });

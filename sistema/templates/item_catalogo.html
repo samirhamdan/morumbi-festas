@@ -446,7 +446,7 @@
       <ul class="ca-galeria">
         {% for foto in atual.fotos %}
         <li class="ca-foto{{ ' ca-foto--capa' if foto.principal }}">
-          <img src="{{ url_for('static', filename=foto.miniatura or foto.arquivo) }}" alt="Foto {{ loop.index }} de {{ atual.nome }}" loading="lazy" width="160" height="160">
+          <span class="vt-moldura ca-foto-img" style="--foto: url('{{ url_for('static', filename=foto.miniatura or foto.arquivo) }}')"><img src="{{ url_for('static', filename=foto.miniatura or foto.arquivo) }}" alt="Foto {{ loop.index }} de {{ atual.nome }}" loading="lazy" width="320" height="180"></span>
           {% if foto.principal %}<span class="ca-foto-capa">Capa</span>{% endif %}
           <div class="foto-acoes">
             {% if not foto.principal %}
@@ -466,13 +466,15 @@
       {% else %}
       <p class="ca-dica">Nenhuma foto adicionada.</p>
       {% endif %}
-      <form method="post" action="{{ url_for('upload_foto_kit' if eh_kit else 'upload_foto', id_=atual.id) }}" enctype="multipart/form-data" class="ca-envio">
-        <label class="ca-soltar">
-          <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple required>
-          <span><b>Escolher fotos</b> ou arraste aqui</span>
+      <form method="post" action="{{ url_for('upload_foto_kit' if eh_kit else 'upload_foto', id_=atual.id) }}" enctype="multipart/form-data" class="ca-envio" id="ca-envio">
+        <label class="ca-soltar" id="ca-soltar">
+          <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple required id="ca-fotos">
+          <span><b>Escolher fotos</b> ou arraste aqui<small>Formato ideal: 16:9 (horizontal), como as fotos para redes sociais. A foto aparece inteira, sem cortes.</small></span>
         </label>
+        <ul class="ca-previas" id="ca-previas" hidden aria-live="polite"></ul>
+        <p class="ca-dica ca-dica--alerta" id="ca-envio-erro" hidden></p>
         <label class="ca-marca"><input type="checkbox" name="principal" value="1"> <span>Usar a primeira como capa</span></label>
-        <button type="submit" class="ca-botao ca-botao--primario">Enviar fotos</button>
+        <button type="submit" class="ca-botao ca-botao--primario" id="ca-enviar-fotos">Enviar fotos</button>
       </form>
     </div>
     {% endif %}
@@ -665,6 +667,49 @@
     document.getElementById('ca-form').addEventListener('submit', function(e) {
       if (status.value === 'inativo' && inicial !== 'inativo' &&
           !confirm('Este item está ligado a ' + vinculos + ' pedido(s)/kit(s). Inativar tira da vitrine e de novos kits, sem apagar o histórico. Continuar?')) e.preventDefault();
+    });
+  }
+  // Fotos: prévia assim que escolhidas; "Salvar" também envia as que estão pendentes
+  var campoFotos = document.getElementById('ca-fotos');
+  if (campoFotos) {
+    var previas = document.getElementById('ca-previas'), soltar = document.getElementById('ca-soltar');
+    var erroFoto = document.getElementById('ca-envio-erro'), botaoFotos = document.getElementById('ca-enviar-fotos');
+    var MAX = 10 * 1024 * 1024, urls = [];
+    function mostrarPrevias() {
+      urls.forEach(URL.revokeObjectURL); urls = []; previas.innerHTML = '';
+      var arquivos = Array.prototype.slice.call(campoFotos.files), grandes = [];
+      arquivos.forEach(function(f, n) {
+        var li = document.createElement('li'), moldura = document.createElement('span'), img = document.createElement('img');
+        var u = URL.createObjectURL(f); urls.push(u);
+        moldura.className = 'vt-moldura ca-foto-img'; moldura.style.setProperty('--foto', "url('" + u + "')");
+        img.src = u; img.alt = ''; moldura.appendChild(img); li.appendChild(moldura);
+        var info = document.createElement('small');
+        info.textContent = (n === 0 ? '1ª · ' : '') + f.name + ' · ' + (f.size / 1048576).toFixed(1).replace('.', ',') + ' MB';
+        li.appendChild(info);
+        img.onload = function() {
+          var r = img.naturalWidth / img.naturalHeight;
+          if (Math.abs(r - 16 / 9) > 0.08) { var a = document.createElement('em'); a.textContent = r < 1 ? 'vertical: terá faixas nas laterais' : 'fora de 16:9: terá faixas'; li.appendChild(a); }
+        };
+        if (f.size > MAX) { li.classList.add('ca-previa--erro'); grandes.push(f.name); }
+        previas.appendChild(li);
+      });
+      previas.hidden = !arquivos.length;
+      soltar.classList.toggle('ca-soltar--cheio', !!arquivos.length);
+      botaoFotos.textContent = arquivos.length ? 'Enviar ' + arquivos.length + ' foto' + (arquivos.length > 1 ? 's' : '') : 'Enviar fotos';
+      erroFoto.hidden = !grandes.length;
+      erroFoto.textContent = grandes.length ? 'Acima de 10 MB (não serão aceitas): ' + grandes.join(', ') : '';
+    }
+    campoFotos.addEventListener('change', mostrarPrevias);
+    ['dragenter', 'dragover'].forEach(function(ev) { soltar.addEventListener(ev, function() { soltar.classList.add('ca-soltar--sobre'); }); });
+    ['dragleave', 'drop'].forEach(function(ev) { soltar.addEventListener(ev, function() { soltar.classList.remove('ca-soltar--sobre'); }); });
+    document.getElementById('ca-form').addEventListener('submit', function(e) {
+      if (e.defaultPrevented || !campoFotos.files.length) return;
+      e.preventDefault();
+      var dados = this, botao = document.querySelector('button[form=ca-form][type=submit]');
+      if (botao) { botao.disabled = true; botao.textContent = 'Enviando fotos…'; }
+      fetch(document.getElementById('ca-envio').action, { method: 'POST', body: new FormData(document.getElementById('ca-envio')), credentials: 'same-origin', redirect: 'manual' })
+        .then(function() { dados.submit(); })
+        .catch(function() { if (botao) { botao.disabled = false; botao.textContent = 'Salvar'; } erroFoto.hidden = false; erroFoto.textContent = 'Não foi possível enviar as fotos. Tente "Enviar fotos" de novo.'; });
     });
   }
   document.querySelectorAll('form[data-confirmar]').forEach(function(f) {
